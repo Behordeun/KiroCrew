@@ -203,12 +203,15 @@ at parity with the dashboard — guarded in `test_remote_artifacts.py`.
 (`pull-latest` / `upstream-status` / `overwrite-remote`) wire `publish_sync`'s
 provider-agnostic orchestration (`pull_upstream` / `clone_from_remote` /
 `fork_from_remote` / `upstream_status` / `overwrite_upstream`) to HTTP. The
-surface is **inert in the public edition**: the provider registry is empty, so
-`get_provider()` raises `PublishUnavailableError` → browse / clone / fork all
-503, and the frontend gates the entire remote section + `UpstreamSyncBanner` on
-a non-empty `GET /api/artifacts/publish-providers` result (zero remote pixels /
-requests with no provider). A companion registers providers via the CPP publish
-seam. The picker includes a provider whenever `available() or installable()`
+surface's reach depends on what the registered destination declares. The public
+edition registers the personal cloud drive, which serves published bytes but
+declares no `CONTENT_PULL` and an all-off `DiscoveryModel`, so browse / clone /
+fork stay unavailable while publish works; the frontend gates the entire remote
+section + `UpstreamSyncBanner` on a non-empty
+`GET /api/artifacts/publish-providers` result (zero remote pixels / requests
+when no provider is registered at all). A companion registers its own provider
+via the CPP publish seam. The picker includes a provider whenever
+`available() or installable()`
 (`PublishProvider.installable()` defaults `False`; a companion provider whose
 `ensure_ready()` self-installs on first publish overrides it to `True`), and
 each row carries an `available` flag so the FE can hint install-on-first-use for
@@ -275,7 +278,105 @@ treats the version push as best-effort: its re-publish branch runs
 and returns normally — so the route answers 200 with a publication whose remote
 content is stale. A non-empty (non-whitespace) `last_error` is therefore an error
 outcome carrying the provider's own already-redacted message; whitespace-only
-stays success, because the core writes `""` to clear the field.
+stays success, because the core writes `""` to clear the field. A publish that
+SUCCEEDED but whose link is not usable yet (e.g. CloudFront still rolling out)
+records that status on the separate `publication.notice` field, never
+`last_error` — so it does not render the publish as failed or withhold the URL.
+
+### Withdrawal is NOT best-effort
+
+`publish_sync.unpublish` deletes at the destination and only then clears the local
+`publication` block. A failure keeps the block and raises, because that block is the
+only handle to content that may still be served: clearing it strands the remote copy
+with nothing recording where it lives and no retry able to reach it. Both mouths fail
+the same way -- a provider that raises, and a destination reporting
+`reachable_for() == False`, which cannot attempt the withdrawal at all. Neither is
+allowed to drop the handle: both refuse the delete instead.
+
+Reachability is asked about the PUBLICATION, not the destination. `available()` answers
+whether a destination is configured at all, which is the right question for offering a
+new publish; a publication is bound to one specific account, recorded in its
+`external_id`. Asking the wide question on a withdrawal path reports a destination as
+reachable when this artifact's own account is gone, so the call is attempted, fails, and
+is classified as a rejection a retry could fix -- leaving an artifact that can be neither
+withdrawn nor deleted, only told to retry forever. Providers binding nothing per
+publication inherit the wide answer.
+
+Deleting the artifact is the way out of a kept publication, and it notifies the
+destination. `delete_for_artifact` runs from the delete handler BEFORE the local delete,
+using the publication the handler already read for its version capture. The ordering is
+chosen for its crash residue: die between the two steps in this order and the copy is
+withdrawn while the artifact remains, which the user simply deletes again; die between
+them in the reverse order and the local record is already gone while the content is still
+public, with nothing left to withdraw it by. Since `delete()` removes the artifact
+directory by slug under the store lock rather than writing back a value read earlier,
+placing a network round trip ahead of it does not widen any compare-and-swap window -- a
+save landing in that window is included in the delete the user asked for.
+
+The local delete proceeds on ONE rule: only when there is nothing left to withdraw, or
+the destination confirmed the withdrawal. Anything else refuses, loudly. A destination
+that answers and then rejects the removal blocks the delete with `502`, keeping the
+publication because that record is the only handle able to reach a copy that may still be
+served. A destination that cannot be reached at all -- a publication naming a destination
+this edition does not register, or one whose `reachable_for()` is False -- blocks it too:
+unreachable describes THIS PROCESS's access, not the object, so the copy may still be
+served to the whole internet, and deleting the record would erase the only thing that
+could ever take it down. The one case that does proceed is a CONFIRMED absent
+destination, which the provider signals with a typed `DriveNotFound` -- never a substring
+match on an error message, because a throttled or unauthorized reply carries the same
+words while the object is still live. `delete_for_artifact` never raises either way -- it
+reports which of those happened and the handler decides, so provider resolution and the
+availability probe failing on an unregistered destination cost a log line rather than an
+exception.
+
+The folder cascade obeys the same rule rather than routing around it. `delete_contents`
+destroys artifacts through `ArtifactStore.delete`, which knows nothing about
+publications, so the cascade withdraws every published copy in the subtree FIRST and
+destroys nothing until they are all withdrawn; the first copy that will not come down
+refuses the whole cascade, leaving the artifacts, their handles and the folder in place.
+
+That preflight cannot be trusted on its own, because nothing holds a lock across it and
+the destruction that follows: the folder tree and the artifact store have independent
+locks, and taking both would invite an ordering deadlock. An artifact filed into the
+subtree after the preflight enumerated it therefore reaches the destruction still
+holding a publication nobody withdrew. So the refusal is asked of the delete itself
+rather than checked in the cascade loop: `ArtifactStore.delete` takes an opt-in
+`refuse_if_published` flag and re-reads the record inside the same lock as the removal,
+which is what makes it hold. A check in the loop would be a check-then-act over a
+snapshot, so a publish landing between the scan and that artifact's own delete would
+still be destroyed. The flag defaults to False, so the single-artifact path is
+unchanged: it is answered at the handler, which attempts the withdrawal and refuses on
+its outcome. The folder tree change is already committed by the time the cascade
+refuses and cannot be rolled back, so a kept artifact survives with a dangling folder
+id and degrades to Unfiled, which readers already tolerate; the response names it so a
+partly-refused cascade does not read as a completed one.
+
+`unpublish` is the deliberate way out of a kept publication: the owner states in the
+open that they accept the copy may remain, and the record is released. It obeys the same
+absence rule as the delete path. A destination that refuses the removal keeps the record
+and stays retryable; a destination that is merely unreachable is refused before the
+attempt, and its message must not offer deleting the artifact as the alternative,
+because that path refuses on the same destination. Only a confirmed-gone destination --
+typed `DriveNotFound` again, never message text -- releases the record, because there is
+nothing left to withdraw. That case matters more than it looks: `reachable_for` resolves
+the PROFILE, not the drive, so a deleted drive under a still-registered profile passes
+the reachability guard and fails inside the provider. Reported as retryable it would
+strand the artifact permanently -- neither unpublishable nor deletable.
+
+The cost is worth stating plainly: a published artifact whose destination refuses the
+withdrawal, or which this process can no longer reach, cannot be deleted until that is
+resolved -- and the unreachable half makes that population larger than a narrower reading
+would. A profile holding the publish permissions but not `s3:DeleteObject` is exactly that
+shape, and no shipped IAM tier grants it yet (see the publish-tier follow-up). The way out
+is deliberate rather than accidental: `unpublish` lets the owner state in the open that
+they accept the published copy may remain, and then the artifact deletes. The alternative
+was dropping the record and stranding a world-readable copy with nothing able to withdraw
+it -- failing loudly is recoverable, that is not.
+
+This asymmetry with the publish path above is deliberate. A stale publish leaves the
+wrong bytes at a URL the user already knows about; a stale withdrawal leaves content
+served that the user believes they took down, which is the worse failure and the one
+worth surfacing as an error the user can act on.
 
 The public-exposure warning and the blocking `PublicPublishAckModal` are
 unchanged and unconditional — every destination gets both, on the clean path and
