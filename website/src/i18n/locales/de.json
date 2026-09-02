@@ -11429,8 +11429,16 @@
       "script_source_download": "Skript herunterladen",
       "script_source_failed": "Der Skript-Quellcode konnte nicht geladen werden.",
       "script_source_truncated": "Gekürzt — das Skript überschreitet das Vorschaulimit.",
+      "secrets_active_help": "Werden zur Laufzeit in die Umgebung dieses Jobs injiziert. Nur Namen — die Werte bleiben im Tresor.",
+      "secrets_approve": "Genehmigen",
+      "secrets_deny": "Ablehnen",
+      "secrets_none": "Keine Geheimnisse gewährt.",
+      "secrets_pending_help": "Nach der Genehmigung werden diese Tresor-Werte zur Laufzeit in die Umgebung des Jobs injiziert. Die Genehmigung ist an den aktuellen Code des Jobs gebunden — ändert sich Skript oder Befehl später, stoppt die Injektion bis zur erneuten Genehmigung.",
+      "secrets_pending_title": "Agent hat Geheimnisse angefordert",
+      "secrets_section": "Tresor-Geheimnisse",
       "no_owning_session": "Keine besitzende Sitzung",
-      "owning_session": "Besitzende Sitzung"
+      "owning_session": "Besitzende Sitzung",
+      "secrets_revoke_all": "Alle Secrets widerrufen"
     },
     "servicesTab": {
       "channels": "Kanäle",

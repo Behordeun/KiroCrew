@@ -16,12 +16,27 @@ from aiohttp import web
 
 from kiro_crew import model_registry
 from kiro_crew.config.loader import config_dir
-from kiro_crew.cron import CronStoreBusy, CronStoreUnreadable, is_valid_timezone
-from kiro_crew.cron_script import resolve_script_path
+from kiro_crew.cron import (
+    CronPendingMismatch,
+    CronStoreBusy,
+    CronStoreUnreadable,
+    is_valid_timezone,
+)
+from kiro_crew.cron_script import (
+    _read_script_body,
+    bump_grant_epoch,
+    commit_grant_epoch,
+    compute_secret_env_pin,
+    peek_grant_epoch,
+    resolve_script_path,
+    validate_secret_env_grant,
+)
 from kiro_crew.dashboard.cron_inject import (
     hydrate_slot_from_history,
     inject_cron_result_to_dashboard,
 )
+from kiro_crew.dashboard.handlers._shared import require_owner_dashboard_request
+from kiro_crew.dashboard.handlers.source_providers import is_owner_dashboard_request
 from kiro_crew.dashboard.state import DashboardState, SlotOrigin
 from kiro_crew.executors import discovery_executor
 from kiro_crew.history import is_incognito_transcript
@@ -29,6 +44,7 @@ from kiro_crew.hooks import FileTooLargeError, safe_read_file_bytes_nolink
 from kiro_crew.llm_helpers import run_bg_oneliner
 from kiro_crew.loop_lock import LoopBoundLock
 from kiro_crew.messaging.link import is_channel_session_key
+from kiro_crew.secrets import SecretVault
 from kiro_crew.security import redact_credentials, redact_exfiltration_urls
 from kiro_crew.validation import (
     _MODEL_NAME_RE,
@@ -549,6 +565,539 @@ async def api_cron_update(request: web.Request) -> web.Response:
         return web.json_response({"error": "job not found"}, status=404)
     state.push_refresh("crons")
     return web.json_response({"ok": True, "id": job.id})
+
+
+async def _promote_pending_grant(
+    state: DashboardState,
+    job_id: str,
+    expected_env: dict[str, str] | None = None,
+    expected_ts: float | None = None,
+) -> web.Response:
+    """Promote a job's PENDING secret request to the active grant.
+
+    The single verified promotion path, reached only through the PUT
+    ``approve_pending`` branch (approval lives exclusively on the dashboard
+    Schedule page): re-validates the mapping, re-verifies
+    the pending pin against the job's CURRENT code (409 ``code_changed`` on
+    drift — an approval never blesses code that changed after the request),
+    re-checks vault-name existence, then swaps pending -> active in one store
+    update.
+
+    ``expected_env``/``expected_ts`` bind the approval to the request the
+    approver actually SAW: the agent can replace a pending request at any
+    moment (cron_secret_request overwrites), so an approval that does not
+    restate the displayed mapping could promote a different request than the
+    one reviewed. A mismatch refuses with 409 ``stale_request`` instead of
+    promoting.
+    """
+    job = await state.crons.get_job_async(job_id)
+    if not job:
+        return web.json_response({"error": "job not found", "code": "job_not_found"}, status=404)
+    if not job.secret_env_pending:
+        return web.json_response(
+            {"error": "no pending request", "code": "no_pending_request"}, status=404
+        )
+    if expected_env is not None and job.secret_env_pending != expected_env:
+        return web.json_response(
+            {
+                "error": "the pending request changed after it was displayed — "
+                "review the current request and approve again",
+                "code": "stale_request",
+            },
+            status=409,
+        )
+    if expected_ts is not None and job.secret_env_pending_ts != expected_ts:
+        return web.json_response(
+            {
+                "error": "the pending request was re-issued after it was displayed — "
+                "review the current request and approve again",
+                "code": "stale_request",
+            },
+            status=409,
+        )
+    pending_snapshot = dict(job.secret_env_pending)
+    pending_ts_snapshot = job.secret_env_pending_ts
+    # Snapshot the PRIOR active grant too: the promoting write below replaces
+    # it, and an epoch-commit failure must compensate by restoring it — its
+    # pin was minted under the still-current epoch (the failed commit never
+    # advanced it), so grant A stays exactly as valid as before this attempt.
+    prior_secret_env = dict(job.secret_env)
+    prior_secret_env_pin = job.secret_env_pin
+    try:
+        validate_secret_env_grant(pending_snapshot)
+
+        # Verify the PENDING pin (what the request minted), then mint the
+        # ACTIVE pin the runners honour — separate HMAC domains, so a pending
+        # pin copied verbatim into the active fields never verifies. BOTH pins
+        # derive from ONE script-body snapshot: a second read would let an
+        # agent swap the file between them and get unseen code blessed.
+        def _both_pins() -> tuple[str, str, int]:
+            body_snapshot: bytes | None = None
+            if job.script:
+                file_path, _func = resolve_script_path(job.script)
+                body_snapshot = _read_script_body(file_path)
+            pending_now = compute_secret_env_pin(
+                job.script,
+                job.command,
+                job.message,
+                job_id=job.id,
+                grant=pending_snapshot,
+                domain="pending",
+                body=body_snapshot,
+                session_key=job.session_key,
+            )
+            # Mint under the NEXT epoch without writing it: the epoch commits
+            # only after the store swap succeeds, so a refused approval (code
+            # drift, stale request, store busy) never invalidates an existing
+            # active grant this operation did not replace.
+            next_epoch = peek_grant_epoch(job.id)
+            active = compute_secret_env_pin(
+                job.script,
+                job.command,
+                job.message,
+                job_id=job.id,
+                grant=pending_snapshot,
+                domain="active",
+                body=body_snapshot,
+                epoch=next_epoch,
+                session_key=job.session_key,
+            )
+            return pending_now, active, next_epoch
+
+        pending_pin_now, active_pin, next_epoch = await asyncio.to_thread(_both_pins)
+    except (ValueError, FileNotFoundError, PermissionError, RuntimeError) as exc:
+        return web.json_response({"error": str(exc), "code": "invalid_secret_env"}, status=400)
+    if pending_pin_now != job.secret_env_pending_pin:
+        return web.json_response(
+            {
+                "error": "the job's code changed after this request was made — "
+                "review the current script/command, then ask the agent to "
+                "re-request (or grant directly)",
+                "code": "code_changed",
+            },
+            status=409,
+        )
+    known = set(await asyncio.to_thread(SecretVault(config_dir()).list_names))
+    missing = sorted(set(pending_snapshot.values()) - known)
+    if missing:
+        return web.json_response(
+            {
+                "error": "unknown vault secret name(s): " + ", ".join(missing),
+                "code": "unknown_secret",
+            },
+            status=400,
+        )
+    # AUDIT-OR-DENY: a secret grant must never exist unaudited. The intent
+    # record is written (and awaited, off-loop) BEFORE the promoting write;
+    # an unwritable SEL store refuses the approval with nothing mutated —
+    # the same fail-closed posture the repo applies to other privileged
+    # mutations. The terminal success event below stays best-effort: an
+    # applied grant is already covered by this record. Names only — env
+    # keys and vault names, never values. _sel() is resolved INSIDE the
+    # worker lambda: a fresh gateway's first call initializes the SEL store
+    # (trust key + log files), which must never run on the event loop.
+    try:
+        await asyncio.to_thread(
+            lambda: _sel().log_api_access(
+                caller="dashboard",
+                operation="cron.secret_request_approved",
+                outcome="invoked",
+                source="dashboard",
+                resources=f"{job_id}:{','.join(sorted(pending_snapshot))}",
+            )
+        )
+    except Exception:
+        logger.warning("SEL unavailable; refusing secret approval for %s", job_id, exc_info=True)
+        return web.json_response(
+            {
+                "error": "audit log unavailable — the approval was NOT applied; "
+                "fix the audit store and approve again",
+                "code": "audit_unavailable",
+            },
+            status=503,
+        )
+    try:
+        updated = await state.crons.update_job_async(
+            job_id,
+            secret_env=pending_snapshot,
+            secret_env_pin=active_pin,
+            # The pending request is CONSUMED in the same atomic write that
+            # promotes it. Leaving it behind would let a concurrent decision
+            # pass its own compare-and-swap against the same snapshot: a deny
+            # would report success while this grant stays active, and a second
+            # approval would re-mint over it. A commit failure below RESTORES
+            # the request (compensating write), so the re-approve path
+            # survives without that window.
+            secret_env_pending={},
+            # Locked compare-and-swap: everything above ran against a snapshot
+            # the agent could have replaced in the meantime; the store refuses
+            # the swap unless the record STILL carries exactly that snapshot.
+            expect_secret_env_pending=pending_snapshot,
+            expect_secret_env_pending_ts=pending_ts_snapshot,
+        )
+    except CronPendingMismatch:
+        return web.json_response(
+            {
+                "error": "the pending request changed after it was displayed — "
+                "review the current request and approve again",
+                "code": "stale_request",
+            },
+            status=409,
+        )
+    except CronStoreBusy:
+        return web.json_response(
+            {
+                "error": "cron store busy, please retry",
+                "retryable": True,
+                "code": "cron_store_busy",
+            },
+            status=409,
+        )
+    except CronStoreUnreadable as exc:
+        return _cron_unreadable_response(exc)
+    except ValueError as e:
+        return web.json_response({"error": str(e), "code": "invalid_secret_env"}, status=400)
+    if not updated:
+        return web.json_response({"error": "job not found", "code": "job_not_found"}, status=404)
+    # The swap landed: commit the epoch the pin was minted under. A crash in
+    # this gap leaves the NEW grant failing closed (re-approve heals), never
+    # a dead pin on a grant this operation did not replace. The commit is
+    # compare-and-swap on the epoch this mint peeked: a concurrent revoke or
+    # job removal that bumped meanwhile REFUSES the commit — re-committing
+    # the bumped value would re-validate the very pin that bump meant to
+    # kill. On refusal, bump once more so the just-swapped pin is dead too
+    # (fail closed), then surface the conflict for a fresh approval.
+    try:
+        committed = await asyncio.to_thread(
+            commit_grant_epoch, job.id, next_epoch, expected_current=next_epoch - 1
+        )
+    except (OSError, ValueError):
+        # The swap landed but the epoch could not be committed: the stored pin
+        # was minted under an uncommitted epoch, so every run refuses it (fail
+        # closed). The request was consumed by the promoting write above, so
+        # RESTORE it here — unless the agent already posted a NEWER request
+        # into the gap, which stays (a fresh ask awaiting its own approval,
+        # never silently overwritten by the old one's restoration).
+        logger.warning("Grant-epoch commit failed for job %s", job.id, exc_info=True)
+        try:
+            await state.crons.update_job_async(
+                job_id,
+                # FULL compensation: the promoting write replaced active grant
+                # A with a pin minted under the uncommitted epoch (dead), so
+                # restore A alongside the consumed request — A's pin is still
+                # valid, the failed commit never advanced the epoch.
+                secret_env=prior_secret_env,
+                secret_env_pin=prior_secret_env_pin,
+                secret_env_pending=pending_snapshot,
+                secret_env_pending_pin=pending_pin_now,
+                secret_env_pending_ts=pending_ts_snapshot,
+                expect_secret_env_pending={},
+                expect_secret_env_pending_ts=0.0,
+            )
+        except CronPendingMismatch:
+            # A NEWER request landed in the gap: leave it (never overwritten
+            # by the old one's restoration), but STILL restore the prior
+            # active grant in a second write — the dead just-swapped pin must
+            # not stand in for grant A regardless of the pending slot.
+            logger.info("Pending restore on %s skipped (newer request)", job_id)
+            try:
+                await state.crons.update_job_async(
+                    job_id,
+                    secret_env=prior_secret_env,
+                    secret_env_pin=prior_secret_env_pin,
+                )
+            except (CronStoreBusy, CronStoreUnreadable, ValueError):
+                logger.warning("Prior-grant restore on %s failed", job_id, exc_info=True)
+        except (CronStoreBusy, CronStoreUnreadable, ValueError):
+            logger.info("Compensating restore on %s skipped (store unavailable)", job_id)
+        return web.json_response(
+            {
+                "error": "the grant's revocation epoch could not be committed; "
+                "the previous grant was restored and the request is still "
+                "pending — fix the epoch storage and approve again",
+                "code": "epoch_commit_failed",
+            },
+            status=503,
+        )
+    if not committed:
+        try:
+            await asyncio.to_thread(bump_grant_epoch, job.id)
+        except (OSError, ValueError):
+            # Bump refused (corrupt state): every granted run already
+            # refuses under it, so the direction is still closed.
+            logger.warning("Conflict-bump failed for job %s", job.id, exc_info=True)
+        return web.json_response(
+            {
+                "error": "the grant changed concurrently (a revoke or job removal "
+                "raced this approval); ask the agent to re-request",
+                "code": "grant_conflict",
+            },
+            status=409,
+        )
+    # The commit landed and the promoting write already consumed the pending
+    # request, so the grant is fully active with nothing left to clear.
+    try:
+        await asyncio.to_thread(
+            lambda: _sel().log_api_access(
+                caller="dashboard",
+                operation="cron.secret_request_approved",
+                outcome="allowed",
+                source="dashboard",
+                resources=f"{job_id}:{','.join(sorted(updated.secret_env))}",
+            )
+        )
+    except Exception:
+        logger.debug("SEL logging failed for cron secret approve", exc_info=True)
+    state.push_refresh("crons")
+    return web.json_response({"ok": True, "id": updated.id, "secret_env": updated.secret_env})
+
+
+async def api_cron_secret_grant(request: web.Request) -> web.Response:
+    """PUT /api/crons/{id}/secrets — revoke a grant or decide a pending request.
+
+    Operator surface ONLY, enforced IN the handler: ``/api/crons`` is a PREFIX
+    entry in the mixed internal paths (the CLI cron trigger needs it), so this
+    route IS reachable with ``X-Internal-Secret`` — the credential every cron
+    script subprocess and MCP process holds. Granting is the one cron mutation
+    that must be human-only, so a proven internal-secret caller
+    (``request["internal_auth"] is True``) is refused outright; only a
+    cookie/token-authenticated browser caller proceeds. Body:
+    ``{"secret_env": {}}`` (an EMPTY map) revokes — a non-empty map is
+    refused, since request->approve is the only mint path —
+    ``{"approve_pending": true}`` / ``{"deny_pending": true}`` act on an
+    agent-requested pending grant. The code pin is computed HERE from the
+    job's current script body — a client-supplied pin is
+    ignored, so a grant always binds to the code the operator could inspect
+    at grant time.
+    """
+    state: DashboardState = request.app["state"]
+    # internal_auth is set solely after a constant-time X-Internal-Secret
+    # match in token_auth_middleware — the machine credential. Machines
+    # request (cron_secret_request); only humans grant. The denial is
+    # SEL-audited like every other refused privileged operation: a machine
+    # probing the grant endpoint is exactly the signal the audit log exists
+    # to record.
+    if request.get("internal_auth") is True:
+        try:
+            await asyncio.to_thread(
+                lambda: _sel().log_api_access(
+                    caller=str(request.get("user") or "internal"),
+                    operation="cron.secret_grant",
+                    outcome="denied",
+                    source="dashboard",
+                    resources=request.match_info.get("job_id", ""),
+                    error="operator_only",
+                )
+            )
+        except Exception:  # pragma: no cover - audit must never change the outcome
+            logger.debug("SEL audit for machine secret-grant denial failed", exc_info=True)
+        return web.json_response(
+            {
+                "error": "secret grants require the dashboard (operator) credential",
+                "code": "operator_only",
+            },
+            status=403,
+        )
+    # And not just any human: a dashboard token is also minted for every
+    # allowed Slack user (!dashboard), who is not the vault's owner. Granting
+    # hands agent-authored code a vault value, so it is owner-only — the same
+    # boundary ask_question's card resolution draws. The shared gate audits
+    # the denial to SEL and reuses the one definition of "owner" (exact
+    # owner_id match, or the signed local bootstrap subject when no owner is
+    # configured).
+    denied = await require_owner_dashboard_request(request, "cron.secret_grant")
+    if denied is not None:
+        return denied
+    job_id = request.match_info["job_id"]
+    if (_e := _invalid_path_id_response(job_id, "job_id")) is not None:
+        return _e
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid JSON", "code": "invalid_json"}, status=400)
+    if not isinstance(body, dict):
+        return web.json_response(
+            {"error": "request body must be a JSON object", "code": "invalid_json"}, status=400
+        )
+    job = await state.crons.get_job_async(job_id)
+    if not job:
+        return web.json_response({"error": "job not found", "code": "job_not_found"}, status=404)
+    # ── Agent-requested pending grants: approve / deny ──
+    # The MCP cron_secret_request tool records a pending mapping + a pin of the
+    # code at request time. Approval re-verifies that pin against the job's
+    # CURRENT code so the operator only ever blesses what they could inspect —
+    # a body changed after the request refuses with 409 rather than promoting.
+    if body.get("deny_pending") is True:
+        if not job.secret_env_pending:
+            return web.json_response(
+                {"error": "no pending request", "code": "no_pending_request"}, status=404
+            )
+        deny_expected = body.get("expected_secret_env")
+        deny_expected_ts = body.get("expected_ts")
+        try:
+            updated = await state.crons.update_job_async(
+                job_id,
+                secret_env_pending={},
+                # A denial is a decision about the DISPLAYED request too: an
+                # agent replacing it in the meantime must not have its unseen
+                # request silently discarded by a stale click. The timestamp
+                # additionally distinguishes a REISSUED request with an
+                # identical mapping from the displayed one.
+                expect_secret_env_pending=(
+                    deny_expected if isinstance(deny_expected, dict) else None
+                ),
+                expect_secret_env_pending_ts=(
+                    float(deny_expected_ts) if isinstance(deny_expected_ts, (int, float)) else None
+                ),
+            )
+        except CronPendingMismatch:
+            return web.json_response(
+                {
+                    "error": "the pending request changed after it was displayed — "
+                    "review the current request and decide again",
+                    "code": "stale_request",
+                },
+                status=409,
+            )
+        except CronStoreBusy:
+            return web.json_response(
+                {
+                    "error": "cron store busy, please retry",
+                    "retryable": True,
+                    "code": "cron_store_busy",
+                },
+                status=409,
+            )
+        except CronStoreUnreadable as exc:
+            return _cron_unreadable_response(exc)
+        try:
+            await asyncio.to_thread(
+                lambda: _sel().log_api_access(
+                    caller="dashboard",
+                    operation="cron.secret_request_denied",
+                    outcome="allowed",
+                    source="dashboard",
+                    resources=job_id,
+                )
+            )
+        except Exception:
+            logger.debug("SEL logging failed for cron secret deny", exc_info=True)
+        state.push_refresh("crons")
+        return web.json_response({"ok": True, "id": job_id})
+    if body.get("approve_pending") is True:
+        # The approval must restate the request the approver saw (409
+        # stale_request on drift) — see _promote_pending_grant. The UI sends
+        # the mapping it rendered plus the request timestamp.
+        expected_env = body.get("expected_secret_env")
+        if expected_env is not None and not (
+            isinstance(expected_env, dict)
+            and all(isinstance(k, str) and isinstance(v, str) for k, v in expected_env.items())
+        ):
+            return web.json_response(
+                {
+                    "error": "expected_secret_env must be an object mapping "
+                    "env-var names to vault secret names",
+                    "code": "invalid_secret_env",
+                },
+                status=400,
+            )
+        expected_ts = body.get("expected_ts")
+        if expected_ts is not None and not isinstance(expected_ts, (int, float)):
+            return web.json_response(
+                {"error": "expected_ts must be a number", "code": "invalid_secret_env"},
+                status=400,
+            )
+        return await _promote_pending_grant(
+            state,
+            job_id,
+            expected_env=expected_env,
+            expected_ts=float(expected_ts) if expected_ts is not None else None,
+        )
+    secret_env = body.get("secret_env")
+    if not isinstance(secret_env, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in secret_env.items()
+    ):
+        return web.json_response(
+            {
+                "error": "secret_env must be an object mapping env-var names "
+                "to vault secret names",
+                "code": "invalid_secret_env",
+            },
+            status=400,
+        )
+    pin = ""
+    if secret_env:
+        # Direct grants are removed BY DESIGN: nothing binds what the owner
+        # saw to what gets pinned — the agent can rewrite the script between
+        # the page render and the grant click, and the pin would bless the
+        # rewrite. The request->approve flow is the only mint path: the
+        # request pins the code at request time and approval refuses on
+        # drift, so what the operator blesses is what the agent showed them.
+        return web.json_response(
+            {
+                "error": "direct grants are not supported — have the agent "
+                "call cron_secret_request, then approve the pending request "
+                "here (the approval verifies the code has not changed since "
+                "the request)",
+                "code": "direct_grant_removed",
+            },
+            status=400,
+        )
+    # Revoke (empty mapping): bump the epoch FIRST so a saved copy of the old
+    # mapping+pin written back into the agent-writable store never verifies
+    # again, even if the clear below fails.
+    try:
+        await asyncio.to_thread(bump_grant_epoch, job_id)
+    except (OSError, ValueError):
+        # Corrupt or unwritable epoch state: the grant is left in place —
+        # every granted run already refuses under unreadable epoch state
+        # (fail closed), and clearing the store WITHOUT the bump would let a
+        # saved copy of the mapping+pin verify again once the state heals.
+        logger.warning("Grant-epoch bump failed for revoke of %s", job_id, exc_info=True)
+        return web.json_response(
+            {
+                "error": "the grant's revocation epoch could not be advanced; "
+                "the grant was NOT cleared (runs refuse its pin while the "
+                "epoch state is unhealthy) — fix the epoch storage and "
+                "revoke again",
+                "code": "epoch_bump_failed",
+            },
+            status=503,
+        )
+    try:
+        updated = await state.crons.update_job_async(
+            job_id, secret_env=secret_env, secret_env_pin=pin
+        )
+    except CronStoreBusy:
+        return web.json_response(
+            {
+                "error": "cron store busy, please retry",
+                "retryable": True,
+                "code": "cron_store_busy",
+            },
+            status=409,
+        )
+    except CronStoreUnreadable as exc:
+        return _cron_unreadable_response(exc)
+    except ValueError as e:
+        return web.json_response({"error": str(e), "code": "invalid_secret_env"}, status=400)
+    if not updated:
+        return web.json_response({"error": "job not found", "code": "job_not_found"}, status=404)
+    try:
+        # Audit names only — env keys and vault names, never values.
+        await asyncio.to_thread(
+            lambda: _sel().log_api_access(
+                caller="dashboard",
+                operation="cron.secret_grant" if secret_env else "cron.secret_revoke",
+                outcome="allowed",
+                source="dashboard",
+                resources=f"{job_id}:{','.join(sorted(secret_env)) or '-'}",
+            )
+        )
+    except Exception:
+        logger.debug("SEL logging failed for cron secret grant", exc_info=True)
+    state.push_refresh("crons")
+    return web.json_response({"ok": True, "id": updated.id, "secret_env": updated.secret_env})
 
 
 async def api_cron_run(request: web.Request) -> web.Response:
@@ -1367,6 +1916,14 @@ async def api_crons(request: web.Request) -> web.Response:
     jobs = await state.crons.list_jobs_async(include_disabled=True)
     now = time.time()
     tz_name, _ = get_local_tz()
+    # Secret-grant metadata is owner-view only (see the field comment below).
+    # This is a read-path CLASSIFICATION on the dashboard's polling endpoint,
+    # deliberately NOT SEL-audited per decision: the panel refreshes every few
+    # seconds, so a per-poll event would flood the log without adding signal,
+    # and no secret VALUE is ever serialized here (names only). Every
+    # privileged grant MUTATION (request, approve, deny, revoke, and both
+    # denial branches) writes its own SEL event.
+    _owner_view = is_owner_dashboard_request(request)
     data = [
         {
             "id": j.id,
@@ -1422,6 +1979,14 @@ async def api_crons(request: web.Request) -> web.Response:
             ),
             "script": redact_credentials(redact_exfiltration_urls(j.script or "")[0])[0] or None,
             "command": redact_credentials(redact_exfiltration_urls(j.command or "")[0])[0] or None,
+            # Grant metadata only — env-var names and vault secret NAMES;
+            # plaintext values never leave the vault. Owner-only even so: a
+            # non-owner dashboard token (an allowed Slack user's !dashboard
+            # session) must not learn which vault entries exist or approve
+            # targets — the same boundary the grant endpoint enforces.
+            "secret_env": (j.secret_env or None) if _owner_view else None,
+            "secret_env_pending": (j.secret_env_pending or None) if _owner_view else None,
+            "secret_env_pending_ts": (j.secret_env_pending_ts or None) if _owner_view else None,
             "last_result": redact_credentials(redact_exfiltration_urls(j.last_result or "")[0])[0]
             or None,
             "last_error": redact_credentials(redact_exfiltration_urls(j.last_error or "")[0])[0]
