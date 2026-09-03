@@ -3598,6 +3598,7 @@ class KiroCrewConfig:
         d: dict = {
             "agent": asdict(self.agent),
             "session": asdict(self.session),
+            "members": asdict(self.members),
             "memory": asdict(self.memory),
             "slack": asdict(self.slack),
             "publish": asdict(self.publish),
