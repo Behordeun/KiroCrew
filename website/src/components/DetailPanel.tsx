@@ -50,6 +50,13 @@ interface DetailPanelProps {
    *  When set, `title`, `headerActions`, and `secondaryHeaderActions` are
    *  ignored. */
   customHeader?: React.ReactNode
+  /** Override the standalone panel's frame chrome (default `border-l
+   *  border-border bg-bg` — the chat surface's flush right-dock). Pages whose
+   *  columns are floating cards (e.g. Crew Members) pass their card recipe so
+   *  the panel joins the page's family while keeping the shared header, body
+   *  padding, and drag-resize behavior. Layout classes (flex column, h-full,
+   *  overflow) are not the caller's to change and stay fixed. */
+  frameClassName?: string
 }
 
 /**
@@ -83,7 +90,7 @@ const maxPanelWidth = (rowWidth: number, reserveWidth?: number) => {
 const clampPanelWidth = (w: number, minWidth: number, rowWidth: number, reserveWidth?: number) =>
   Math.max(minWidth, Math.min(w, maxPanelWidth(rowWidth, reserveWidth)))
 
-export default function DetailPanel({ title, icon, onClose, footer, headerActions, secondaryHeaderActions, initialWidth = 380, minWidth = 300, reserveWidth, storageKey, children, noPadding = false, headerClassName, embedded = false, customHeader }: DetailPanelProps) {
+export default function DetailPanel({ title, icon, onClose, footer, headerActions, secondaryHeaderActions, initialWidth = 380, minWidth = 300, reserveWidth, storageKey, children, noPadding = false, headerClassName, embedded = false, customHeader, frameClassName }: DetailPanelProps) {
   const isMobile = useIsMobile()
   // Outer wrapper ref, used to measure the panel's flex row (its parent) so the
   // width cap tracks the actual available room rather than the whole viewport.
@@ -229,7 +236,7 @@ export default function DetailPanel({ title, icon, onClose, footer, headerAction
   // NARROWER than the floor it replaced. Measured at a 390px row: 42px.
   if (embedded || isMobile) {
     return (
-      <div className="h-full w-full min-w-0 bg-bg flex flex-col overflow-hidden relative">
+      <div className={`h-full w-full min-w-0 ${frameClassName ?? 'bg-bg'} flex flex-col overflow-hidden relative`}>
         {body}
       </div>
     )
@@ -244,7 +251,7 @@ export default function DetailPanel({ title, icon, onClose, footer, headerAction
       transition={{ width: { type: 'spring', bounce: 0, duration: 0.3 }, opacity: { duration: 0.12 } }}
       className="shrink-0 overflow-hidden h-full"
     >
-      <div className="shrink-0 border-l border-border bg-bg flex flex-col h-full overflow-hidden relative" style={{ width, minWidth }}>
+      <div className={`shrink-0 ${frameClassName ?? 'border-l border-border bg-bg'} flex flex-col h-full overflow-hidden relative`} style={{ width, minWidth }}>
         {body}
       </div>
     </motion.div>
