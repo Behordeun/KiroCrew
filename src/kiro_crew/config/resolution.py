@@ -66,6 +66,7 @@ _KNOWN_CONFIG_SECTIONS: frozenset = frozenset(
         "watchdog",
         "resource_limits",
         "messaging",
+        "members",
         "cron_history",
         "knowledge",
         "heartbeat",
