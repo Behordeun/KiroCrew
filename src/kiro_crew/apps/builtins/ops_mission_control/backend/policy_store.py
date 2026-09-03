@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from kiro_crew import platform_compat
+from kiro_crew.apps.builtins.ops_mission_control.backend.models import CorruptDocumentError
 from kiro_crew.atomic_write import atomic_write
 from kiro_crew.config.loader import config_dir
 
@@ -136,12 +137,43 @@ def _read() -> dict[str, Any]:
     answer -- an unreadable ceiling reads as ``observe`` with no act-rules, which
     is the most restrictive state, not a permissive one. See
     :func:`_read_for_update` for why a writer may not stand on the same answer.
+
+    An absent file is silent -- no ceiling has been stored yet, not a fault.
+    A degraded read is logged: the state is mostly restrictive but it is also
+    silent, and nothing else would tell an operator their configuration has
+    stopped applying.
+
+    ``UnicodeDecodeError`` deliberately PROPAGATES here, unlike this app's
+    other display reads. "Every key degrades to the most restrictive answer"
+    has one exception: ``PRIMARY_KEY`` defaults to TRUE (see
+    ``rotation.is_primary``), so degrading a present-but-undecodable file to
+    ``{}`` GRANTS ledger-prune authority instead of withholding it. Swallowing
+    the decoder error would widen that fail-open door; crashing the caller is
+    the answer that cannot prune a shared ledger by accident. Found in review
+    (GPT 5.6). The same fail-open direction through the ``OSError`` and
+    ``JSONDecodeError`` arms is merged, pre-existing behaviour, tracked as a
+    default-direction problem rather than patched per-door here.
     """
     try:
         raw = json.loads(policy_path().read_text(encoding="utf-8"))
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return {}
-    return raw if isinstance(raw, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        logger.warning(
+            "ops-mission-control: keystone policy file unreadable; every key will "
+            "read as its default",
+            exc_info=True,
+        )
+        return {}
+    if not isinstance(raw, dict):
+        # The same degradation reached without a parse failure -- same silence
+        # problem, same log line.
+        logger.warning(
+            "ops-mission-control: keystone policy file root is not an object; "
+            "every key will read as its default"
+        )
+        return {}
+    return raw
 
 
 def _read_for_update() -> dict[str, Any]:
@@ -164,15 +196,34 @@ def _read_for_update() -> dict[str, Any]:
     arriving by accident instead of by attack. The error propagates and the
     write is abandoned instead.
 
-    Corruption keeps reading as empty, matching :func:`_read`: the document
-    parsed to nothing usable, so there is no stored ceiling left to lose by
-    replacing it.
+    Corruption propagates too (#7805, mirroring #7794): "cannot merge into" is
+    not "safe to destroy", and for THIS file silent replacement re-opens the
+    exact bypass the keystone floor exists to prevent -- a truncated document
+    rewritten from empty reverts every fenced key to a value the constrained
+    party can influence. Every corruption door raises the one named type,
+    :class:`CorruptDocumentError`: a parse failure, a byte stream that is not
+    UTF-8 (a ``ValueError`` but NOT a ``JSONDecodeError``, so unwrapped it
+    would slip past every corruption clause at the callers), and valid JSON
+    whose root is not an object (which parses without raising, so coercing it
+    to ``{}`` would destroy a document nobody could read). No per-entry check
+    beyond the root: values here are arbitrary JSON passed through verbatim,
+    so a parsed document survives a read-write cycle by construction.
     """
     try:
         raw = json.loads(policy_path().read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError:
         return {}
-    return raw if isinstance(raw, dict) else {}
+    except json.JSONDecodeError as exc:
+        raise CorruptDocumentError(exc.msg, exc.doc, exc.pos) from exc
+    except UnicodeDecodeError as exc:
+        raise CorruptDocumentError(
+            f"policy file is not valid UTF-8: {exc.reason}",
+            exc.object.decode("utf-8", "replace")[:120],
+            0,
+        ) from exc
+    if not isinstance(raw, dict):
+        raise CorruptDocumentError("policy file root is not a JSON object", str(raw)[:120], 0)
+    return raw
 
 
 #: Lock filename beside the policy file. Not the policy file itself: locking the file being
