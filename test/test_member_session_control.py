@@ -21,6 +21,7 @@ tool-level coverage here is registration only.
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -125,6 +126,110 @@ class TestAuthorizeTargetMemberPath:
         assert exc_info.value.code == "session_control_disabled"
 
 
+class TestMemberDispatchCeiling:
+    """The ``members.dispatch`` operator ceiling over the member bypass.
+
+    The member bypass at both gates is now gated by ``member_dispatch_enabled()``
+    (``members.dispatch``, default ON). These tests pin the OFF path — the whole
+    point of the change — which the existing member tests never touch because
+    the config default resolves the switch ON, so a regression dropping the
+    ``member_dispatch_enabled()`` term would leave every other member test green.
+
+    We mirror the existing style: patch ``sc.session_control_enabled`` to the
+    global-OFF posture the ceiling is meant to override, and patch
+    ``sc.member_dispatch_enabled`` to flip the ceiling. With the ceiling OFF a
+    member caller must be refused with ``session_control_disabled`` at BOTH
+    gates; with it ON the bypass must still stand.
+    """
+
+    def test_authorize_target_refuses_member_when_dispatch_off(self):
+        # Global switch off AND members.dispatch off: the member bypass drops,
+        # so a member caller is refused just like any ordinary caller.
+        member = DM_SLOT_KEY_PREFIX + "radar"
+        worker = _slot("chat-1-w1", created_by=member)
+        state = _State({member: _slot(member), "chat-1-w1": worker})
+        with (
+            patch.object(sc, "caller_slot_key", return_value=member),
+            patch.object(sc, "session_control_enabled", return_value=False),
+            patch.object(sc, "member_dispatch_enabled", return_value=False),
+            patch.object(sc, "_resolve_slot", return_value=worker),
+        ):
+            with pytest.raises(sc.SessionControlError) as exc_info:
+                sc.authorize_target(
+                    state,
+                    caller_session_key="dashboard:whatever",
+                    target="chat-1-w1",
+                    operation="send",
+                )
+        assert exc_info.value.code == "session_control_disabled"
+
+    def test_authorize_target_bypass_stands_when_dispatch_on(self):
+        # Global switch off but members.dispatch ON: the bypass holds, so the
+        # member gets PAST the config gate (and its own ownership check).
+        member = DM_SLOT_KEY_PREFIX + "radar"
+        worker = _slot("chat-1-w1", created_by=member)
+        state = _State({member: _slot(member), "chat-1-w1": worker})
+        with (
+            patch.object(sc, "caller_slot_key", return_value=member),
+            patch.object(sc, "session_control_enabled", return_value=False),
+            patch.object(sc, "member_dispatch_enabled", return_value=True),
+            patch.object(sc, "_resolve_slot", return_value=worker),
+        ):
+            try:
+                sc.authorize_target(
+                    state,
+                    caller_session_key="dashboard:whatever",
+                    target="chat-1-w1",
+                    operation="send",
+                )
+            except sc.SessionControlError as exc:
+                assert exc.code not in ("session_control_disabled", "not_creator"), exc.code
+
+    def test_create_session_refuses_member_when_dispatch_off(self):
+        # The create gate carries the same conjunction. With both switches off a
+        # member caller can no longer create a session — the ceiling narrows it.
+        member = DM_SLOT_KEY_PREFIX + "radar"
+        state = _State({member: _slot(member)})
+        with (
+            patch.object(sc, "caller_slot_key", return_value=member),
+            patch.object(sc, "session_control_enabled", return_value=False),
+            patch.object(sc, "member_dispatch_enabled", return_value=False),
+        ):
+            with pytest.raises(sc.SessionControlError) as exc_info:
+                asyncio.run(sc.create_session(state, caller_session_key="dashboard:whatever"))
+        assert exc_info.value.code == "session_control_disabled"
+
+    def test_create_session_bypass_stands_when_dispatch_on(self):
+        # members.dispatch ON: the member passes the config gate. It may still
+        # fail later on deployment-specific plumbing, but NOT at the ceiling.
+        member = DM_SLOT_KEY_PREFIX + "radar"
+        state = _State({member: _slot(member)})
+        with (
+            patch.object(sc, "caller_slot_key", return_value=member),
+            patch.object(sc, "session_control_enabled", return_value=False),
+            patch.object(sc, "member_dispatch_enabled", return_value=True),
+        ):
+            try:
+                asyncio.run(sc.create_session(state, caller_session_key="dashboard:whatever"))
+            except sc.SessionControlError as exc:
+                # A SessionControlError is fine as long as it is NOT the config
+                # gate rejecting the member — the bypass must have carried it
+                # past the ceiling.
+                assert exc.code != "session_control_disabled", exc.code
+            except Exception:
+                # Any non-SessionControlError means the member already cleared
+                # the config gate and tripped on deployment-specific plumbing
+                # our fixture does not provide — exactly what we want to prove.
+                pass
+
+    def test_member_dispatch_enabled_fails_closed_on_config_read_error(self):
+        # A config read that RAISES resolves to False (fail closed), the same
+        # conservative posture as session_control_enabled: the bypass is dropped
+        # rather than left silently alive on config corruption.
+        with patch.object(sc.KiroCrewConfig, "load", side_effect=RuntimeError("boom")):
+            assert sc.member_dispatch_enabled() is False
+
+
 class TestWorkerToolsRegistered:
     def test_worker_tools_advertised_on_kirocrew_core(self):
         from kiro_crew.mcp_tools import build_tool_list
@@ -194,6 +299,20 @@ class TestWorkerSessionSchemaParity:
             )
 
     def test_shared_fields_have_compatible_type_and_required(self):
+        # A shared field must not just carry the same type/required flag: the
+        # value bounds that decide what the shared /api/session-control/*
+        # endpoint ACCEPTS must line up too. A future divergence in max_len,
+        # min_val, max_val, pattern, or the enum allow-list between a worker_*
+        # and its session_* twin would otherwise pass here while making the
+        # accepted payload depend on which server the caller reached — the exact
+        # failure mode this parity test exists to prevent.
+        def _pattern_src(field):
+            # FieldSpec.pattern is a compiled re.Pattern (or None); compare the
+            # source string so two independently-compiled equivalents match and
+            # a genuine divergence is still caught.
+            pat = field.pattern
+            return None if pat is None else pat.pattern
+
         for worker_schema, session_schema, _allowed_missing in self._pairs():
             worker_fields = {f.name: f for f in worker_schema.fields}
             session_fields = {f.name: f for f in session_schema.fields}
@@ -207,6 +326,19 @@ class TestWorkerSessionSchemaParity:
                 assert wf.required == sf.required, (
                     f"{worker_schema.tool_name}.{name} required={wf.required} != "
                     f"{session_schema.tool_name}.{name} required={sf.required}"
+                )
+                # Value bounds — everything on FieldSpec that constrains the
+                # accepted input for a shared field.
+                for attr in ("max_len", "min_val", "max_val", "allowed"):
+                    assert getattr(wf, attr) == getattr(sf, attr), (
+                        f"{worker_schema.tool_name}.{name} {attr}="
+                        f"{getattr(wf, attr)!r} != {session_schema.tool_name}.{name} "
+                        f"{attr}={getattr(sf, attr)!r}"
+                    )
+                assert _pattern_src(wf) == _pattern_src(sf), (
+                    f"{worker_schema.tool_name}.{name} pattern "
+                    f"{_pattern_src(wf)!r} != {session_schema.tool_name}.{name} "
+                    f"pattern {_pattern_src(sf)!r}"
                 )
 
 
