@@ -148,6 +148,34 @@ def session_control_enabled() -> bool:
         return False
 
 
+def member_dispatch_enabled() -> bool:
+    """Whether the automatic member session-dispatch grant is switched on.
+
+    ``members.dispatch`` defaults ON — the zero-configuration contract that lets
+    a crew member DM session dispatch and patrol its worker sessions without the
+    operator turning on ``agent.session_control``. When an operator sets it to
+    ``false`` this returns False, which drops the member bypass at the gates and
+    puts member callers back under the ordinary switch (keeping a member
+    chat-only without disabling it entirely).
+
+    A config read that RAISES resolves to False, the SAME conservative posture as
+    :func:`session_control_enabled` — NOT the field's ON default. On a read
+    failure both switches fail closed together: the member bypass is dropped, so
+    a member caller falls back to needing ``agent.session_control``, and unrelated
+    config corruption can never silently keep the automatic grant alive. A false
+    resolved here only WIDENS the requirement (the ownership boundary still
+    binds), so failing closed costs a diagnosable refusal, never wider reach.
+    """
+    try:
+        return bool(KiroCrewConfig.load().members.dispatch)
+    except Exception:
+        logger.warning(
+            "member_dispatch: config read failed — dropping member bypass until config loads",
+            exc_info=True,
+        )
+        return False
+
+
 async def prewarm_enabled_check() -> None:
     """Warm the config cache in a thread so the sync gate reads the cached path.
 
@@ -660,7 +688,15 @@ async def create_session(
     # still needs the switch. The member's automatic grant is bounded by
     # ownership in `authorize_target`, not here: creation makes the caller
     # the owner by construction.
-    if not session_control_enabled() and not _member_caller(caller_key):
+    #
+    # The member bypass is itself gated by the operator ceiling
+    # `members.dispatch` (default ON): when an operator turns it OFF,
+    # `member_dispatch_enabled()` is False, the bypass drops, and a member
+    # caller falls back to needing `agent.session_control` like any other
+    # caller — the lever that keeps a member chat-only without disabling it.
+    if not session_control_enabled() and not (
+        _member_caller(caller_key) and member_dispatch_enabled()
+    ):
         raise SessionControlError(
             "session control is disabled in config (agent.session_control)",
             code="session_control_disabled",
@@ -1081,7 +1117,17 @@ def authorize_target(
     # WITHOUT `agent.session_control` — dispatching and patrolling workers is
     # its operating model — and is bounded instead by the ownership check
     # below, which restricts it to slots it created itself.
-    if not skip_enabled_check and not session_control_enabled() and not _member_caller(caller_key):
+    #
+    # The member bypass is itself gated by the operator ceiling
+    # `members.dispatch` (default ON): with it OFF, the bypass drops and a
+    # member caller falls back under `agent.session_control`. The ownership
+    # check below still binds regardless, so dropping the bypass only ever
+    # narrows a member's reach, never widens it.
+    if (
+        not skip_enabled_check
+        and not session_control_enabled()
+        and not (_member_caller(caller_key) and member_dispatch_enabled())
+    ):
         raise deny(
             "session control is disabled in config (agent.session_control)",
             "session_control_disabled",

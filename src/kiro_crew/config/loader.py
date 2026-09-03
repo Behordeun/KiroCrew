@@ -213,6 +213,7 @@ from kiro_crew.config.sections import (  # noqa: F401
     McpGatewayConfig,
     MemoryConfig,
     MemoryStoreConfig,
+    MembersConfig,
     MessagingConfig,
     OrchestratorConfig,
     PublishConfig,
@@ -1829,6 +1830,10 @@ class KiroCrewConfig:
         default_factory=MessagingConfig,
         metadata=_meta("Messaging", "Channel-neutral messaging transport settings."),
     )
+    members: MembersConfig = field(
+        default_factory=MembersConfig,
+        metadata=_meta("Members", "Crew-member behavior settings."),
+    )
     cron_history: CronHistoryConfig = field(
         default_factory=CronHistoryConfig,
         metadata=_meta("Cron History", "Cron execution history storage limits."),
@@ -2420,6 +2425,7 @@ class KiroCrewConfig:
         skills_data = _coerced_section(data, "skills", _degraded)
         session_summary_data = _coerced_section(data, "session_summary", _degraded)
         messaging_data = _coerced_section(data, "messaging", _degraded)
+        members_data = _coerced_section(data, "members", _degraded)
         telemetry_data = _coerced_section(data, "telemetry", _degraded)
         orchestrator_data = _coerced_section(data, "orchestrator", _degraded)
         watchdog_data = _coerced_section(data, "watchdog", _degraded)
@@ -2699,6 +2705,15 @@ class KiroCrewConfig:
                 eager_spawn=bool(session_data.get("eager_spawn", True)),
                 archive_retention_days=_archive_retention_days(session_data),
                 watchdog_rss_max_mb=_safe_int(session_data.get("watchdog_rss_max_mb", 0), 0),
+            ),
+            members=MembersConfig(
+                # Default TRUE, unlike `agent.session_control`: this is the
+                # zero-configuration grant that lets a crew member dispatch worker
+                # sessions out of the box, so absence means ON. A malformed value
+                # (`{"dispatch": "nope"}`) must ALSO fall to True rather than
+                # silently stripping a member of its operating model -- the switch
+                # only takes effect when an operator sets it to a real false.
+                dispatch=_safe_bool(members_data.get("dispatch", True), True),
             ),
             taskrunner=TaskRunnerConfig(
                 max_parallel_steps=taskrunner_data.get(

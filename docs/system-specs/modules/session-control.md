@@ -88,7 +88,7 @@ that is out of bounds is visible after the fact even though nothing happened.
 
 | Refusal | Status | Why |
 |---------|--------|-----|
-| Config switch off (`agent.session_control`) | 403 | Operator opted out. **Exception:** a crew-member DM slot (`member-*` caller key) bypasses this switch — see "Member callers" below |
+| Config switch off (`agent.session_control`) | 403 | Operator opted out. **Exception:** a crew-member DM slot (`member-*` caller key) bypasses this switch **while `members.dispatch` is on (the default)** — see "Member callers" below |
 | Caller session cannot be identified | 403 | An unidentifiable caller makes the self-target guard blind |
 | Caller is an unattended session (`cron-*`, `workflow-*`) | 403 | A scheduled job acting on live conversations is not a handoff |
 | Caller is itself incognito, temporary, or app-scoped | 403 | Caller-side isolation — the direction the target-side checks cannot see |
@@ -114,11 +114,18 @@ A crew member's pinned DM slot (caller key prefixed `member-`, created only by
 work into worker sessions it creates, patrols them, and reports back, with no
 operator configuration. Two rules give it that shape:
 
-- **The `agent.session_control` switch does not gate a member caller.** Members
-  work out of the box — this is the zero-configuration contract, and it is a
-  deliberate trade-off: an operator who turned session control off has NOT
-  thereby disabled member dispatch. There is currently no separate switch for
-  it; disabling a member disables its dispatch.
+- **The `agent.session_control` switch does not gate a member caller while
+  `members.dispatch` is on (the default).** Members work out of the box — this is
+  the zero-configuration contract, and it is a deliberate trade-off: an operator
+  who turned session control off has NOT thereby disabled member dispatch.
+  `members.dispatch` is the operator ceiling over that automatic grant. Left at
+  its default (`true`) the member bypass stands and members dispatch with zero
+  configuration. Setting `members.dispatch: false` removes the bypass and puts
+  member callers back under the ordinary `agent.session_control` requirement — so
+  a member with the switch off is refused (`session_control_disabled`), letting an
+  operator keep a member chat-only without disabling the member entirely. The
+  ceiling only narrows a member's reach; the creator-ownership rule below still
+  binds regardless of this switch.
 - **A member caller may only act on sessions it created.** Slot creation records
   `created_by` (the creator's caller key) in the slot's birth metadata; it is
   persisted with the session and rehydrated on restart (both restore paths).
@@ -334,6 +341,22 @@ handles the malformed case -- `bool("false")` is `True`, so a user who wrote the
 value in an editor that quotes it would otherwise get the opposite of what they
 read -- and the lookup now supplies `False` for the absent case, so nothing has to
 infer a grant from silence.
+
+`members.dispatch` (bool, default **true**) is the operator ceiling over the
+automatic member grant described in "Member callers". Its default is the OPPOSITE
+of `agent.session_control`: it defaults **on** so a crew member dispatches and
+patrols its worker sessions with zero configuration (absent means on), and both
+absent and malformed values resolve to `true` (`_safe_bool(..., True)`) — a bad
+value must never silently strip a member of its operating model. Setting it to a
+real `false` removes the member bypass at both gates, so a member caller with
+`agent.session_control` off is refused (`session_control_disabled`), giving an
+operator a lever to keep a member chat-only without disabling the member. The
+switch only ever narrows a member's reach: the creator-ownership boundary still
+binds regardless, and a member with dispatch off is treated as an ordinary caller
+(needs the switch) but gains no wider reach. Fail-safe direction matches
+`agent.session_control`: a config read that raises resolves the switch to off
+(bypass dropped), so unrelated config corruption cannot silently keep the
+automatic grant alive.
 
 ## What is deliberately not here
 
