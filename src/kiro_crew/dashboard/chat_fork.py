@@ -500,6 +500,7 @@ async def api_chat_slot_fork(request: web.Request) -> web.Response:
                     },
                     status=503,
                 )
+        _fork_tail_len = len(new_msgs) if (all_messages and new_msgs) else 0
         if all_messages and new_msgs:
             # REBIND, never ``extend``. ``read_messages_chained`` hands back the
             # SHARED ``_msg_cache`` list BY IDENTITY whenever it falls through to
@@ -601,7 +602,10 @@ async def api_chat_slot_fork(request: web.Request) -> web.Response:
             slot._resumed_count = len(slot.messages)
             slot._dirty = False
         if not all_messages:
+            # The whole corpus is the in-memory window: disk contributed
+            # nothing, so for the mid-rotation rebuild below it is ALL tail.
             all_messages = list(slot.messages)
+            _fork_tail_len = len(all_messages)
         # Direct delete check, independent of the flush arms above: if the
         # periodic 5s flush hit the delete-won guard first, it cleared
         # ``_dirty`` and this handler's own flush arms never ran — the disk
@@ -623,6 +627,60 @@ async def api_chat_slot_fork(request: web.Request) -> web.Response:
                 },
                 status=409,
             )
+    # Fork indices arrive in the PAGINATED corpus's visible-row space, which
+    # prepends each chain key's size-rotated archive head
+    # (read_messages_chained_full). Mirror that corpus here, or every index
+    # sent after the reader paged past a rotation boundary resolves short by
+    # the archived visible-row count, silently forking the WRONG message —
+    # and archived rows could not be forked at all. Rotated rows are BY
+    # DEFINITION no longer in the live files, so this cannot duplicate
+    # anything the flush arms above already placed in ``all_messages``.
+    #
+    # Two shapes, matching the slot-detail handler exactly:
+    # - Archive only on the FIRST chain member: the archived rows are a
+    #   contiguous prefix of the chained corpus, so a flat prepend is exact.
+    # - A LATER member also rotated (``chain_mid_rotation``): the paginated
+    #   corpus interleaves rot/live per key, so a flat prepend would shift
+    #   ``at_message_index`` by the sandwiched rows. Rebuild the disk part
+    #   from the true chained corpus and re-append the unflushed tail the
+    #   arms above collected (``_fork_tail_len`` rows).
+    if state.conversation_log:
+        try:
+            _rotated_head = await asyncio.to_thread(
+                state.conversation_log.read_rotated_messages_chained,
+                slot_history_key(slot),
+            )
+        except Exception:
+            logger.warning("rotated-archive read failed for fork", exc_info=True)
+            _rotated_head = []
+        if _rotated_head:
+            _mid_rotation = False
+            try:
+                _mid_rotation = await asyncio.to_thread(
+                    state.conversation_log.chain_mid_rotation,
+                    slot_history_key(slot),
+                )
+            except Exception:
+                logger.warning("mid-rotation probe failed for fork", exc_info=True)
+            _rebuilt = False
+            if _mid_rotation:
+                try:
+                    _full_disk = await asyncio.to_thread(
+                        state.conversation_log.read_messages_chained_full,
+                        slot_history_key(slot),
+                    )
+                    _tail = (
+                        all_messages[len(all_messages) - _fork_tail_len :] if _fork_tail_len else []
+                    )
+                    all_messages = _full_disk + _tail
+                    _rebuilt = True
+                except Exception:
+                    # Fall back to the flat prepend below: approximate indices
+                    # beat refusing the fork outright, and this path only runs
+                    # when the full read itself failed.
+                    logger.warning("chained-full fork corpus read failed", exc_info=True)
+            if not _rebuilt:
+                all_messages = _rotated_head + all_messages
     visible = [m for m in all_messages if m.get("role") in ("user", "assistant")]
     if not visible:
         return web.json_response(

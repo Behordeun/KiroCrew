@@ -69,11 +69,14 @@ describe('useVirtualChat: height-sync spacer repricing keeps the top visible row
     const node = document.createElement('div')
     Object.defineProperty(node, 'offsetHeight', { configurable: true, get: () => 250 })
     // Read #1 is the seed measurement itself (fractional heights read the
-    // rect), #2 is the sync's anchor capture, #3+ the compensation effect.
+    // rect), #2 is captureTopAnchorFrom inside the sync's anchor capture, #3
+    // the candidate-collection pass (the capture stores a LIST of visible
+    // fallback anchors, one more rect read per row), #4+ the compensation
+    // effect.
     let reads = 0
     node.getBoundingClientRect = () => {
       reads += 1
-      const top = reads <= 2 ? 100 : 130
+      const top = reads <= 3 ? 100 : 130
       return { top, bottom: top + 250, left: 0, right: 390, width: 390, height: 250, x: 0, y: top, toJSON: () => ({}) } as DOMRect
     }
     act(() => { view.result.current.measureRef(5)(node) })

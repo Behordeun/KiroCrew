@@ -58,10 +58,16 @@ export function fmtCredits(c: number): string {
 }
 
 // A compact "Steered" chip rendered in place of the raw [STEERING …] marker.
-function SteerAckChip({ summary }: { summary: string }) {
+// `entrance` gates the fade-in to the STREAMING moment the chip first appears.
+// A settled transcript's chip must render at its final state: framer replays
+// `initial` on every MOUNT, and transcript rows legitimately remount (window
+// shifts, regroups) — with the entrance unconditional, each remount replayed
+// the fade and a parked reader saw the chip "blinking" (caught mid-fade in a
+// screen recording at ~50% opacity).
+function SteerAckChip({ summary, entrance }: { summary: string; entrance: boolean }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 4 }}
+      initial={entrance ? { opacity: 0, y: 4 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: 'easeOut' }}
       className="mt-2 inline-flex flex-col items-start rounded-lg bg-accent-subtle px-3 py-2 text-[12px] leading-5 max-w-full"
@@ -269,7 +275,7 @@ const AssistantMessage = memo(function AssistantMessage({ content, isStreaming, 
           either way (steerCleaned), so nothing leaks as raw text. */}
       {!suppressSteerAck && steerAcks.length > 0 && (
         <div className="flex flex-col items-start gap-1 mb-2">
-          {steerAcks.map((a, i) => <SteerAckChip key={i} summary={a} />)}
+          {steerAcks.map((a, i) => <SteerAckChip key={i} summary={a} entrance={isStreaming} />)}
         </div>
       )}
       {!isStreaming && selectionActions.length > 0 && <SelectionToolbar containerRef={contentRef} actions={selectionActions} />}
