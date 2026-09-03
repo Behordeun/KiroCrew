@@ -301,6 +301,9 @@ class TestAntiDrift:
     # - last_result_stamp: the run stamp, rendered by set_run_result() beside
     #   last_result and never accepted from a caller, so there is no boundary
     #   schema for its cap to mirror
+    # - last_prompt_hash: the dispatched message's fingerprint, computed by
+    #   set_run_result() from job.message and never accepted from a caller; the
+    #   message ITSELF is the caller-supplied field and is capped in the table
     # - last_posted_hash: set by dedup logic when a Slack post is delivered
     # - last_failure_hash: set by dedup logic when a failure notification fires
     # - approval_mode: validated by a separate finite-set check, not length
@@ -311,6 +314,7 @@ class TestAntiDrift:
             "last_error",
             "last_result",
             "last_result_stamp",
+            "last_prompt_hash",
             "last_posted_hash",
             "last_failure_hash",
             "approval_mode",

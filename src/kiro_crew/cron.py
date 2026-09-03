@@ -575,6 +575,37 @@ class CronJob:
     # "unknown" and renders the pre-stamp header unchanged, so rows already on
     # disk keep deduping against their historical spelling.
     last_result_stamp: str = ""
+    # Fingerprint of the ``message`` THIS run was dispatched with, written by
+    # :meth:`set_run_result` and PERSISTED. Exists so a run can tell whether its
+    # instruction differs from the previous run's.
+    #
+    # A persistent cron reuses one ``message`` for its whole life, so writing the
+    # prompt row verbatim on every run stored the same text once per run. Nothing
+    # deduplicated it -- each row carries a per-run marker, which is exactly what
+    # stops two runs collapsing -- so an agent job with a large prompt spent both
+    # the log's rotation window and the replay's character budget on copies of an
+    # instruction that never changed, retaining FEWER distinct runs than before
+    # the row existed.
+    #
+    # A fingerprint rather than the previous message itself: ``message`` caps at
+    # ``MAX_CRON_MESSAGE`` (50,000 chars) and ``crons.json`` is whole-file read
+    # and hashed on the scheduler's tick path, so keeping a second copy per job
+    # would put that cost on every tick to answer one boolean.
+    #
+    # ``""`` (a legacy job, or a store written by an older build) reads as "no
+    # previous instruction", so the first run after an upgrade writes its prompt
+    # in full rather than a placeholder referring to a row that does not exist.
+    last_prompt_hash: str = ""
+    # Runtime-only (never serialized): True when THIS run's instruction differs
+    # from the one the previous run was dispatched with -- the signal
+    # ``cron_inject`` uses to write the prompt verbatim instead of a placeholder.
+    #
+    # Derived in :meth:`set_run_result` BEFORE ``last_prompt_hash`` is
+    # overwritten, because the comparison is only available in that window: the
+    # injection sites run later, by which point the stored fingerprint already
+    # describes the current run. Same shape and same reason as
+    # ``result_produced``. Reset at the start of every run by _run_job_isolated.
+    prompt_changed: bool = False
     # Runtime-only (never serialized): True once THIS run produced a result
     # via set_run_result(). For AGENT jobs ``last_result`` is a cross-run
     # context-carry field that result-less runs deliberately leave in place
@@ -653,6 +684,11 @@ class CronJob:
         # ``last_result_stamp`` for why re-rendering duplicates rows.
         self.last_result_ts = time.time()
         self.last_result_stamp = self._render_run_stamp(self.last_result_ts)
+        # Compared BEFORE the stored fingerprint is overwritten -- see
+        # ``prompt_changed`` for why this is the only window that can.
+        fingerprint = _prompt_fingerprint(self.message or "")
+        self.prompt_changed = fingerprint != self.last_prompt_hash
+        self.last_prompt_hash = fingerprint
 
     def _render_run_stamp(self, when_ts: float) -> str:
         """Render *when_ts* as the header suffix, in the job's own timezone.
@@ -940,6 +976,23 @@ def get_local_tz() -> tuple[str, ZoneInfo]:
         return "UTC", ZoneInfo("UTC")
 
 
+def _prompt_fingerprint(message: str) -> str:
+    """Fingerprint a cron ``message`` for the unchanged-instruction check.
+
+    EXACT content, deliberately unlike :func:`slack.gateway._result_hash`, which
+    normalizes timestamps and UUIDs out before hashing. That normalization is
+    right for a result -- volatile output should not defeat duplicate
+    suppression -- and wrong here: a timestamp a user typed into an instruction
+    is part of the instruction, so normalizing it would report two genuinely
+    different prompts as the same one and withhold the changed text.
+
+    16 hex chars (64 bits) is sized for what it does: a 1:1 comparison against
+    the single previous fingerprint, where a collision would omit one changed
+    prompt from the transcript and nothing worse.
+    """
+    return hashlib.sha256(message.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
 def _job_tz(job: CronJob) -> ZoneInfo:
     """Return the job's timezone, falling back to the published default then UTC.
 
@@ -1186,6 +1239,7 @@ def _job_from_record(j: dict[str, Any]) -> CronJob:
         last_result=j.get("last_result"),
         last_result_ts=j.get("last_result_ts", 0.0),
         last_result_stamp=j.get("last_result_stamp", ""),
+        last_prompt_hash=j.get("last_prompt_hash", ""),
         context_enabled=j.get("context_enabled", False),
         agent_id=j.get("agent_id", ""),
         approval_mode=j.get("approval_mode", ""),
@@ -3405,6 +3459,9 @@ class CronService:
         # strings, so a run re-producing the previous text looks identical to
         # one that produced nothing.)
         job.result_produced = False
+        # Runtime-only like result_produced: a value left over from the previous
+        # run must never decide how THIS run's prompt row is written.
+        job.prompt_changed = False
         being_cancelled = False
         try:
             # The jitter sleep MUST live inside this try: hourly/daily jobs
@@ -3754,6 +3811,11 @@ class CronService:
                 # append_if_absent duplicated the row instead of collapsing it.
                 by_id[job.id].last_result_ts = job.last_result_ts
                 by_id[job.id].last_result_stamp = job.last_result_stamp
+                # Travels with them for the same reason: omitting it persisted
+                # the PREVIOUS run's fingerprint, so the next run compared
+                # against a stale value and mislabelled an unchanged
+                # instruction as changed (or the reverse) after a reload.
+                by_id[job.id].last_prompt_hash = job.last_prompt_hash
                 by_id[job.id].last_posted_hash = job.last_posted_hash
                 by_id[job.id].consecutive_dupes = job.consecutive_dupes
                 by_id[job.id].last_posted_at = job.last_posted_at
@@ -4348,6 +4410,7 @@ class CronService:
                     "last_result": j.last_result,
                     "last_result_ts": j.last_result_ts,
                     "last_result_stamp": j.last_result_stamp,
+                    "last_prompt_hash": j.last_prompt_hash,
                     "context_enabled": j.context_enabled,
                     "agent_id": j.agent_id,
                     "approval_mode": j.approval_mode,

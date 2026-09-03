@@ -128,6 +128,51 @@ def run_marker(job: "CronJob") -> str:
     return f"\n\n<!-- cron-run:{job.id}:{ts:.6f} -->"
 
 
+#: Header prefix of a PROMPT row. Distinct from the result row's
+#: ``"# Cron Job Result:"``, which does not share this prefix, so a scan for one
+#: never matches the other.
+_PROMPT_ROW_PREFIX = "# Cron Run:"
+
+#: Body written in place of a repeated instruction. Points at a row in the
+#: TRANSCRIPT -- a historical record of what a run was actually given -- and
+#: deliberately not at ``job.message``, which is live configuration: a reader
+#: resolving that would get whatever the instruction is NOW, which is the same
+#: misattribution that makes ``/to-chat`` pass ``include_prompt=False``.
+_UNCHANGED_PROMPT_BODY = (
+    "_Same instruction as the previous run "
+    '— see the most recent "# Cron Run" row above for the text._'
+)
+
+
+def _prompt_is_new(job: "CronJob", history: list[dict[str, Any]] | None) -> bool:
+    """Whether THIS run's prompt must be written verbatim rather than referenced.
+
+    True on either of two conditions:
+
+    * ``job.prompt_changed`` -- the instruction differs from the previous run's,
+      so the transcript has no copy of it yet.
+    * No prompt row survives in *history* -- the placeholder refers to a row
+      above it, and the log rotates (10MB / ~200 lines), so once the last full
+      copy is evicted a placeholder would point at nothing. Re-writing the
+      instruction keeps at least one resolvable copy in the retained file.
+
+    The guarantee stops at the FILE: the replay a follow-up turn reads is
+    character-budgeted and tail-heavy, so a retained prompt row can still fall
+    outside the window the model sees. In that case the placeholder still
+    carries what it claims -- that this run's instruction was unchanged -- it
+    just cannot supply the text. That is strictly better than the alternative it
+    replaces, where N copies of one instruction consumed the budget that the
+    distinct runs needed.
+    """
+    if getattr(job, "prompt_changed", False):
+        return True
+    return not any(
+        isinstance(row, dict)
+        and str(row.get("content", "") or "").lstrip().startswith(_PROMPT_ROW_PREFIX)
+        for row in (history or [])
+    )
+
+
 def inject_cron_result_to_dashboard(
     state: DashboardState, job: "CronJob", result_text: str,
     *,
@@ -276,11 +321,20 @@ def inject_cron_result_to_dashboard(
         raw_prompt = job.message or ""
         prompt = raw_prompt if include_prompt and raw_prompt.strip() else ""
         if prompt:
-            safe_prompt, _ = redact_exfiltration_urls(prompt)
-            safe_prompt, _ = redact_credentials(safe_prompt)
+            # A persistent cron carries ONE message for its whole life, so the
+            # verbatim text is written only when it is not already in the
+            # transcript -- see _prompt_is_new. The row itself is still written
+            # every run: it carries the stamp and the marker, so the run boundary
+            # and the user/assistant alternation hold whichever body it gets.
+            if _prompt_is_new(job, history):
+                safe_prompt, _ = redact_exfiltration_urls(prompt)
+                safe_prompt, _ = redact_credentials(safe_prompt)
+                prompt_body = safe_prompt
+            else:
+                prompt_body = _UNCHANGED_PROMPT_BODY
             _reflect(
                 "user",
-                f"# Cron Run: {safe_name}{stamp}{marker}\n\n{safe_prompt}",
+                f"# Cron Run: {safe_name}{stamp}{marker}\n\n{prompt_body}",
                 "msg msg-u",
             )
         safe_result, _ = redact_exfiltration_urls(result_text)

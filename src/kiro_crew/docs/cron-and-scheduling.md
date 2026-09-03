@@ -68,14 +68,25 @@ Each run appends a pair of rows so the runs stay distinguishable inside that one
 
 | Row | Header | Content |
 |-----|--------|---------|
-| `user` | `# Cron Run: <name> \| <date time tz>` | the job's `message` — what this run was asked to do |
+| `user` | `# Cron Run: <name> \| <date time tz>` | the job's `message` — what this run was asked to do, or a reference to it when unchanged (below) |
 | `assistant` | `# Cron Job Result: <name> \| <date time tz>` | what the run produced |
 
 The timestamp is the moment the run produced its result, to the second, rendered in the job's `timezone` (then the config timezone, then UTC). It is what lets a follow-up turn tell which run it is answering, so when you reply to a daily job, answer the newest pair. Rows written before this behaviour shipped carry no timestamp.
 
 The stamp is rendered ONCE, when the result is recorded, and stored with it — later edits to the job's `timezone` do not respell an existing row. That matters because a row is recognised as already-written by its exact text, so a re-render under changed settings would append a second copy of a run instead of recognising the first.
 
-Each row also ends with an invisible identity marker, `<!-- cron-run:<job-id>:<epoch> -->`, carrying the run's timestamp at full precision. It does not render, and it is what keeps two runs distinct: the visible stamp is written for a person to read, so its resolution must not decide whether two fast runs collapse into one row.
+Each row's header also carries an invisible identity marker, `<!-- cron-run:<job-id>:<epoch> -->`, holding the run's timestamp at full precision. It does not render, and it is what keeps two runs distinct: the visible stamp is written for a person to read, so its resolution must not decide whether two fast runs collapse into one row. It sits ahead of the body rather than after it because a prompt or result can end inside an unclosed code fence, and everything after such a fence renders as code — which would print the marker instead of hiding it.
+
+### A repeated instruction is referenced, not stored again
+
+A persistent job runs the same `message` every time, and each row carries a per-run marker that deliberately stops runs collapsing — so writing the instruction verbatim on every run would store one unchanged text once per run. For a job with a large prompt that is self-defeating: the transcript rotates (10MB, ~200 lines) and the replay a follow-up turn reads is character-budgeted, so copies of one instruction crowd out the distinct runs the pair exists to separate.
+
+So the `user` row is written verbatim only when the instruction is **new to the transcript** — the first run, or the first run after someone edits the message on a live job. Otherwise the row still appears, with the same header, stamp and marker, and its body says the instruction is unchanged and points at the most recent `# Cron Run` row above it.
+
+Two consequences worth knowing:
+
+- The reference points into the **transcript**, never at the job's current `message`. A pointer to live configuration would resolve to whatever the instruction is now, which is the same misattribution that makes `/to-chat` omit the prompt row entirely.
+- If rotation has evicted the last verbatim copy, the next run writes the instruction in full again, so the reference always has something above it to resolve against. The guarantee stops at the stored file: a retained row can still fall outside the replay's budget, in which case the reference still tells you the instruction was unchanged but cannot supply its text.
 
 Re-opening the last result from the Schedule page (`/to-chat`) reuses that stored stamp, so it never duplicates a run the executor already wrote. It shows the result row only: the prompt behind a stored result is not recoverable from the job's current `message`, which may have been edited since, so only the run that produced a result writes the `user` row.
 

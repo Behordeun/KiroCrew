@@ -22,6 +22,7 @@ from kiro_crew.cron import (
     CronService,
     CronStoreUnreadable,
     _job_tz,
+    _prompt_fingerprint,
     compute_next_run_ts,
     cron_expr_matches,
     validate_cron_expr,
@@ -591,6 +592,71 @@ class TestLastResultTimestamp:
         assert merged.last_result == "output"
         assert merged.last_result_ts == job.last_result_ts
         assert merged.last_result_stamp == job.last_result_stamp
+        # Same copy list, same reason: a fingerprint left behind means the next
+        # run compares against a stale value and mislabels an unchanged
+        # instruction as changed.
+        assert merged.last_prompt_hash == job.last_prompt_hash
+
+    def test_a_repeated_prompt_is_flagged_as_unchanged(self, tmp_path: Path) -> None:
+        """A persistent cron carries ONE message, so run two must know that.
+
+        The prompt row is written verbatim on the first run and referenced
+        afterwards; without this flag every run of a large-prompt job stored
+        another copy, spending the log's rotation window and the replay's
+        character budget on an instruction that never changed.
+        """
+        svc = CronService(base_dir=tmp_path)
+        svc._load()
+        job = svc.add_job(name="repeat", message="the same instruction", every_secs=300)
+
+        job.set_run_result("run one")
+        assert job.prompt_changed is True, "the first run has no previous instruction"
+        first_hash = job.last_prompt_hash
+        assert first_hash
+
+        job.set_run_result("run two")
+        assert job.prompt_changed is False, "an unchanged message must not re-flag"
+        assert job.last_prompt_hash == first_hash
+
+    def test_an_edited_prompt_is_flagged_as_changed(self, tmp_path: Path) -> None:
+        """Editing a live job's message must put the new text in the transcript."""
+        svc = CronService(base_dir=tmp_path)
+        svc._load()
+        job = svc.add_job(name="edited", message="the first instruction", every_secs=300)
+
+        job.set_run_result("run one")
+        job.set_run_result("run two")
+        assert job.prompt_changed is False
+
+        job.message = "a different instruction"
+        job.set_run_result("run three")
+        assert job.prompt_changed is True
+        assert job.last_prompt_hash == _prompt_fingerprint("a different instruction")
+
+    def test_a_legacy_job_writes_its_prompt_on_the_first_run(self, tmp_path: Path) -> None:
+        """An empty stored fingerprint reads as "no previous instruction".
+
+        A store written before this field existed must not have its first run
+        after the upgrade referred to a prompt row that was never written.
+        """
+        svc = CronService(base_dir=tmp_path)
+        svc._load()
+        job = svc.add_job(name="legacy", message="go", every_secs=300)
+        job.last_prompt_hash = ""  # what a pre-upgrade store deserializes to
+
+        job.set_run_result("output")
+        assert job.prompt_changed is True
+
+    def test_the_fingerprint_keeps_a_timestamp_a_user_typed(self) -> None:
+        """Exact content, unlike the result hash's volatility normalization.
+
+        ``_result_hash`` strips timestamps so volatile OUTPUT cannot defeat
+        duplicate suppression. Doing that here would report two genuinely
+        different instructions as one and withhold the changed text.
+        """
+        a = _prompt_fingerprint("report for 2026-09-03T00:00:00Z")
+        b = _prompt_fingerprint("report for 2026-09-04T00:00:00Z")
+        assert a != b
 
     def test_stamp_is_rendered_in_the_job_timezone_to_the_second(self) -> None:
         """The rendered stamp is a snapshot, and it resolves to seconds.
