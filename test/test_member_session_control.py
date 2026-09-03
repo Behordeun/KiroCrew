@@ -139,6 +139,77 @@ class TestWorkerToolsRegistered:
         assert advertised == set(workers.HANDLERS)
 
 
+class TestWorkerSessionSchemaParity:
+    """Each ``WORKER_*_SCHEMA`` must stay within its ``SESSION_*_SCHEMA`` twin.
+
+    The four ``worker_*`` kirocrew-core tools and the four ``session_*``
+    kirocrew-dashboard tools forward to the SAME ``/api/session-control/*``
+    gateway endpoints, so the shape those endpoints accept must not depend on
+    which server the caller happened to reach. Today that parity is held only
+    by the comment above ``WORKER_CREATE_SCHEMA`` in ``validation.py``; this
+    test turns it into an executable invariant.
+
+    Parity here is a *narrowing*, not byte equality: ``worker_create``
+    deliberately omits ``folder`` (a member's workers land unfiled in v1, per
+    that comment). So for each pair we assert the worker property set is a
+    subset of the session set (the worker introduces no field the endpoint
+    would reject), and that the only fields the session set carries beyond the
+    worker set are the explicitly documented ``allowed_missing`` ones. A field
+    added to a ``session_*`` schema but forgotten on ``worker_*`` — or an
+    accidental extra worker narrowing — both trip this test.
+    """
+
+    # worker schema -> (session schema, properties worker may omit)
+    _PAIRS = None
+
+    @classmethod
+    def _pairs(cls):
+        from kiro_crew import validation as v
+
+        return [
+            (v.WORKER_CREATE_SCHEMA, v.SESSION_CREATE_SCHEMA, {"folder"}),
+            (v.WORKER_SEND_SCHEMA, v.SESSION_SEND_SCHEMA, set()),
+            (v.WORKER_READ_SCHEMA, v.SESSION_READ_MESSAGE_SCHEMA, set()),
+            (v.WORKER_STOP_SCHEMA, v.SESSION_STOP_SCHEMA, set()),
+        ]
+
+    def test_worker_property_sets_stay_within_session_counterparts(self):
+        for worker_schema, session_schema, allowed_missing in self._pairs():
+            worker_props = {f.name for f in worker_schema.fields}
+            session_props = {f.name for f in session_schema.fields}
+            # (a) The worker surface never introduces a property the shared
+            # endpoint would not accept from the session surface.
+            assert worker_props <= session_props, (
+                f"{worker_schema.tool_name} introduces "
+                f"{worker_props - session_props} absent from "
+                f"{session_schema.tool_name}"
+            )
+            # (b) The ONLY narrowing is the documented one — a new session_*
+            # field forgotten on worker_* (or an accidental worker omission)
+            # fails here.
+            assert session_props - worker_props == allowed_missing, (
+                f"{worker_schema.tool_name} vs {session_schema.tool_name}: "
+                f"expected only {allowed_missing} to be omitted, got "
+                f"{session_props - worker_props}"
+            )
+
+    def test_shared_fields_have_compatible_type_and_required(self):
+        for worker_schema, session_schema, _allowed_missing in self._pairs():
+            worker_fields = {f.name: f for f in worker_schema.fields}
+            session_fields = {f.name: f for f in session_schema.fields}
+            for name in worker_fields.keys() & session_fields.keys():
+                wf = worker_fields[name]
+                sf = session_fields[name]
+                assert wf.type == sf.type, (
+                    f"{worker_schema.tool_name}.{name} type {wf.type!r} != "
+                    f"{session_schema.tool_name}.{name} type {sf.type!r}"
+                )
+                assert wf.required == sf.required, (
+                    f"{worker_schema.tool_name}.{name} required={wf.required} != "
+                    f"{session_schema.tool_name}.{name} required={sf.required}"
+                )
+
+
 class TestCreatedByRecentSessionRestore:
     """created_by must survive the bulk recent-session restore path too.
 
