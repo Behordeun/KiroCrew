@@ -2835,10 +2835,20 @@ async def api_artifact_folders(request: web.Request) -> web.Response:
     return _json_response({"folders": out})
 
 
-def _spawn_artifact_folder_icon_task(request: web.Request, folder_id: str, name: str) -> None:
+def _spawn_artifact_folder_icon_task(
+    request: web.Request, folder_id: str, name: str, *, expected_epoch: int
+) -> None:
     """Fire-and-forget: derive a single-emoji icon for an artifact folder via
     the shared LLM helper (same mechanism as chat-sidebar folders) and store
-    it. Best-effort — any failure leaves the folder with the default glyph."""
+    it. Best-effort — any failure leaves the folder with the default glyph.
+
+    The write-back goes through ``set_icon_if_epoch``, which re-finds the
+    folder, checks the epoch and writes inside ONE critical section under the
+    store lock. So a folder deleted while generation was in flight is never
+    resurrected, and a manual icon set, an icon clear, or a rename that lands
+    while generation is pending wins over the stale generated result.
+    ``expected_epoch`` is the folder's icon epoch as of scheduling time, read
+    by the caller AFTER its own mutation committed (issue #7991)."""
     state = request.app.get("state")
     if state is None:
         return
@@ -2849,8 +2859,10 @@ def _spawn_artifact_folder_icon_task(request: web.Request, folder_id: str, name:
             if not icon:
                 return
             fstore = get_default_folder_store()
-            if fstore.exists(folder_id):
-                await _run_off_loop(lambda: fstore.set_icon(folder_id, icon))
+            # No exists() pre-check: it was a TOCTOU gap (the folder could go
+            # away, or its icon change, between the check and the write) and
+            # set_icon_if_epoch subsumes it by re-finding under the lock.
+            await _run_off_loop(lambda: fstore.set_icon_if_epoch(folder_id, icon, expected_epoch))
         except Exception:  # noqa: BLE001 — best-effort background task
             logger.debug("artifact folder icon generation failed for %s", folder_id, exc_info=True)
 
@@ -2904,7 +2916,11 @@ async def api_artifact_folder_create(request: web.Request) -> web.Response:
         _audit(tool="artifact_folder_create", request=request, outcome="error", error=str(exc))
         return _err(str(exc), status=500)
     # Derive an emoji icon from the name in the background (chat-folder parity).
-    _spawn_artifact_folder_icon_task(request, folder["id"], name)
+    # The epoch is captured after the create committed, so any icon/name
+    # mutation that lands before the generated result invalidates it.
+    _spawn_artifact_folder_icon_task(
+        request, folder["id"], name, expected_epoch=fstore.icon_epoch(str(folder["id"]))
+    )
     _audit(
         tool="artifact_folder_create",
         request=request,
@@ -2989,7 +3005,12 @@ async def api_artifact_folder_update(request: web.Request) -> web.Response:
     # A rename re-derives the emoji icon from the new name (chat-folder
     # parity) — unless this same request set an explicit icon, which wins.
     if "name" in body and "icon" not in body:
-        _spawn_artifact_folder_icon_task(request, fid, str(body["name"]))
+        # Captured after _apply_updates committed, so the rename's own epoch
+        # bump is already reflected here -- only a LATER mutation invalidates
+        # this generation.
+        _spawn_artifact_folder_icon_task(
+            request, fid, str(body["name"]), expected_epoch=fstore.icon_epoch(fid)
+        )
     return _json_response(_serialize_folder(updated, path=fstore.breadcrumb(fid)))
 
 
