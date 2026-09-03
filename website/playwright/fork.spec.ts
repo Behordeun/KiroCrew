@@ -47,7 +47,9 @@ test.describe('Fork Session E2E', { tag: '@needs-agent' }, () => {
     // Fresh chat has nothing older, so a DISABLED fork here would mean the bounded
     // initial fetch regressed normal use rather than this spec drifting again.
     await expect(forkButton).toBeEnabled()
-    await expect(page.getByTestId('assistant-more-actions')).toHaveCount(0)
+    // The overflow trigger is Share's permanent home, so it renders even when
+    // fork is a ROW button; fork itself must not have moved inside it.
+    await expect(page.getByTestId('assistant-more-actions')).toHaveCount(1)
 
     await forkButton.hover()
     // GIF-only pauses: skip in normal CI to keep tests fast.

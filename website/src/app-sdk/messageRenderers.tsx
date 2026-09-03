@@ -22,6 +22,7 @@ import { extractToolFilePath } from '../utils/toolFilePath'
 import { isSafePath } from '../utils/safePath'
 import { isHiddenInvisibleAssistantRow } from '../utils/invisibleText'
 import AssistantMessage, { type TurnStats } from '../pages/chat/AssistantMessage'
+import { prevUserTextFor } from '../pages/chat/share/shareSupport'
 import { type FileChangeEntry } from '../components/FileChangeChips'
 import UserMessage from '../pages/chat/UserMessage'
 import { renderMcpOAuthMessage } from '../pages/chat/McpOAuthBanner'
@@ -287,6 +288,7 @@ export const defaultMessageRenderers: readonly MessageRenderer[] = [
         <div className="flex flex-col gap-0">
           <AssistantMessage
             content={m.content}
+            prevUserText={prevUserTextFor(ctx.messages, ctx.index)}
             isStreaming={isStreaming}
             timestamp={formatTs(m.ts)}
             timestampTitle={fmtMessageTimeFull(m.ts)}
