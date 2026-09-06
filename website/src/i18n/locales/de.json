@@ -6570,6 +6570,7 @@
       "no_results": "Keine Ergebnisse",
       "open_artifact": "Artefakt {{name}} öffnen",
       "open_as_artifact": "Als Artefakt öffnen",
+      "open_in_editor": "Im Editor öffnen",
       "open_in_file_explorer": "Im Explorer öffnen",
       "open_in_finder": "Im Finder öffnen",
       "open_with_default_app": "Mit Standardanwendung öffnen",

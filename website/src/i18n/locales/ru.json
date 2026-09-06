@@ -6774,6 +6774,7 @@
       "no_results": "Ничего не найдено",
       "open_artifact": "Открыть артефакт {{name}}",
       "open_as_artifact": "Открыть как артефакт",
+      "open_in_editor": "Открыть в редакторе",
       "open_in_file_explorer": "Открыть в проводнике",
       "open_in_finder": "Открыть в Finder",
       "open_with_default_app": "Открыть в приложении по умолчанию",

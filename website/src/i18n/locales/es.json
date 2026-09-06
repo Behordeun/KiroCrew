@@ -6672,6 +6672,7 @@
       "no_results": "Sin resultados",
       "open_artifact": "Abrir el artefacto {{name}}",
       "open_as_artifact": "Abrir como artefacto",
+      "open_in_editor": "Abrir en el editor",
       "open_in_file_explorer": "Abrir en el Explorador de archivos",
       "open_in_finder": "Abrir en Finder",
       "open_with_default_app": "Abrir con la aplicación predeterminada",
