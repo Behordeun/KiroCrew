@@ -134,7 +134,7 @@ Settings → Overview; the graph visualizer is a Developer internals view.
 | Embeddings | Enable the vector store and pick its model | Memory browser → vector card | `pages/overview/VectorMemoryCard.tsx` | `handlers/memory.py` | `GET /api/memory/embedding-status`, `POST /api/memory/enable-embeddings`, `POST /api/memory/embedding-model` |
 | Memory graph | Entity/relation visualizer over the memory store | `/developer?tab=memory` | `pages/overview/MemoryGraphTab.tsx` | `handlers/memory.py` | `GET /api/memory/graph`, `GET /api/memory/observability` |
 | Usage | Token and turn usage over time | `/settings/overview?view=usage` | `pages/overview/UsageTab.tsx` | `handlers/usage.py`, `handlers/telemetry.py` | `GET /api/usage`, `GET /api/usage/kiro`, `GET /api/usage/turns` |
-| WakaTime billable-hours export | Project-grouped hours over a date range as a CSV download for invoicing; the productivity view and stats read-back ship separately | API only | — | `handlers/wakatime.py` | `GET /api/wakatime/export` |
+| WakaTime coding stats and export | Aggregate coding stats for a named range, and project-grouped hours over a date range as a CSV download or JSON, for the productivity view and billable-hours invoicing; the productivity view UI that consumes these ships separately | API only | — | `handlers/wakatime.py` | `GET /api/wakatime/stats`, `GET /api/wakatime/export` |
 | Portability | Export and import the whole memory/config bundle | `/settings/imports` | `pages/overview/PortabilityTab.tsx` | `handlers/portability.py` | `GET /api/portability/export`, `POST /api/portability/import`, `POST /api/portability/preview` |
 
 ## Schedules and loops

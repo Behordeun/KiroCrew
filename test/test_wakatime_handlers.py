@@ -26,9 +26,11 @@ class _StubClient:
         self,
         *,
         summaries: list | None = None,
+        stats: dict | None = None,
         fail: bool = False,
     ) -> None:
         self._summaries = summaries or []
+        self._stats = stats or {}
         self._fail = fail
         self.closed = False
 
@@ -39,12 +41,20 @@ class _StubClient:
             raise WakaTimeUnavailableError("stub: summaries request failed")
         return self._summaries
 
+    async def fetch_stats(self, wakatime_range: str = "last_7_days") -> dict:
+        if self._fail:
+            from kiro_crew.wakatime import WakaTimeUnavailableError
+
+            raise WakaTimeUnavailableError("stub: stats request failed")
+        return self._stats
+
     async def close(self) -> None:
         self.closed = True
 
 
 def _app() -> web.Application:
     app = web.Application()
+    app.router.add_get("/api/wakatime/stats", wt.api_wakatime_stats)
     app.router.add_get("/api/wakatime/export", wt.api_wakatime_export)
     return app
 
@@ -73,6 +83,69 @@ async def test_export_csv_groups_by_project() -> None:
     assert lines[1].startswith("oneka,1.5,5400")
     assert lines[2].startswith("noscere,0.5,1800")
     assert stub.closed is True
+
+
+async def test_stats_returns_payload_when_configured() -> None:
+    stub = _StubClient(stats={"languages": [{"name": "Python", "total_seconds": 3600}]})
+    with patch.object(wt_service, "build_client", return_value=stub):
+        async with TestClient(TestServer(_app())) as client:
+            resp = await client.get("/api/wakatime/stats?range=last_7_days")
+            assert resp.status == 200
+            data = await resp.json()
+    assert data == {
+        "configured": True,
+        "range": "last_7_days",
+        "stats": {"languages": [{"name": "Python", "total_seconds": 3600}]},
+    }
+    assert stub.closed is True
+
+
+async def test_stats_empty_state_when_unconfigured() -> None:
+    with patch.object(wt_service, "build_client", return_value=None):
+        async with TestClient(TestServer(_app())) as client:
+            resp = await client.get("/api/wakatime/stats")
+            assert resp.status == 200
+            assert await resp.json() == {"configured": False}
+
+
+async def test_stats_rejects_unknown_range() -> None:
+    with patch.object(wt_service, "build_client", return_value=_StubClient()):
+        async with TestClient(TestServer(_app())) as client:
+            resp = await client.get("/api/wakatime/stats?range=all_time")
+            assert resp.status == 400
+            assert (await resp.json())["code"] == "invalid_range"
+
+
+async def test_stats_returns_502_when_upstream_fails() -> None:
+    stub = _StubClient(fail=True)
+    with patch.object(wt_service, "build_client", return_value=stub):
+        async with TestClient(TestServer(_app())) as client:
+            resp = await client.get("/api/wakatime/stats?range=last_7_days")
+            assert resp.status == 502
+            assert (await resp.json())["code"] == "upstream_unavailable"
+
+
+async def test_export_json_format() -> None:
+    summaries = [{"projects": [{"name": "oneka", "total_seconds": 7200}]}]
+    with patch.object(wt_service, "build_client", return_value=_StubClient(summaries=summaries)):
+        async with TestClient(TestServer(_app())) as client:
+            resp = await client.get(
+                "/api/wakatime/export?start=2026-09-01&end=2026-09-02&format=json"
+            )
+            assert resp.status == 200
+            data = await resp.json()
+    assert data["configured"] is True
+    assert data["projects"] == [{"project": "oneka", "seconds": 7200.0, "hours": 2.0}]
+
+
+async def test_export_rejects_bad_format() -> None:
+    with patch.object(wt_service, "build_client", return_value=_StubClient()):
+        async with TestClient(TestServer(_app())) as client:
+            resp = await client.get(
+                "/api/wakatime/export?start=2026-09-01&end=2026-09-02&format=pdf"
+            )
+            assert resp.status == 400
+            assert (await resp.json())["code"] == "invalid_format"
 
 
 async def test_export_rejects_bad_date() -> None:
