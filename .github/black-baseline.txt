@@ -185,7 +185,6 @@ src/kiro_crew/connections/l0_probe.py
 src/kiro_crew/connections/l0_record.py
 src/kiro_crew/connections/registry.py
 src/kiro_crew/connections/tool_aliases.py
-src/kiro_crew/context_management.py
 src/kiro_crew/crew_chat.py
 src/kiro_crew/cron_history.py
 src/kiro_crew/dashboard/cautious_boot.py
@@ -331,7 +330,6 @@ src/kiro_crew/pod/unit.py
 src/kiro_crew/publish_governance.py
 src/kiro_crew/publish_sync.py
 src/kiro_crew/resource_status.py
-src/kiro_crew/safety_override.py
 src/kiro_crew/security.py
 src/kiro_crew/seed.py
 src/kiro_crew/sel.py
@@ -525,7 +523,6 @@ test/test_cloud_ec2.py
 test/test_cloud_handlers.py
 test/test_cloud_launch_job.py
 test/test_collection_status_endpoint.py
-test/test_completion_result_read_off_loop.py
 test/test_computer_use_apps.py
 test/test_computer_use_overlay.py
 test/test_computer_use_skylight.py
@@ -578,7 +575,6 @@ test/test_cse_2026_08_07_fixes.py
 test/test_custom_embedding_model.py
 test/test_dashboard.py
 test/test_dashboard_approval.py
-test/test_dashboard_approval_window.py
 test/test_dashboard_branding.py
 test/test_dashboard_config_gitlab_hosts.py
 test/test_dashboard_cron_approval.py

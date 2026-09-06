@@ -943,7 +943,7 @@ def _mentions_skill_file(raw_params: dict | None, command: str | None) -> bool:
 # security filter cancels every tool use in an assistant turn (e.g. shell commands
 # containing "credentials").  After this text kiro-cli returns to an idle state waiting
 # for the next user prompt and NEVER sends a ``complete`` response for the in-flight
-# ``session/prompt`` — so without special handling KiroCrew waits the full 2h timeout.
+# ``session/prompt`` — so without special handling Kiro Crew waits the full prompt timeout.
 # Treating this chunk as end-of-turn unblocks the caller; the text itself is still
 # yielded so the user/agent sees what happened.  We use an exact (stripped) match so
 # the detection does not fire if the model merely quotes the marker string in prose.
@@ -1015,7 +1015,7 @@ _DRAIN_DURATION = 1.0  # hard cap on draining MCP server init notifications
 # active server. Must stay strictly below _DRAIN_DURATION, otherwise the hard cap
 # fires first and the idle path becomes dead code.
 _DRAIN_IDLE_EXIT = 0.5
-_DEFAULT_PROMPT_TIMEOUT = 7200.0  # 2 hours — allow very long tool execution
+_DEFAULT_PROMPT_TIMEOUT = 14400.0  # 4 hours — mirrors constants.CHAT_TURN_TIMEOUT
 # Slack the transport leaves ABOVE the configured turn ceiling. The dashboard's
 # own deadline (turn_dispatch._bounded_turn) must always fire first so the user
 # sees the "turn hit the N-hour limit" card; a transport cut at the same instant
@@ -1042,7 +1042,7 @@ def prompt_timeout_for_ceiling(configured: float) -> float:
 
 
 def resolve_prompt_timeout() -> float:
-    """Per-prompt transport timeout, honouring the configured turn ceiling.
+    """Per-prompt transport timeout, honouring every deadline layered above it.
 
     ``agent.chat_turn_timeout_secs`` may be raised above
     :data:`_DEFAULT_PROMPT_TIMEOUT` (up to the loader's ``CHAT_TURN_TIMEOUT_MAX``)
@@ -1050,6 +1050,15 @@ def resolve_prompt_timeout() -> float:
     dashboard's ceiling — otherwise the transport cuts the turn first and the
     larger configured value is a limit the system does not honour (the exact
     dishonesty ``turn_dispatch.chat_turn_timeout_secs`` clamps against).
+
+    This ONE wait is shared by every prompt dispatch, so it bounds against the
+    LARGEST such deadline rather than the turn ceiling alone.
+    ``agent.subagent_timeout_secs`` is the other one: a subagent's outer
+    ``asyncio.wait_for`` runs on that value while its prompt runs on this wait,
+    so a transport cut below it kills a healthy subagent early and reports a
+    transport failure rather than the deadline the operator configured. ``0``
+    there is the "use the default" sentinel, resolved the same way the manager
+    resolves it.
 
     Never returns less than :data:`_DEFAULT_PROMPT_TIMEOUT`: a LOWERED turn
     ceiling is enforced by the dashboard's own deadline, and shrinking the
@@ -1061,8 +1070,11 @@ def resolve_prompt_timeout() -> float:
     """
     try:
         from kiro_crew.config.loader import KiroCrewConfig
+        from kiro_crew.constants import SUBAGENT_TIMEOUT_SECS
 
-        configured = float(KiroCrewConfig.load().agent.chat_turn_timeout_secs)
+        agent = KiroCrewConfig.load().agent
+        subagent = float(agent.subagent_timeout_secs) or float(SUBAGENT_TIMEOUT_SECS)
+        configured = max(float(agent.chat_turn_timeout_secs), subagent)
     except Exception:
         logger.debug("turn-ceiling config unavailable; transport keeps default", exc_info=True)
         return _DEFAULT_PROMPT_TIMEOUT
@@ -3139,18 +3151,29 @@ class AcpClient:
     def _codex_session_mcp_servers(self) -> list:
         """MCP server array passed to a codex ``session/new`` / ``session/load``.
 
-        The codex twin of :meth:`_claude_session_mcp_servers`, still ``[]``: codex is
-        in ``ACP_BACKENDS_KNOWN`` but not in ``BASELINE_SELECTABLE_BACKENDS``, so no
-        public build offers it and there is no session to give tools to yet. The
-        registry in :mod:`kiro_crew.providers.mirrors` records that as codex's
-        declared state rather than leaving the omission unexplained; when an edition
-        registers a codex provider, the mirror it needs goes in that folder beside
-        claude's and this hook returns it.
+        The codex twin of :meth:`_claude_session_mcp_servers`, still ``[]`` -- and
+        codex IS in ``BASELINE_SELECTABLE_BACKENDS``, so this is a state a plain
+        public build reaches TODAY, not a dormant seam. Nothing is PROJECTED onto a
+        codex session: the only entries it gets are the pooled broker stubs
+        ``_pooled_mcp_servers`` appends for every backend alike, empty when the
+        shared gateway is off. So Crew's own control plane -- ``kirocrew-core``,
+        ``kirocrew-cron`` -- is never projected here, but it is NOT thereby absent:
+        a stub the overlay wrapped still mounts, which makes the gateway rather than
+        this hook the thing that decides. With the gateway off, a codex session has
+        no MCP tools at all.
 
-        An edition overriding this must drop any entry whose transport the adapter
-        does not advertise. codex-acp answers ``session/new`` with ``-32602`` for
-        an unsupported transport rather than skipping that one server, so a single
-        bad entry costs the whole session.
+        It stays ``[]`` because no projection has been written and the shape this
+        adapter accepts is unverified, NOT because nobody can reach it. The registry
+        in :mod:`kiro_crew.providers.mirrors` records that as codex's declared state
+        rather than leaving the omission unexplained; when the mirror is written it
+        goes in that folder beside claude's and this hook returns it.
+
+        Empty rather than guessed is the fail-safe direction, and the one
+        established constraint is why: codex-acp answers ``session/new`` with
+        ``-32602`` for a transport it does not advertise rather than skipping that
+        one server, so a single bad entry costs the whole session. An edition
+        overriding this must drop any entry whose transport the adapter does not
+        advertise.
         """
         return []
 
@@ -4358,8 +4381,10 @@ class AcpClient:
                 )
             argv: list[str] = claude_argv
         elif self._is_codex:
-            # Dormant seam — see method docstring. codex-acp takes no argv of its
-            # own: the adapter is spawned bare and driven entirely over the pipe,
+            # Selectable on a public build (BASELINE_SELECTABLE_BACKENDS), so this
+            # branch runs for real users; what is unwritten is the session MCP array
+            # (_codex_session_mcp_servers), not the spawn. codex-acp takes no argv of
+            # its own: the adapter is spawned bare and driven entirely over the pipe,
             # so unlike the kiro branch there is nothing to append. CODEX_PATH is
             # left exactly as the operator set it (the adapter ships its own Codex
             # binary; overriding it is an explicit choice, never a default).
@@ -6411,7 +6436,7 @@ class AcpClient:
           strict improvement on the gateway's Linux deploy target.
         - Subtree-aggregate movement. A busy *unrelated* descendant (e.g. an
           MCP child polling) can read WORKING even if the model turn itself is
-          wedged with a lost completion frame, extending that turn to the 2h
+          wedged with a lost completion frame, extending that turn to the
           ``_DEFAULT_PROMPT_TIMEOUT`` backstop rather than reaping at 90s. This
           is an inherent property of the shared ``LivenessOracle`` (the kiro
           path has it too); tighter per-branch attribution belongs in
@@ -6653,7 +6678,7 @@ class AcpClient:
                     if not is_thinking and _is_tool_interrupted_marker(chunk):
                         # kiro-cli's built-in security filter cancelled the turn's tools.
                         # It will not send a ``complete`` response — synthesize one so the
-                        # caller exits instead of waiting 2 hours for the prompt timeout.
+                        # caller exits instead of waiting out the prompt timeout.
                         # (_emit_tool_interrupted_sel logs + audits the cancellation.)
                         self._emit_tool_interrupted_sel("_dispatch_events")
                         got_complete = True

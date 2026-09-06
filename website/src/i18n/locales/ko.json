@@ -125,7 +125,12 @@
       "streaming": "스트리밍 중"
     },
     "chatMessageList": {
-      "open_path": "{{path}} 열기"
+      "copied": "복사했습니다!",
+      "copy": "복사",
+      "copy_failed": "복사 실패",
+      "open_path": "{{path}} 열기",
+      "show_less": "간략히 보기",
+      "show_more": "더 보기"
     }
   },
   "apps": {
@@ -4736,7 +4741,6 @@
         "keys_count_other": "키 {{count}}개",
         "keys_for_account": "{{name}}의 키",
         "key_healthy": "정상",
-        "key_failed": "실패",
         "parent_folders": "상위 폴더",
         "folder_actions": "폴더 작업",
         "file_actions": "파일 작업",
@@ -4788,7 +4792,6 @@
         "search_files": "파일 이름 또는 경로로 검색…",
         "search_clear": "검색 지우기",
         "search_pending": "검색 중…",
-        "search_no_results": "‘{{query}}’과(와) 일치하는 파일이 없습니다.",
         "search_capped": "일치 항목이 너무 많아 첫 {{count}}개만 표시합니다.",
         "search_failed": "검색에 실패했습니다. 다시 시도하세요.",
         "search_goto": "포함 폴더 열기",
@@ -4803,7 +4806,13 @@
         "move_root": "파일(최상위)",
         "move_up": "상위 {{name}}(으)로",
         "move_no_folders": "여기에는 이동할 다른 폴더가 없습니다. 먼저 폴더를 만드세요.",
-        "move_moving": "이동 중…"
+        "move_moving": "이동 중…",
+        "stat_storage": "스토리지",
+        "stat_objects": "객체",
+        "key_needs_attention": "확인 필요",
+        "backup_state_current": "백업됨",
+        "backup_state_never": "실행 안 됨",
+        "costs_refresh_failed": "최신 청구액 읽기에 실패했습니다. 표시된 값은 캐시된 수치입니다."
       },
       "page": {
         "totals_summary": "계정 {{accounts}}개 · 키 {{keys}}개 중 {{healthy}}개 정상",
@@ -4848,9 +4857,16 @@
         "add_accounts_error": "해당 프로필을 등록할 수 없습니다. 아무것도 추가되지 않았습니다. 다시 시도하세요.",
         "add_accounts_load_error": "로컬 AWS 프로필을 나열하지 못했습니다.",
         "search_placeholder": "계정 검색",
-        "search_none": "‘{{query}}’과(와) 일치하는 계정이 없습니다.",
         "paid_services_title": "유료 서비스",
-        "orphan_consent": "여기에 등록되지 않은 AWS 계정에 대해 확인되었습니다. 아래에서 확인을 철회하거나, 해당 계정을 다시 등록해 전용 페이지에서 관리하세요."
+        "orphan_consent": "여기에 등록되지 않은 AWS 계정에 대해 확인되었습니다. 아래에서 확인을 철회하거나, 해당 계정을 다시 등록해 전용 페이지에서 관리하세요.",
+        "account_actions": "계정 작업",
+        "remove_account": "AWS Control에서 제거…",
+        "remove_account_action": "제거",
+        "remove_account_confirm": "‘{{name}}’을(를) AWS Control에서 제거하시겠습니까? AWS나 AWS CLI 구성은 아무것도 바뀌지 않습니다.",
+        "remove_account_error": "계정을 제거할 수 없습니다.",
+        "remove_account_hint": "AWS에서는 아무것도 바뀌지 않습니다",
+        "forget_key_confirm": "이 행의 키 ‘{{name}}’을(를) 잊으시겠습니까? AWS나 AWS CLI 구성은 아무것도 바뀌지 않습니다.",
+        "forget_key_action": "키 잊기"
       },
       "rail": {
         "accounts": "계정 및 자격 증명",
@@ -4858,6 +4874,35 @@
         "switch_account": "계정 전환",
         "usage": "사용량 및 비용",
         "use_account": "이 계정 사용"
+      },
+      "overview": {
+        "title": "개요",
+        "subtitle": "에이전트가 사용할 수 있는 계정, 키, 클라우드 드라이브, 유료 서비스를 한곳에서 관리합니다.",
+        "stat_accounts": "계정",
+        "stat_accounts_attention_other": "{{count}}개 확인 필요",
+        "stat_accounts_all_ok": "모두 정상",
+        "stat_keys": "키 정상",
+        "stat_keys_sub_other": "키 {{count}}개 등록됨",
+        "stat_drive": "드라이브 사용량",
+        "stat_drive_none": "드라이브 없음",
+        "stat_spend": "이번 달 누적",
+        "stat_spend_consent": "비용 보고 꺼짐",
+        "stat_shares_none": "공유 없음",
+        "stat_shares_sub_other": "활성 링크 {{count}}개",
+        "stat_backups_nightly": "매일 밤",
+        "stat_backups_manual": "수동",
+        "stat_backups_sub_nightly": "매일 밤 실행",
+        "stat_backups_sub_manual": "일정 없음",
+        "accounts_title": "계정",
+        "accounts_note": "에이전트는 이 키를 사용하지만 키 자체를 보지는 않습니다. 키의 내용은 채팅에 나타나지 않습니다.",
+        "add_account": "계정 추가",
+        "drive_title": "클라우드 드라이브",
+        "drive_bar_label": "{{size}} 저장됨. 파일, 아티팩트 라이브러리, 백업에 나뉘어 있습니다.",
+        "drive_empty_title": "클라우드 드라이브 없음",
+        "drive_empty_body": "이 계정에 비공개 암호화 버킷 하나를 만들어 파일, 아티팩트 라이브러리, 백업을 저장하세요.",
+        "drive_setup": "클라우드 드라이브 설정",
+        "drive_bucket_label": "버킷",
+        "stat_spend_scope": "이 계정의 AWS 청구액"
       }
     }
   },
@@ -4956,10 +5001,15 @@
       "cancel": "취소",
       "customize": "맞춤 설정…",
       "customized_note": "맞춤 얼굴 사용 중",
+      "expr_hint": "각 순간마다 다른 얼굴과 소리를 고르세요.",
+      "expr_picture_note": "사진은 바뀔 얼굴이 없으므로 소리만 적용됩니다.",
+      "expr_reset_state": "초기화",
+      "expr_sound": "소리",
       "field_hint": "이 멤버가 나타나는 모든 곳에 표시되는 얼굴.",
       "field_label": "아바타",
       "image_load_failed": "저장된 사진을 불러올 수 없어 기본 얼굴을 표시합니다.",
       "mirror": "좌우 반전",
+      "mode_expressions": "표정",
       "mode_face": "고스트 꾸미기",
       "mode_picture": "사진",
       "opt_angry": "화난 눈썹",
@@ -4991,6 +5041,7 @@
       "opt_party": "파티 모자",
       "opt_phones": "헤드폰",
       "opt_raised": "올라간 눈썹",
+      "opt_same_as_idle": "평소와 같음",
       "opt_sleepy": "졸린 눈",
       "opt_smile": "미소",
       "opt_smirk": "히죽 웃음",
@@ -5007,6 +5058,16 @@
       "opt_wrench": "렌치",
       "randomize": "랜덤",
       "reset_default": "기본 얼굴로 재설정",
+      "sound_blip": "블립",
+      "sound_chime": "차임",
+      "sound_ding": "딩",
+      "sound_pop": "팝",
+      "sound_preview": "이 소리 듣기",
+      "sound_pulse": "펄스",
+      "sound_silent": "소리 없음",
+      "state_done": "완료",
+      "state_error": "실패",
+      "state_working": "작업 중",
       "tile_amber": "호박색",
       "tile_bronze": "청동색",
       "tile_coral": "산호색",
@@ -5432,6 +5493,9 @@
       "could_not_submit_that_decision_see_the_console_f": "해당 결정을 제출하지 못했습니다 — 자세한 내용은 콘솔을 확인하세요.",
       "detached_head_at": "{{branch}}에서 HEAD가 분리되었습니다",
       "drag_to_resize_double_click_to_reset": "드래그하여 크기 조절 (더블클릭하면 초기화)",
+      "collapse_composer": "메시지 입력 접기",
+      "collapse_composer_desc": "답변에 공간을 주기 위해 입력창을 숨깁니다; 임시 작성 내용은 유지됩니다",
+      "expand_composer": "메시지 입력 표시",
       "file": "파일",
       "force_kill_discards_in_progress_work_and_queued": "강제 종료 — 진행 중인 작업과 대기 중인 메시지를 버립니다",
       "force_kill_session_discards_in_progress_work_and": "세션 강제 종료 (진행 중인 작업과 대기 중인 메시지를 버립니다)",
@@ -5513,7 +5577,8 @@
       "sketch": "스케치",
       "sketch_desc": "스케치를 그리기. 이미지와 편집 가능한 원본을 첨부합니다",
       "optimize_failed": "프롬프트를 최적화할 수 없습니다. 원래 텍스트를 복원했습니다.",
-      "optimize_failed_elsewhere": "다른 세션에서 시작한 프롬프트를 최적화할 수 없습니다. 원래 텍스트는 해당 세션에 복원되었습니다."
+      "optimize_failed_elsewhere": "다른 세션에서 시작한 프롬프트를 최적화할 수 없습니다. 원래 텍스트는 해당 세션에 복원되었습니다.",
+      "more_actions": "추가 작업"
     },
     "chatPane": {
       "agent_list": "에이전트 목록",
@@ -5583,7 +5648,6 @@
         },
         "pagesProvider": {
           "developer": "개발자",
-          "hooks": "훅",
           "kirocrew_agents": "{{productName}} 에이전트",
           "logs": "로그",
           "pages": "페이지",
@@ -6392,6 +6456,9 @@
       "zoom_out": "축소 (-)",
       "click_to_browse_shift_click_to_copy_path": "클릭하여 찾아보기 / Shift+클릭하여 경로 복사",
       "click_to_open_shift_click_to_copy_path": "클릭하여 열기 / Shift+클릭하여 경로 복사",
+      "copy_diagram_source": "다이어그램 소스 복사",
+      "diagram_source": "다이어그램 소스",
+      "copy_failed": "복사 실패",
       "mermaid_render_failed": "이 다이어그램을 렌더링할 수 없습니다. 대신 소스를 표시합니다."
     },
     "markdownToc": {
@@ -7660,7 +7727,12 @@
       "status_failed": "확인 상태를 읽지 못했습니다.",
       "confirm_failed": "확인이 기록되지 않았습니다.",
       "withdraw_failed": "확인이 취소되지 않았습니다.",
-      "retry": "다시 시도"
+      "retry": "다시 시도",
+      "badge_confirmed": "확인됨",
+      "badge_not_enabled": "사용 안 함",
+      "confirmed_on": "{{date}}에 확인됨",
+      "billing_notice_short": "요금이 발생합니다. 확인하기 전에는 아무것도 전송되지 않습니다.",
+      "withdraw_effect": "철회하면 다시 확인할 때까지 에이전트가 이 서비스를 사용하지 않습니다."
     },
     "confirmDialog": {
       "cancel": "취소"
@@ -7785,6 +7857,9 @@
       "confirm_discard": "그림 삭제",
       "already_attached": "첨부됨 — 캔버스를 편집하면 다시 스케치할 수 있습니다",
       "load_failed": "스케치 패드를 불러오지 못했습니다. 연결을 확인하고 다시 열어 주세요"
+    },
+    "pinSurfaceButton": {
+      "pin_limit_reached": "사이드바 고정은 최대 {{n}}개입니다 - 먼저 하나를 해제하세요"
     }
   },
   "hooks": {
@@ -9173,7 +9248,10 @@
         "pin_message": "Pin message",
         "unpin_message": "Unpin message",
         "copied": "복사되었습니다",
-        "copy_failed": "복사하지 못했습니다"
+        "copy_failed": "복사하지 못했습니다",
+        "steering": "추가하는 중…",
+        "redirecting_the_running_turn_not_yet_confirmed": "실행 중인 턴을 리디렉션하는 중 — 아직 확인되지 않았습니다.",
+        "turn_ended_before_this_applied_runs_as_its_own_message": "적용되기 전에 턴이 종료되어 별도의 메시지로 실행됩니다."
       },
       "workflowCompletionCard": {
         "hide_result": "결과 숨기기",
@@ -9575,7 +9653,6 @@
       "show": "표시",
       "show_all_folders": "모든 폴더 표시",
       "show_all_older_sessions": "이전 세션 모두 보기",
-      "show_collapsed_folders": "접힌 폴더 표시:",
       "show_folder": "폴더 표시",
       "show_hidden_folder_other": "숨긴 폴더 {{count}}개 표시",
       "show_in_flat_view": "플랫 보기에 {{name}} 표시",
@@ -10022,8 +10099,8 @@
       },
       "featurePreviewsTab": {
         "chat_on_a_crew": "crew에서 채팅",
-        "chat_on_a_crew_desc": "만들기 메뉴에 “New chat on crew”를 추가합니다. 연결된 crew에서 실행되는 세션을 시작합니다. 미완성입니다: 해당 crew의 자체 창에서 열리며, crew에서 실행 중인 세션은 아직 여기에 표시되지 않습니다.",
-        "crew": "Crew",
+        "chat_on_a_crew_desc": "만들기 메뉴에 “New chat on crew”를 추가합니다. 원격 인스턴스, 즉 설정 > 원격 인스턴스에서 연결한 다른 컴퓨터에서 세션을 시작합니다. 미완성입니다: 세션은 해당 인스턴스의 자체 창에서 열리며 이 대시보드의 세션 목록에는 아직 표시되지 않으므로, 나중에 돌아가려면 해당 인스턴스의 창으로 전환하세요.",
+        "crew": "크루 멤버 및 Crew Mode",
         "inbound_webhook_tokens_registered_contexts_and_r": "수신 웹훅 토큰, 등록된 컨텍스트, 실행 기록입니다. API는 동작하지만 페이지는 아직 완성되지 않았습니다.",
         "open_webhooks": "Webhooks 열기",
         "the_crew_members_page_and_crew_mode_chats_both_a": "크루 멤버 페이지와 Crew Mode 채팅입니다. 둘 다 아직 개발 중이므로 이 옵션을 켜기 전에는 표시되지 않습니다.",
@@ -10032,6 +10109,7 @@
     },
     "developerPage": {
       "developer": "개발자",
+      "feature_previews_moved": "기능 미리 보기가 설정 > 개발자로 이동했습니다",
       "tabs": {
         "agentBackend": {
           "description": "새 세션이 시작할 에이전트 — Kiro CLI, Claude Code 또는 KAS",
@@ -10048,10 +10126,6 @@
         "debugTools": {
           "label": "디버그 도구",
           "description": "앱 내부 동작을 실제 기기에서 그대로 보여 주는 오버레이입니다."
-        },
-        "featurePreviews": {
-          "description": "아직 출시되지 않은 기능과 페이지입니다. 여기서 켜기 전에는 사이드바와 전체 검색에 표시되지 않습니다. 이 기기에만 적용되며, 의도적으로 미완성 상태입니다.",
-          "label": "기능 미리 보기"
         },
         "logs": {
           "description": "레벨 필터와 검색을 지원하는 실시간 로그 뷰어",
@@ -10256,6 +10330,10 @@
       "session_color_hint": "이 에이전트가 시작한 세션은 세션 자체 색상이 없으면 이 색상을 사용합니다. 변경하면 해당 세션이 다시 착색됩니다. 에이전트 색상을 사용하지 않으려면 비워 두세요.",
       "session_color_hex": "세션 색상 16진수 값",
       "session_color_clear": "지우기",
+      "discard_unsaved_changes": "저장하지 않은 변경 사항을 취소하시겠어요?",
+      "discard_unsaved_body": "이 크루에는 저장되지 않은 편집 내용이 있습니다. 지금 닫으면 삭제됩니다.",
+      "discard_confirm": "변경 사항 취소",
+      "discard_also_crew_edits": "이 크루의 다른 저장되지 않은 편집 내용도 함께 삭제됩니다.",
       "editor_options_load_failed": "크루 편집기의 워크스페이스, 템플릿, 메모리 저장소 옵션을 불러올 수 없습니다."
     },
     "knowledge": {
@@ -10844,7 +10922,7 @@
         "session_timeout": "세션 타임아웃",
         "subagent_settings": "서브에이전트 설정",
         "takes_effect_on_next_session_range_60_86400s": "다음 세션부터 적용됩니다. 범위: 60–86400초.",
-        "tool_call_budget_per_subagent_1_200_default_100": "서브에이전트당 도구 호출 예산 (1–200). 기본값: 100.",
+        "tool_call_budget_per_subagent_1_1000_default_100": "서브에이전트당 도구 호출 예산 (1–1000). 기본값: 100.",
         "used_by": "사용처",
         "using_global_memory_settings": "전역 메모리 설정 사용 중",
         "using_legacy_mode_agent_default_agent_as_agent_t": "레거시 모드 사용 중 — agent.default_agent를 에이전트 템플릿으로 사용",
@@ -12304,6 +12382,8 @@
       "developerPanel": {
         "developer_mode": "개발자 모드",
         "developer_tools": "개발자 도구",
+        "feature_previews": "기능 미리 보기",
+        "feature_previews_desc": "아직 출시되지 않은 기능과 페이지입니다. 여기서 켜기 전에는 페이지가 사이드바와 전체 검색에 표시되지 않지만, 아래 스위치 자체는 설정 검색에서 찾을 수 있습니다. 이 기기에만 적용되며, 의도적으로 미완성 상태입니다.",
         "gateway": "게이트웨이",
         "open_developer_page": "개발자 페이지 열기",
         "run_a_local_gateway": "로컬 게이트웨이 실행",
@@ -13800,7 +13880,44 @@
       "driving_none": "현재 구동 중인 세션이 없습니다.",
       "driving_idle": "유휴",
       "driving_show_all": "모두 보기({{count}})",
-      "driving_show_less": "접기"
+      "driving_show_less": "접기",
+      "patrol_title": "자동 순찰",
+      "patrol_active": "순찰 중",
+      "patrol_interval": "간격",
+      "patrol_cycles": "웨이크 횟수",
+      "patrol_cycles_unlimited": "{{n}} · 상한 없음",
+      "patrol_cycles_of": "{{max}}회 중 {{n}}회",
+      "patrol_last_wake": "마지막 웨이크",
+      "patrol_next_wake": "다음 웨이크",
+      "patrol_instruction": "지시",
+      "patrol_stopped": "순찰이 중지되었습니다.",
+      "patrol_stopped_manual": "수동으로 일시 중지되었습니다.",
+      "patrol_stopped_cycle_cap": "웨이크 상한에 도달했습니다.",
+      "patrol_stopped_runtime_budget": "시간 예산에 도달했습니다.",
+      "patrol_stopped_approval_stalled": "이 대화에서 도구 승인을 기다리다 중지되었습니다.",
+      "patrol_last_wake_ago": "마지막 웨이크 {{when}}",
+      "patrol_none": "예정된 순찰이 없습니다.",
+      "patrol_error": "이 멤버의 순찰 상태를 불러오지 못했습니다.",
+      "patrol_error_roster": "멤버 목록의 순찰 상태를 불러오지 못했습니다.",
+      "patrol_badge": "순찰 중 · {{cycle}}",
+      "patrol_badge_stopped": "순찰 중지됨",
+      "patrol_next_in": "{{time}} 후 예정",
+      "wake_patrol_every": "{{every}}마다",
+      "filter_starred": "즐겨찾기",
+      "filter_starred_description": "즐겨찾기한 멤버만 표시",
+      "filter_source_mine": "내가 만든",
+      "filter_source_builtin": "기본 제공",
+      "filter_source_package": "패키지 제공",
+      "filters_hide_all": "현재 필터로 모든 멤버가 숨겨졌습니다.",
+      "filters_clear": "필터 지우기",
+      "star": "{{name}} 즐겨찾기",
+      "unstar": "{{name}} 즐겨찾기 해제",
+      "star_failed_title": "즐겨찾기가 저장되지 않음",
+      "star_failed": "이 멤버의 즐겨찾기를 업데이트할 수 없습니다.",
+      "filter_source_mine_description": "크루 관리자에서 직접 만든 크루",
+      "filter_source_builtin_description": "{{productName}}에 기본 포함된 크루",
+      "filter_source_package_description": "기능 패키지로 설치된 크루",
+      "member_count_filtered": "멤버 {{count}}명 중 {{shown}}명"
     }
   },
   "privacyDisclosure": {
@@ -13876,7 +13993,7 @@
         "label": "컴퓨터 사용"
       },
       "developer": {
-        "description": "개발자 모드, 로그, 시스템 메트릭, 진단",
+        "description": "개발자 모드, 기능 미리 보기, 로그, 시스템 메트릭, 진단",
         "label": "개발자"
       },
       "display": {

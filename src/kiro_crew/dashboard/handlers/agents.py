@@ -2730,10 +2730,13 @@ def _roster_avatar(value: object) -> dict:
       one: the pin REFUSES a bad value where masking would destroy a good one, and
       a masked ``file`` makes the per-crew avatar endpoint resolve nothing --
       silently breaking the image.
-    - ``traits`` values are the only user-authored strings here, so they go through
-      ``_roster_mask`` like any other roster string. The renderer resolves an
-      unrecognized trait to absent (``EYES[k] ?? ''``), so a masked trait degrades
-      that axis rather than breaking the face.
+    - ``traits`` values, and the ``eyes``/``mouth`` values of each
+      ``expressions`` state, are the only user-authored strings here, so they go
+      through ``_roster_mask`` like any other roster string. The renderer resolves
+      an unrecognized trait to absent (``EYES[k] ?? ''``), so a masked trait
+      degrades that axis rather than breaking the face.
+    - ``sounds`` values are constrained by ``_safe_sounds`` to a shipped preset
+      name, so they are pinned rather than masked -- the same reason ``file`` is.
 
     Honest limit on how far the two rules can be told apart: because
     ``_safe_avatar`` already pins every non-``traits`` leaf to a shape the redactors
@@ -2754,6 +2757,17 @@ def _roster_avatar(value: object) -> dict:
         safe["traits"] = {
             axis: (_roster_mask(val) if isinstance(val, str) else val)
             for axis, val in traits.items()
+        }
+    expressions = safe.get("expressions")
+    if isinstance(expressions, dict):
+        safe = dict(safe)
+        safe["expressions"] = {
+            state: {
+                axis: (_roster_mask(val) if isinstance(val, str) else val)
+                for axis, val in axes.items()
+            }
+            for state, axes in expressions.items()
+            if isinstance(axes, dict)
         }
     return safe
 
@@ -3064,6 +3078,12 @@ async def _do_agents_sync(request: web.Request) -> web.Response:
         # Skip pruning if scan returned nothing -- likely a transient issue.
         # Invariant: for package-sourced entries, kiro_agent == dict key == agent name.
         # ("aim" is also accepted for backward-compat with older configs.)
+        # A STARRED package crew is pruned like any other -- a registry row with
+        # no spec on disk is not spawnable. The star goes with the row: a
+        # reinstalled crew comes back un-starred and one click restores it
+        # (deliberately no parking list -- a permanent config key is not worth
+        # a re-click, and a name-keyed list would pre-star an unrelated future
+        # package that reused the name).
         if discovered_names:
             for name, agent_cfg in list(cfg.agents.items()):
                 if agent_cfg.source in ("package", "aim") and (
@@ -3520,6 +3540,15 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
             return web.json_response(
                 {"error": effort_reason, "code": "invalid_reasoning_effort"}, status=400
             )
+    # Same placement rule as reasoning_effort: validated up here, before the
+    # lock and before any field or avatar-file mutation. A body that pairs a
+    # bad `starred` with an avatar promotion would otherwise move the staged
+    # picture and then 400 without rolling it back. Strictly a bool: a string
+    # "false" from a hand-typed request must not read as truthy and star the crew.
+    if "starred" in body and not isinstance(body["starred"], bool):
+        return web.json_response(
+            {"error": "starred must be a boolean", "code": "invalid_starred"}, status=400
+        )
     async with _get_config_lock():
         cfg = KiroCrewConfig.load()
         if name not in cfg.agents:
@@ -3655,7 +3684,17 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
                         },
                         status=400,
                     )
-                _av = {"kind": "image", "v": stamp, "file": _avatar_pin}
+                # Rebuilt, not mutated, so the record carries exactly the
+                # committed stamp and pin. The per-state keys are validated
+                # input rather than commit output, so they have to be carried
+                # across explicitly -- otherwise saving a sound on a crew that
+                # wears a picture reports success and stores nothing.
+                _av = {
+                    "kind": "image",
+                    "v": stamp,
+                    "file": _avatar_pin,
+                    **{k: v for k, v in _av.items() if k in ("expressions", "sounds")},
+                }
             elif agent.avatar.get("kind") == "image":
                 # Leaving the picture tier: the stored file must not linger
                 # as a silently-retrievable orphan — but only once the config
@@ -3666,6 +3705,10 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
         if "source" in body:
             agent.source = body["source"]
             changed.append("source")
+        if "starred" in body:
+            # Already validated above, before any mutation.
+            agent.starred = body["starred"]
+            changed.append("starred")
         effort_inputs_after = _effort_inputs(agent)
         # The config write is the transaction's point of no return: on
         # failure the orphaned install is removed; on success the commit

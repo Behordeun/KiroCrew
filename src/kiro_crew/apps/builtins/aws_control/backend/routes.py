@@ -8,6 +8,7 @@ Surface (owner-only throughout, see below):
 
 READS
 ``GET /accounts``                              aggregated account list (?refresh=1)
+``GET /profiles/available``                    local profiles, with registered flags
 ``GET /profiles/{name}/reconnect-plan``        what Reconnect can offer, no action
 ``GET /drive/{account}``                       drive presence + cached usage
 ``GET /drive/{account}/list``                  one listing page (?section&path&token)
@@ -21,6 +22,8 @@ READS
 ``GET /iam-policy``                            drive-tier policy JSON (local render)
 
 MUTATIONS (also restricted-session refused + SEL-audited)
+``POST /profiles/register``                    add local profiles to the registry
+``POST /profiles/unregister``                  drop profiles from the registry only
 ``POST /drive/{account}/bootstrap``            create the bucket (two-call confirm)
 ``POST /drive/{account}/upload``               upload one file (?section&key, raw body)
 ``POST /drive/{account}/delete``               delete one object
@@ -752,6 +755,94 @@ async def _handle_profiles_register(request: web.Request) -> web.Response:
     # registered from would keep showing the old set for up to five minutes.
     accounts_mod.invalidate_cache()
     return web.json_response({"added": len(added), "skipped": len(skipped)})
+
+
+async def _handle_profiles_unregister(request: web.Request) -> web.Response:
+    """Drop selected profiles from the registry the portal reads.
+
+    Registry-only, by construction: nothing on this path reaches
+    ``create_aws_profile`` (the module's one ``aws configure`` writer) or the
+    AWS CLI, so ``~/.aws/config``, ``~/.aws/credentials``, and every AWS
+    resource the account holds are untouched. The drive bucket keeps billing
+    until the operator deletes it in AWS; the share, library, and backup
+    ledgers stay because they describe that bucket, not the key, and must
+    render unchanged when the key is registered again.
+
+    Names are validated against the shared profile pattern but NOT against
+    ``discover_aws_profiles``: a profile already deleted from ``~/.aws`` is
+    exactly the stale entry the operator most wants gone.
+
+    Every consent grant naming a removed profile is withdrawn BEFORE the
+    registry entry goes, so a later re-registration under the same name
+    starts unconsented even when the request dies between the two writes: a
+    withdrawal that fails leaves the profile registered and the operator
+    retries, whereas the reverse order would leave an unregistered profile
+    still holding an authorization. A grant re-recorded for the profile after
+    the withdrawal but before the registry write is inert on its own -- every
+    AWS Control call resolves account-to-profile through the registry, and the
+    deploy engine refuses an unregistered profile -- and the operator can see
+    and withdraw it from the usage receipts.
+    """
+    body = await _body(request)
+    raw = body.get("names")
+    if not isinstance(raw, list) or not raw:
+        return _bad_request("names must be a non-empty list", "invalid_names")
+    requested = [str(n) for n in raw][:_MAX_REGISTERED]
+    if any(not aws_consent._PROFILE_RE.match(n) for n in requested):
+        return _bad_request("a profile name is not in the accepted form", "invalid_names")
+
+    targets = set(requested)
+    removed: list[str] = []
+    skipped: list[str] = []
+
+    def _mutate() -> None:
+        with deploy_profiles.locked_registry() as reg:
+            kept: list[dict[str, str]] = []
+            for entry in reg.get("profiles", []):
+                name = str(entry.get("name", ""))
+                if name in targets:
+                    removed.append(name)
+                else:
+                    kept.append(entry)
+            skipped.extend(sorted(targets - set(removed)))
+            reg["profiles"] = kept
+            # The default must keep naming a registered profile: the nightly
+            # backup and the deploy engine both resolve through it.
+            if reg.get("default") not in {str(p.get("name", "")) for p in kept}:
+                reg["default"] = str(kept[0].get("name", "")) if kept else ""
+
+    registered = {
+        str(p.get("name", ""))
+        for p in (await asyncio.to_thread(deploy_profiles.load_registry)).get("profiles", [])
+    }
+    if not targets & registered:
+        # A registry that never held any of the names has nothing to remove;
+        # the names are caller-supplied and are deliberately not echoed.
+        return _not_found("no such registered profile", "unknown_profile")
+
+    withdrawn: list[str] = []
+    for name in sorted(targets & registered):
+        try:
+            withdrawn.extend(await asyncio.to_thread(aws_consent.revoke_for_profile, name))
+        except (OSError, ValueError):
+            # The consent store could not be read (or parsed) or rewritten, so the
+            # profile is left registered rather than removed while a grant it
+            # names may still be on disk. 500, not 502: no AWS call was made, and
+            # the fix is local (the store's file).
+            logger.warning(
+                "consent withdrawal failed for profile %r; profile left registered", name
+            )
+            return web.json_response(
+                {"error": "consent could not be withdrawn", "code": "consent_unwritable"},
+                status=500,
+            )
+    await asyncio.to_thread(_mutate)
+    # Same TTL cache as registration: the page must not show a removed key for
+    # up to five minutes after the operator removed it.
+    accounts_mod.invalidate_cache()
+    return web.json_response(
+        {"removed": len(removed), "skipped": len(skipped), "consentWithdrawn": sorted(withdrawn)}
+    )
 
 
 # --------------------------------------------------------------------------
@@ -2305,6 +2396,10 @@ def register_routes(app: web.Application) -> None:
     r.add_post(
         f"{_BASE}/profiles/register",
         _guarded(_mutating("profiles_register")(_handle_profiles_register)),
+    )
+    r.add_post(
+        f"{_BASE}/profiles/unregister",
+        _guarded(_mutating("profiles_unregister")(_handle_profiles_unregister)),
     )
     r.add_post(
         f"{_BASE}/drive/{{account}}/bootstrap",

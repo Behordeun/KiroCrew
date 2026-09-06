@@ -46,6 +46,25 @@ registrations, and
 `test_aws_control_app.py::TestDriveGuards.test_consent_refusal_answers_409_before_any_aws_call`
 pins refusal before the drive handler calls AWS.
 
+Registration is reversible from the same surface. `POST /profiles/unregister`
+drops the named profiles from the registry and nothing else: it never reaches
+`deploy.profiles.create_aws_profile` (the module's one `aws configure` writer)
+or the AWS CLI, so the operator's AWS CLI configuration and every AWS resource
+the account holds, the drive bucket included, are untouched. Names are checked
+against the shared profile pattern but not against the machine's profile list,
+so an entry whose profile was already deleted from the CLI configuration is
+removable. Because grants are keyed by service, `aws_consent.revoke_for_profile`
+sweeps the gated services under one consent lock and withdraws every grant
+naming a removed profile, so a later re-registration under the same name starts
+unconsented; the sweep runs BEFORE the registry write, so a request that fails
+between the two leaves a registered-but-unconsented profile (the operator
+retries) rather than an unregistered profile still holding an authorization
+(`consent_unwritable` is the 500 that reports the former). The share,
+library, and backup ledgers are account-keyed and are left alone: they describe
+the bucket, which still exists and still bills, and must render unchanged when
+the key is registered again. `test_aws_control_app.py::TestProfileUnregister`
+pins the registry-only boundary, the default re-pick, and the grant sweep.
+
 AWS Control reaches AWS through deploy-engine helpers: account inspection uses
 `deploy.engine.run_aws`, while storage uses `deploy.engine._checked`. The engine
 constructs fixed AWS CLI argument vectors with a profile name and runs the CLI
@@ -393,19 +412,76 @@ S3 consent, runs only due backups, and SEL-audits invocation, success, and
 failure. It skips unavailable accounts or absent drives rather than creating
 resources itself.
 
+## Dashboard surface
+
+The app opens on an Overview pane, not on a listing: a strip of metric cards
+(accounts, keys healthy of total, drive used, month-to-date spend, live share
+links, backup schedule), each restating a fact one of the other panes owns and
+carrying a one-line reading under the number, then an Accounts card and a Cloud
+drive card side by side, then a Paid services card. The Overview adds no
+mutation of its own beyond the two paid-service gates. Its account rows are the
+same `AccountRow` component the Accounts pane renders (a `variant` prop decides
+density), so the remove flow, the Reconnect disclosure and the hand-off gating
+exist once. A row carries two controls, the select surface and its overflow
+menu; Reconnect (offered on a degraded resolved row) and Remove are items in
+that menu, and the health word on the row is the cue that the menu holds
+something to do. The bare `/aws-control` path and an unknown pane segment both land on
+Overview; every named pane path is unchanged. The month-to-date figure shares the
+Usage pane's cost cache entry and, like it, settles to a dash with a visible
+reason (consent missing, or the read failed) rather than a tooltip. A read that
+fails (drive, bill, share links, backup schedule) renders an `AwsErrorNotice`
+with a retry under the metric strip, and its card holds a dash. The one
+rejection that is not a failure is the `aws_consent_required` 409, the reader's
+own pending decision, which routes to the setup action or the consent gate; a
+stale connection's 409 (`account_unavailable`, `account_mismatch`) is told apart
+by its code and renders as the failed read it is. Neither the Cloud drive card
+nor the Usage pane's storage meter repeats the byte total its metric card
+already prints; each owns the split, drawn once as `StorageBar`.
+
+Paid-service consent renders in two shapes from one component. `AwsConsentGate`'s
+default mode is the full card the settings panels use; its `compact` mode is one
+row per service in every state (receipt, ask, error) with no container of its
+own, so the Overview and Usage panes lay those rows in a single `divide-y` list
+inside their Paid services card. The Usage pane's month-to-date, storage and
+object figures are metric cards; the storage split (one bar, one legend, one
+tile per section) is the shared `StorageBar` from `shared.tsx`, drawn once and
+placed by both the Usage pane's `StorageMeter` and the Overview's Cloud drive
+card, so the two readings cannot drift. Health is encoded the same way on every
+row (account, key, backup, share): a dot plus a `Badge` word, never colour alone,
+and the word is never hidden at any width.
+
+Every list on the app's panes (accounts, keys, backups, share links, library,
+files) sits inside a `Card` with a `PanelSectionHeader`, empty states render
+through the shared `EmptyState` (a filtered-to-nothing state through
+`FilteredEmpty`, which offers the clear action in place), loading states mirror
+the row box they replace, and the three file dialogs keep their hand-rolled
+overlays because `DriveSectionView` restores focus to a remembered opener that
+the Radix dialog would fight. The App Store card and detail page carry hero
+art declared in `app.json` (`heroImage`, `heroImageDark`, `heroImageDetail`,
+`heroImageDetailDark`), authored in the same palette and restraint as the other
+builtins' art.
+
 ## HTTP surface
 
 `routes.register_routes` exposes owner-gated reads for accounts, available
 profiles, reconnect guidance, drive status/list/download/preview/search, costs,
 library, backup status, share metadata, and rendered IAM policy. Its mutations
-are profile registration; drive bootstrap, upload, delete, move, folder
-create/delete, and share; share-ledger removal; library push and library
-removal; backup run, nightly toggle, and staged restore.
+are profile registration and unregistration; drive bootstrap, upload, delete,
+move, folder create/delete, and share; share-ledger removal; library push and
+library removal; backup run, nightly toggle, and staged restore.
 
 Drive bootstrap is the only API-level preview-plus-confirm flow. Upload, move,
 profile registration, library push, library removal, share creation, and backup
 mutations have no separate confirmation request; the dashboard separately
-confirms object deletion, folder deletion, and library removal. Library removal
+confirms object deletion, folder deletion, library removal, and account
+removal. Account removal lives in an overflow menu beside each account row on
+the Accounts pane, outside the row's select button so opening it cannot select
+the account; the menu item reveals the same inline Cancel-plus-danger strip the
+Files and Library folders use, naming the account (or, for the unresolved
+pseudo-row, the keys it will forget) and stating that nothing in AWS or in the
+AWS CLI configuration changes, and it posts every key the row holds; the menu
+item itself carries that reassurance as a muted second line, since the strip
+sits behind a click a cautious reader would otherwise refuse. Library removal
 is offered on the Library folder's own listing — one overflow menu per listed
 cloud copy, in both the grid and the list view, the same `⋮` shape the Files
 folder's cards and rows use — and never on the "Add from Artifacts" picker. That

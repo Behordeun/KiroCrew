@@ -812,17 +812,27 @@ export default function InstancesViewport({ macInset = false }: { macInset?: boo
           src={srcFor(id)}
           // The embedded pane is the SAME SPA on the tunnel's loopback port, so
           // it is a CROSS-ORIGIN iframe (same host, different port). Browsers
-          // deny microphone and fullscreen in cross-origin frames unless the
-          // parent delegates them via Permissions-Policy: without "microphone",
-          // getUserMedia in the remote dashboard rejects with NotAllowedError;
-          // without "fullscreen", document.fullscreenEnabled is false in the
-          // pane and the native <video> controls render a disabled fullscreen
-          // button. Local (top-level) use is unaffected. Loopback-only, and the
-          // pane already runs our own token-authed SPA, so delegating these
-          // grants nothing a same-origin top-level load wouldn't already.
+          // deny microphone, fullscreen and clipboard-write in cross-origin
+          // frames unless the parent delegates them via Permissions-Policy:
+          // without "microphone", getUserMedia in the remote dashboard rejects
+          // with NotAllowedError; without "fullscreen",
+          // document.fullscreenEnabled is false in the pane and the native
+          // <video> controls render a disabled fullscreen button; without
+          // "clipboard-write", navigator.clipboard.writeText() rejects in the
+          // pane, so every copy affordance fails (CliPanel's selection copy
+          // surfaces "Copy failed"; TerminalKeyBar and WebAppArtifactCard hit
+          // the same rejection). Local (top-level) use is unaffected.
+          // Loopback-only, and the pane already runs our own token-authed SPA,
+          // so delegating these grants nothing a same-origin top-level load
+          // wouldn't already. clipboard-read is deliberately NOT delegated:
+          // read is the more sensitive grant class and exceeds this fix's
+          // clipboard-write scope. The pane's Paste key (TerminalKeyBar's
+          // readText) therefore still fails inside embedded panes, visibly,
+          // with its named paste_permission_needed status; delegating read is
+          // left as a maintainer decision.
           // allowFullScreen mirrors the legacy attribute some engines still
           // require alongside the Permissions-Policy delegation.
-          allow="microphone; fullscreen"
+          allow="microphone; fullscreen; clipboard-write"
           allowFullScreen
           onLoad={e => {
             // Fires for the initial about:blank too, which is why a load event is

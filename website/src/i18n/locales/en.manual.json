@@ -74,6 +74,13 @@
     "chatEmbed": {
       "agent_is_working": "Agent is working...",
       "message": "Message..."
+    },
+    "chatMessageList": {
+      "copied": "Copied!",
+      "copy": "Copy",
+      "copy_failed": "Copy failed",
+      "show_less": "Show less",
+      "show_more": "Show more"
     }
   },
   "apps": {
@@ -1263,10 +1270,15 @@
       "cancel": "Cancel",
       "customize": "Customize…",
       "customized_note": "Using a custom face",
+      "expr_hint": "Pick a different face and a sound for each moment.",
+      "expr_picture_note": "A picture has no face to change, so only the sounds apply.",
+      "expr_reset_state": "Reset",
+      "expr_sound": "Sound",
       "field_hint": "The face this crew wears everywhere it appears.",
       "field_label": "Avatar",
       "image_load_failed": "The saved picture could not be loaded — showing the default face instead.",
       "mirror": "Flip direction",
+      "mode_expressions": "Expressions",
       "mode_face": "Ghost face",
       "mode_picture": "Picture",
       "opt_angry": "Angry",
@@ -1298,6 +1310,7 @@
       "opt_party": "Party hat",
       "opt_phones": "Headphones",
       "opt_raised": "Raised",
+      "opt_same_as_idle": "Same as usual",
       "opt_sleepy": "Sleepy",
       "opt_smile": "Smile",
       "opt_smirk": "Smirk",
@@ -1314,6 +1327,16 @@
       "opt_wrench": "Wrench",
       "randomize": "Randomize",
       "reset_default": "Reset to the default face",
+      "sound_blip": "Blip",
+      "sound_chime": "Chime",
+      "sound_ding": "Ding",
+      "sound_pop": "Pop",
+      "sound_preview": "Play this sound",
+      "sound_pulse": "Pulse",
+      "sound_silent": "No sound",
+      "state_done": "Finished",
+      "state_error": "Failed",
+      "state_working": "Working",
       "tile_amber": "Amber",
       "tile_bronze": "Bronze",
       "tile_coral": "Coral",
@@ -1636,7 +1659,6 @@
         },
         "pagesProvider": {
           "developer": "Developer",
-          "hooks": "Hooks",
           "kirocrew_agents": "{{productName}} Agents",
           "logs": "Logs",
           "pages": "Pages",
@@ -2095,6 +2117,9 @@
       "zoom_out": "Zoom out (-)",
       "click_to_open_shift_click_to_copy_path": "Click to open / Shift+click to copy path",
       "click_to_browse_shift_click_to_copy_path": "Click to browse / Shift+click to copy path",
+      "copy_diagram_source": "Copy diagram source",
+      "diagram_source": "Diagram source",
+      "copy_failed": "Copy failed",
       "mermaid_render_failed": "Couldn’t render this diagram. Showing the source instead."
     },
     "mcpAppFrame": {
@@ -2764,6 +2789,9 @@
     "pendingQuestionCard": {
       "answer_failed": "Couldn’t send your answer. The agent is still waiting, so try again.",
       "dismiss_failed": "Couldn’t dismiss this question. Try again."
+    },
+    "pinSurfaceButton": {
+      "pin_limit_reached": "Maximum {{n}} sidebar pins - unpin one first"
     }
   },
   "hooks": {
@@ -3541,7 +3569,10 @@
       },
       "userMessage": {
         "copied": "Copied",
-        "copy_failed": "Copy failed"
+        "copy_failed": "Copy failed",
+        "redirecting_the_running_turn_not_yet_confirmed": "Redirecting the running turn — not yet confirmed.",
+        "steering": "Steering…",
+        "turn_ended_before_this_applied_runs_as_its_own_message": "Turn ended before this applied — runs as its own message."
       },
       "earlierMessagesBar": {
         "load_failed": "Couldn't load earlier messages",
@@ -3932,6 +3963,7 @@
       "disk_usage_unavailable": "Disk usage unavailable"
     },
     "developerPage": {
+      "feature_previews_moved": "Feature Previews moved to Settings > Developer",
       "tabs": {
         "agentBackend": {
           "description": "Which agent new sessions start — Kiro CLI, Claude Code, or KAS",
@@ -3948,10 +3980,6 @@
         "debugTools": {
           "label": "Debug tools",
           "description": "Overlays that report what the app is doing to itself, on the device where it happens."
-        },
-        "featurePreviews": {
-          "description": "Unreleased features and pages, hidden from the sidebar and from Search Everywhere until you turn them on here. Per-device, and unpolished on purpose.",
-          "label": "Feature Previews"
         },
         "logs": {
           "description": "Live log viewer with level filtering and search",
@@ -4042,6 +4070,10 @@
       "session_color_hint": "Sessions this agent starts use this color unless the session has a color of its own. Editing it re-tints those sessions. Leave empty for no agent color.",
       "session_color_hex": "Session color hex value",
       "session_color_clear": "Clear",
+      "discard_unsaved_changes": "Discard unsaved changes?",
+      "discard_unsaved_body": "This crew has edits that were never saved. Closing now throws them away.",
+      "discard_confirm": "Discard changes",
+      "discard_also_crew_edits": "The crew's other unsaved edits are thrown away with it.",
       "editor_options_load_failed": "Couldn't load the crew editor's workspace, template, and memory store options."
     },
     "knowledge": {
@@ -4337,7 +4369,7 @@
         "restart_required_to_apply_changes": "{{description}} Restart required to apply changes.",
         "save": "Save",
         "saving": "Saving…",
-        "tool_call_budget_per_subagent_1_200_default_100": "Tool-call budget per subagent (1–200). Default: 100."
+        "tool_call_budget_per_subagent_1_1000_default_100": "Tool-call budget per subagent (1–1000). Default: 100."
       },
       "mcpTab": {
         "applied_change_one": "Applied {{count}} change",
@@ -4819,6 +4851,10 @@
         "auto_update_setting_unavailable": "Couldn't load the auto-update setting. The switch shows the default until it loads.",
         "copy_failed_select_the_command_and_copy_it_manually": "Copy failed. Select the command and copy it manually.",
         "update_info_unavailable": "Couldn't read this build's version and update channel from the app."
+      },
+      "developerPanel": {
+        "feature_previews": "Feature Previews",
+        "feature_previews_desc": "Unreleased features and pages. The pages stay hidden from the sidebar and from Search Everywhere until you turn them on here; the switches themselves do show up in Settings search. Per-device, and unpolished on purpose."
       },
       "computerUsePanel": {
         "computer_use_lets_the_agent_read_any_app_window": "Computer use lets the agent read any app window and send clicks and keystrokes into it. Most clicks are delivered straight to the app and leave your pointer alone, but the agent can ask to move the real pointer when a target needs it. Password fields are never read; nothing else limits which apps it may drive.",
@@ -5641,7 +5677,7 @@
       },
       "featurePreviewsTab": {
         "chat_on_a_crew": "Chat on a crew",
-        "chat_on_a_crew_desc": "Adds “New chat on crew” to the create menu, which starts a session that runs on a connected crew. Unfinished: it opens in that crew’s own pane, and sessions running on a crew are not listed here yet."
+        "chat_on_a_crew_desc": "Adds “New chat on crew” to the create menu, which starts a session on a remote instance — another machine you have connected under Settings > Remote Instances. Unfinished: the session opens in that instance’s own pane and is not listed in this dashboard’s sessions yet, so to return to it later, switch to that instance’s pane."
       }
     },
     "appPage": {
@@ -5723,7 +5759,7 @@
         "label": "Computer Use"
       },
       "developer": {
-        "description": "Developer mode, logs, system metrics, and diagnostics",
+        "description": "Developer mode, feature previews, logs, system metrics, and diagnostics",
         "label": "Developer"
       },
       "display": {

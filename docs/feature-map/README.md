@@ -60,12 +60,14 @@ this area is reached from inside it unless stated otherwise.
 
 | Feature | What it is | Reach it | Page | Handler | Endpoints |
 |---|---|---|---|---|---|
-| Sessions | Multi-slot agent chat, one slot per conversation | `/chat/:slug?` — rail **Sessions** | `pages/ChatPage.tsx`, `pages/ChatSidebar.tsx`, `pages/chat/TranscriptScrollShell.tsx` (internal split of ChatPage — the transcript scroller skeleton, no new user-facing feature), `pages/chat/hoverHold.ts` (internal split of ChatSidebar — seat arithmetic for the hovered-row hold, no new user-facing feature) | `chat_handlers.py`, `ws.py` | `POST /api/chat`, `GET,POST /api/chat/slots`, `GET /api/ws` |
+| Sessions | Multi-slot agent chat, one slot per conversation; pinned rows form a manually ordered section above automatic sorting | `/chat/:slug?` — rail **Sessions** | `pages/ChatPage.tsx`, `pages/ChatSidebar.tsx`, `pages/chat/SessionFlyout.tsx`, `pages/chat/TranscriptScrollShell.tsx` (internal split of ChatPage — the transcript scroller skeleton, no new user-facing feature), `pages/chat/ChatPageMessageContent.tsx` (internal split of ChatPage — the header menu, row-key helpers and user-bubble content renderers, no new user-facing feature), `pages/chat/hoverHold.ts` (internal split of ChatSidebar — seat arithmetic for the hovered-row hold, no new user-facing feature), `utils/pinnedSessionOrder.ts` | `chat_handlers.py`, `ws.py` | `POST /api/chat`, `GET,POST /api/chat/slots`, `GET /api/ws` |
 | Remote-bound session | A local session whose turns execute on a connected peer crew and stream back over its tunnel — local sidebar row, transcript and history, remote execution | New-chat menu → **New chat on crew** → pick a connected crew | `pages/ChatPage.tsx`, `pages/ChatSidebar.tsx`, `components/RemoteCrewChip.tsx` | `chat_handlers.py`, `handlers_instances.py`, `handlers/core.py`, `remote_relay.py`, `remote_mirror.py` | `POST /api/chat/slots` (`instance_id`), `POST /api/chat?relay=1`, `GET /api/instances/{id}/capabilities`, `GET /api/version` |
 | Session folders | User-defined folders grouping session rows | Sidebar folder header → drag a row | `pages/chat/FolderPanel.tsx` | `chat_folders.py` | `GET,POST /api/chat/folders`, `PATCH /api/chat/slots/{slot}/folder` |
 | Session tags | Colored labels on sessions, filterable | Sidebar row context menu → Tags | `pages/chat/SessionFlyout.tsx` | `chat_tags.py` | `GET,POST /api/chat/tags`, `PUT /api/chat/slots/{slot}/tags` |
+| Older sessions | The sidebar's history pane, searchable, with per-session delete and a bulk **Delete all** | Sidebar → **Older Sessions** disclosure | `pages/ChatSidebar.tsx` | `handlers/sessions.py` | `GET /api/sessions` (`exclude_open`), `GET /api/sessions/search`, `GET /api/sessions/{key}`, `DELETE /api/sessions/{key}`, `DELETE /api/sessions`, `GET /api/sessions/clearable/count` |
 | Pinned messages | Pin a message; pins panel per session | Message hover → pin; header pin count | `pages/chat/PinnedMessagesPanel.tsx` | `chat_pins.py` | `GET,POST /api/chat/pins`, `DELETE /api/chat/pins/{id}` |
 | Pinned prompt banner | Keeps the turn's own prompt visible in a single-state banner at the top of a long reply while it scrolls; distinct from **Pinned messages** above | Settings → Chat → **Pin the latest turn** | `pages/chat/PinnedPrompt.tsx` | client-only (no handler) | none |
+| Collapse the message input | Puts the composer away while you read a long reply and hands the room to the transcript (measured 89px at 1500x950); a labelled bar stands in its place, reports the unsent draft’s first line, and restores it. Off by default, and the choice persists. Collapses the opposite end of the same reply from the **Pinned prompt banner** above | Composer **+** menu → **Collapse the message input**; on touch, the **⋯** overflow beside the attach button | `components/ChatInput.tsx` (opted in by `pages/ChatPage.tsx`; focus intents resolve through `pages/chat/composerFocus.ts`) | client-only (no handler) | none |
 | Share message as card | Turn an assistant reply into a branded PNG card + prefilled caption for X/LinkedIn; governed by `capabilities.social_share` (a policy pin withdraws the entry) | Message hover → More actions → Share as image | `pages/chat/share/ShareMessageModal.tsx`, `pages/chat/share/ShareCard.tsx` (helpers: `pages/chat/share/shareSupport.ts`) | `dashboard/social_share.py` (governance probe; card itself is client-side) | `GET /api/dashboard/config` (`social_share_enabled`) |
 | Fork a session | Branch a new slot from an existing transcript | Session row menu → Fork | `pages/ChatSidebar.tsx` | `chat_fork.py` | `POST /api/chat/slots/{slot}/fork` |
 | Rewind | Drop the transcript back to an earlier turn | Message action → Rewind | `pages/chat/AssistantMessage.tsx` | `chat_rewind.py` | `POST /api/chat/slots/{slot}/rewind` |
@@ -81,7 +83,7 @@ this area is reached from inside it unless stated otherwise.
 | Terminal panel | Two shells on the gateway host: an app-wide docked PTY, and a per-chat terminal whose tab lives in that chat's panel state (opens on the chat's working dir; switches with the session) | Header terminal toggle (docked); chat right panel → **+** menu → **Terminal** (per-chat) | `components/BottomTerminalPanel.tsx`, `pages/chat/SidePanel.tsx` | `handlers/terminal.py` | `POST /api/terminal/sessions`, `GET /api/ws/terminal/{session_id}` |
 | Browser panel | Live in-panel browser the agent drives | Right panel → **Browser** | `components/WebPreviewPanel.tsx` | `handlers/messaging.py` | `GET,POST /api/browser/view`, `POST /api/browser/command`, `POST /api/browser/command-result` |
 | Notifications | Bell feed of agent-pushed notifications | Topbar bell → `/notifications` | `pages/NotificationsPage.tsx` | `handlers/messaging.py`, `handlers/notifications_push.py` | `GET /api/notifications`, `POST /api/notifications/ack`, `POST /api/notifications/push` |
-| Crew Members | One durable pinned DM thread per crew member; the detail drawer lists the worker sessions the member is driving (live `slots` frames filtered on `created_by`) | `/members` — rail row when the crew preview is on | `pages/members/MembersPage.tsx` | `handlers/members.py`, `slot_projection.py` (`created_by`) | `GET /api/members`, `POST /api/members/{slug}/thread`, `GET /api/members/{slug}/activity`, `GET,PUT /api/members/{slug}/rules`, `GET /api/ws` (`slots`) |
+| Crew Members | One durable pinned DM thread per crew member; the detail drawer lists the worker sessions the member is driving (live `slots` frames filtered on `created_by`) and the member's auto-patrol status — the nudge loop on its own `member-<slug>` slot (active / stopped with reason / none), with a roster avatar badge while a loop exists (accent while patrolling, warn once stopped); active patrols also list under Wake sources; the roster carries a per-crew star (persisted on the crew record) and persistent filters — starred-only and origin (mine / built-in / from packages) — so the package-installed crews the agent sync writes can be collapsed | `/members` — rail row when the crew preview is on | `pages/members/MembersPage.tsx`, `components/autoNudgeLoop.ts` (shared cycle/countdown readouts) | `handlers/members.py`, `handlers/agents.py` (`starred`), `slot_projection.py` (`created_by`), `handlers/autonudge.py` (registry read) | `GET /api/members`, `POST /api/members/{slug}/thread`, `GET /api/members/{slug}/activity`, `GET,PUT /api/members/{slug}/rules`, `PUT /api/agents/{name}` (`starred`), `GET /api/autonudge`, `GET /api/ws` (`slots`, `autonudge_state`) |
 | Channels | Group rooms with several agents in one thread | `/channels` (builtin app surface) | `pages/ChannelPage.tsx` | `handlers_channel.py` | `GET,POST /api/channels`, `POST /api/channels/{id}/messages`, `POST /api/channels/{id}/agents` |
 
 The Notifications surface is registered `hiddenFromNav`: its route and badge
@@ -91,6 +93,18 @@ stay wired, but it is entered from the topbar bell rather than a rail row.
 
 One destination, pinned to the bottom of the rail, hosting nine tabs. Every tab
 is a `?tab=` value on `/capabilities` (`pages/CapabilitiesPage.tsx`).
+
+Any one of those tabs can also be **promoted to its own top-level rail row**, so
+a sub-item someone uses daily is one click away instead of two. Each tab is
+registered as a `pinnable` surface (`surfaces/builtins.tsx`,
+`surfaces/registry.ts`), which keeps it OFF the rail until the user promotes it;
+the promoted set is a per-browser preference held under `mc-nav-pinned` and
+owned by `lib/navPinned.ts` (the sibling of `lib/appNavHidden.ts`, which does
+the same job for app rows in the Apps group). Reach it from the pin control in
+the Agent Capabilities page header (`components/PinSurfaceButton.tsx`), which
+resolves its subject from the current `?tab=` value. Promotions are capped at
+`NAV_PINNED_LIMIT`, and the rail applies the filter in `App.tsx`. No handler and
+no endpoint: the preference never leaves the browser.
 
 | Tab | What it is | Reach it | Page | Handler | Endpoints |
 |---|---|---|---|---|---|
@@ -129,7 +143,7 @@ Settings → Overview; the graph visualizer is a Developer internals view.
 |---|---|---|---|---|---|
 | Schedule | Cron jobs: recurring agent turns, scripts, commands | `/schedule` — rail **Schedule**; also created inline from the crew editor's "What wakes this crew" section (`/capabilities?tab=crews`) | `pages/SchedulePage.tsx`, `components/CrewWakeSection.tsx` | `handlers/cron.py` | `GET,POST /api/crons`, `DELETE /api/crons/{job_id}`, `GET /api/crons/history` |
 | Cron secret grants | Owner-approved vault-secret env grants for script crons: agent requests via `cron_secret_request`, the owner approves/denies/revokes on the job's Secrets panel | `/schedule` → job → **Secrets** | `pages/SchedulePage.tsx` (`JobSecretsPanel`) | `handlers/cron.py` | `PUT /api/crons/{job_id}/secrets` |
-| Monitor loops | Same-session bounded monitors and legacy nudge loops watching an external thing | Agent/API for bounded monitors; Chat header → legacy loop popover | `components/AutoNudgePopover.tsx` | `handlers/autonudge.py` | `GET,POST /api/monitors`, `PATCH /api/monitors/{id}`, `GET /api/monitors/slot/{slot_key}`, `POST /api/monitors/{id}/stop`, `POST /api/monitors/{id}/restart`, `GET,POST /api/autonudge`, `PATCH,DELETE /api/autonudge/{loop_id}` |
+| Monitor loops | Same-session bounded monitors and legacy nudge loops watching an external thing; a member's loop is also surfaced read-only on the Crew Members drawer | Agent/API for bounded monitors; Chat header → legacy loop popover; Crew Members → member drawer → Auto patrol | `components/AutoNudgePopover.tsx`, `components/autoNudgeLoop.ts`, `pages/members/MembersPage.tsx` (read-only) | `handlers/autonudge.py` | `GET,POST /api/monitors`, `PATCH /api/monitors/{id}`, `GET /api/monitors/slot/{slot_key}`, `POST /api/monitors/{id}/stop`, `POST /api/monitors/{id}/restart`, `GET,POST /api/autonudge`, `PATCH,DELETE /api/autonudge/{loop_id}` |
 | Session ledger | Durable per-session work state surviving compaction | Agent-written; no dashboard page | — | `handlers/session_ledger.py` | `GET /api/session-ledger`, `POST /api/session-ledger/record` |
 | Session control | Create / stop / send-to a session from outside it | Agent and app callers, not a UI | — | `session_control.py` | `POST /api/session-control/create`, `.../stop`, `.../send`, `GET .../read` |
 
@@ -201,7 +215,7 @@ is `/settings/<key>`. Panels live in `pages/settings/`.
 | `privacy` | Telemetry disclosure and opt-out | `PrivacyPanel.tsx` | `handlers/telemetry.py` | `GET /api/telemetry/collection`, `GET /api/telemetry/beacon` |
 | `security` | Denied commands, sensitive paths, approval posture | `SecurityPanel.tsx`, `PostureDisclosure.tsx` | `handlers/security.py`, `handlers/tailnet.py`, `handlers/file_delivery_consent.py` | `GET /api/security/denied-commands`, `PATCH .../builtins/{id}`, `POST .../user`, `GET,POST,DELETE /api/file-delivery/consent` |
 | `secrets` | Stored credentials the agent may use | `SecretsPanel.tsx` | `handlers/secrets.py` | `GET,POST /api/secrets`, `DELETE /api/secrets/{name}` |
-| `developer` | Pointer into the developer surfaces | `DeveloperPanel.tsx` | — | — |
+| `developer` | Developer Mode gate, Feature Previews opt-ins (client flags), local-gateway switch | `DeveloperPanel.tsx`, `FeaturePreviewsSection.tsx` | — | — |
 | `releases` | Release channel, update check, changelog | `ReleasesPanel.tsx` | `handlers/updates.py` | `GET /api/update/check`, `POST /api/update`, `GET /api/changelog`, `GET /api/releases` |
 | `about` | Version, build, diagnostics bundle | `AboutPanel.tsx`, `ReportProblemCard.tsx` | `handlers/diagnostics.py`, `handlers/feedback.py` | `POST /api/diagnostics/collect`, `GET /api/diagnostics/download/{filename}` |
 
@@ -219,8 +233,10 @@ from the header tab strip. Webhooks carries both a preview flag and
 
 ## Developer
 
-`/developer` (`pages/DeveloperPage.tsx`), eleven `?tab=` values. Internals views;
-not where a user manages their own data.
+`/developer` (`pages/DeveloperPage.tsx`), ten `?tab=` values. Internals views;
+not where a user manages their own data. The former `feature-previews` tab moved
+to Settings > Developer (`pages/settings/FeaturePreviewsSection.tsx`); the old
+`?tab=feature-previews` link redirects there.
 
 | Tab | What it is | Page | Handler | Endpoints |
 |---|---|---|---|---|
@@ -232,7 +248,6 @@ not where a user manages their own data.
 | `memory` | Memory graph visualizer | `pages/overview/MemoryGraphTab.tsx` | `handlers/memory.py` | `GET /api/memory/graph` |
 | `config` | Raw Kiro Crew and agent config editors | `pages/overview/KiroCrewCfgTab.tsx`, `AgentCfgTab.tsx` | `handlers/core.py`, `handlers/agents.py` | `GET,PUT,PATCH /api/config/kirocrew`, `GET,PUT /api/agent/config` |
 | `agent-backend` | Which agent harness backend is live | `pages/developer/AgentBackendTab.tsx` | `handlers/acp_backend_status.py`, `handlers/kiro_prerequisite.py` | `GET /api/acp-backends`, `GET /api/kiro-prerequisite` |
-| `feature-previews` | Toggle unreleased surfaces on | `pages/developer/FeaturePreviewsTab.tsx` | — (client flags) | — |
 | `debug-tools` | Diagnostic overlays, currently the chat scroll inspector | `pages/developer/DebugToolsTab.tsx` | — (client only) | — |
 | `archive` | Consolidated session archive browser | `pages/SessionArchive.tsx` | `handlers/sessions.py` | `GET /api/session/archive`, `GET /api/session/archive/{name}` |
 

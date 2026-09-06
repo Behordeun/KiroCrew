@@ -131,7 +131,12 @@
       "streaming": "diffusion en cours"
     },
     "chatMessageList": {
-      "open_path": "Ouvrir {{path}}"
+      "copied": "Copié !",
+      "copy": "Copier",
+      "copy_failed": "Échec de la copie",
+      "open_path": "Ouvrir {{path}}",
+      "show_less": "Afficher moins",
+      "show_more": "Afficher plus"
     }
   },
   "apps": {
@@ -4896,7 +4901,6 @@
         "keys_count_many": "{{count}} clés",
         "keys_for_account": "Clés de {{name}}",
         "key_healthy": "Saine",
-        "key_failed": "En échec",
         "parent_folders": "Dossiers parents",
         "folder_actions": "Actions du dossier",
         "file_actions": "Actions du fichier",
@@ -4950,7 +4954,6 @@
         "search_files": "Rechercher par nom de fichier ou chemin…",
         "search_clear": "Effacer la recherche",
         "search_pending": "Recherche en cours…",
-        "search_no_results": "Aucun fichier ne correspond à « {{query}} ».",
         "search_capped": "Trop de résultats : seuls les {{count}} premiers sont affichés.",
         "search_failed": "La recherche a échoué. Réessayez.",
         "search_goto": "Ouvrir le dossier parent",
@@ -4965,7 +4968,13 @@
         "move_root": "Fichiers (niveau supérieur)",
         "move_up": "Remonter vers {{name}}",
         "move_no_folders": "Il n’y a pas d’autre dossier ici où le déplacer. Créez-en un d’abord.",
-        "move_moving": "Déplacement…"
+        "move_moving": "Déplacement…",
+        "stat_storage": "Stockage",
+        "stat_objects": "Objets",
+        "key_needs_attention": "Action requise",
+        "backup_state_current": "Sauvegardé",
+        "backup_state_never": "Jamais exécuté",
+        "costs_refresh_failed": "La dernière lecture de la facture a échoué. Ceci est la valeur en cache."
       },
       "page": {
         "totals_summary": "{{accounts}} comptes · {{healthy}} clés sur {{keys}} en bon état",
@@ -5015,14 +5024,21 @@
         "add_accounts_error": "Ces profils n'ont pas pu être enregistrés. Rien n'a été ajouté. Réessaie.",
         "add_accounts_load_error": "Impossible de lister les profils AWS locaux.",
         "search_placeholder": "Rechercher des comptes",
-        "search_none": "Aucun compte ne correspond à « {{query}} ».",
         "aggregate_accounts_many": "{{count}} comptes",
         "aggregate_keys_many": "{{count}} clés",
         "aggregate_healthy_many": "{{count}} saines",
         "keys_summary_many": "{{count}} clés",
         "add_accounts_count_many": "{{count}} sur {{max}} enregistrés",
         "paid_services_title": "Services payants",
-        "orphan_consent": "Confirmé pour un compte AWS qui n'est pas enregistré ici. Retirez la confirmation ci-dessous, ou enregistrez à nouveau ce compte pour le gérer depuis sa propre page."
+        "orphan_consent": "Confirmé pour un compte AWS qui n'est pas enregistré ici. Retirez la confirmation ci-dessous, ou enregistrez à nouveau ce compte pour le gérer depuis sa propre page.",
+        "account_actions": "Actions du compte",
+        "remove_account": "Retirer d'AWS Control…",
+        "remove_account_action": "Retirer",
+        "remove_account_confirm": "Retirer « {{name}} » d'AWS Control ? Rien ne change dans AWS ni dans votre configuration de l'AWS CLI.",
+        "remove_account_error": "Le compte n'a pas pu être retiré.",
+        "remove_account_hint": "Rien ne change dans AWS",
+        "forget_key_confirm": "Oublier la clé « {{name}} » de cette ligne ? Rien ne change dans AWS ni dans votre configuration de l'AWS CLI.",
+        "forget_key_action": "Oublier la clé"
       },
       "rail": {
         "accounts": "Comptes et identifiants",
@@ -5030,6 +5046,41 @@
         "switch_account": "Changer de compte",
         "usage": "Utilisation et coûts",
         "use_account": "Utiliser ce compte"
+      },
+      "overview": {
+        "title": "Aperçu",
+        "subtitle": "Un seul endroit pour les comptes, les clés, le drive cloud et les services payants que vos agents peuvent utiliser.",
+        "stat_accounts": "Comptes",
+        "stat_accounts_attention_one": "{{count}} demande votre attention",
+        "stat_accounts_attention_other": "{{count}} demandent votre attention",
+        "stat_accounts_all_ok": "Tout va bien",
+        "stat_keys": "Clés valides",
+        "stat_keys_sub_one": "{{count}} clé enregistrée",
+        "stat_keys_sub_other": "{{count}} clés enregistrées",
+        "stat_drive": "Drive utilisé",
+        "stat_drive_none": "Pas encore de drive",
+        "stat_spend": "Mois en cours",
+        "stat_spend_consent": "Rapport de coûts désactivé",
+        "stat_shares_none": "Rien de partagé",
+        "stat_shares_sub_one": "{{count}} lien actif",
+        "stat_shares_sub_other": "{{count}} liens actifs",
+        "stat_backups_nightly": "Chaque nuit",
+        "stat_backups_manual": "Manuel",
+        "stat_backups_sub_nightly": "S'exécute chaque nuit",
+        "stat_backups_sub_manual": "Aucune planification",
+        "accounts_title": "Comptes",
+        "accounts_note": "Les agents utilisent ces clés sans jamais les voir. Rien d'une clé n'apparaît dans une conversation.",
+        "add_account": "Ajouter un compte",
+        "drive_title": "Drive cloud",
+        "drive_bar_label": "{{size}} stockés, répartis entre les fichiers, la bibliothèque d'artefacts et les sauvegardes",
+        "drive_empty_title": "Pas encore de drive cloud",
+        "drive_empty_body": "Créez dans ce compte un bucket privé et chiffré unique pour vos fichiers, la bibliothèque d'artefacts et les sauvegardes.",
+        "drive_setup": "Configurer le drive cloud",
+        "stat_accounts_attention_many": "{{count}} demandent votre attention",
+        "stat_keys_sub_many": "{{count}} clés enregistrées",
+        "stat_shares_sub_many": "{{count}} liens actifs",
+        "drive_bucket_label": "Bucket",
+        "stat_spend_scope": "Facture AWS de ce compte"
       }
     }
   },
@@ -5128,10 +5179,15 @@
       "cancel": "Annuler",
       "customize": "Personnaliser…",
       "customized_note": "Visage personnalisé utilisé",
+      "expr_hint": "Choisissez un visage et un son différents pour chaque moment.",
+      "expr_picture_note": "Une image n'a pas de visage à changer : seuls les sons s'appliquent.",
+      "expr_reset_state": "Réinitialiser",
+      "expr_sound": "Son",
       "field_hint": "Le visage de ce membre partout où il apparaît.",
       "field_label": "Avatar",
       "image_load_failed": "L'image enregistrée n'a pas pu être chargée — le visage par défaut est affiché.",
       "mirror": "Inverser le sens",
+      "mode_expressions": "Expressions",
       "mode_face": "Visage fantôme",
       "mode_picture": "Image",
       "opt_angry": "Fâchés",
@@ -5163,6 +5219,7 @@
       "opt_party": "Chapeau de fête",
       "opt_phones": "Casque",
       "opt_raised": "Levés",
+      "opt_same_as_idle": "Comme d'habitude",
       "opt_sleepy": "Endormi",
       "opt_smile": "Sourire",
       "opt_smirk": "Sourire en coin",
@@ -5179,6 +5236,16 @@
       "opt_wrench": "Clé",
       "randomize": "Aléatoire",
       "reset_default": "Rétablir le visage par défaut",
+      "sound_blip": "Blip",
+      "sound_chime": "Carillon",
+      "sound_ding": "Ding",
+      "sound_pop": "Pop",
+      "sound_preview": "Écouter ce son",
+      "sound_pulse": "Pulsation",
+      "sound_silent": "Aucun son",
+      "state_done": "Terminé",
+      "state_error": "Échec",
+      "state_working": "En cours",
       "tile_amber": "Ambre",
       "tile_bronze": "Bronze",
       "tile_coral": "Corail",
@@ -5612,6 +5679,9 @@
       "could_not_submit_that_decision_see_the_console_f": "Impossible d’envoyer cette décision — détails dans la console.",
       "detached_head_at": "HEAD détachée sur {{branch}}",
       "drag_to_resize_double_click_to_reset": "Faire glisser pour redimensionner (double-cliquer pour réinitialiser)",
+      "collapse_composer": "Réduire la saisie du message",
+      "collapse_composer_desc": "Masque le champ pour laisser la place à la réponse ; conserve le brouillon",
+      "expand_composer": "Afficher la saisie du message",
       "file": "Fichier",
       "force_kill_discards_in_progress_work_and_queued": "Arrêt forcé — abandonne le travail en cours et les messages en file d'attente",
       "force_kill_session_discards_in_progress_work_and": "Forcer l'arrêt de la session (abandonne le travail en cours et les messages en file d'attente)",
@@ -5693,7 +5763,8 @@
       "sketch": "Croquis",
       "sketch_desc": "Dessinez un croquis ; joint une image et sa source modifiable",
       "optimize_failed": "Impossible d'optimiser le prompt. Ton texte d'origine a été restauré.",
-      "optimize_failed_elsewhere": "Impossible d'optimiser le prompt lancé dans une autre session. Son texte d'origine y a été restauré."
+      "optimize_failed_elsewhere": "Impossible d'optimiser le prompt lancé dans une autre session. Son texte d'origine y a été restauré.",
+      "more_actions": "Plus d'actions"
     },
     "chatPane": {
       "agent_list": "Liste des agents",
@@ -5763,7 +5834,6 @@
         },
         "pagesProvider": {
           "developer": "Développeur",
-          "hooks": "Hooks",
           "kirocrew_agents": "Agents {{productName}}",
           "logs": "Journaux",
           "pages": "Pages",
@@ -6590,6 +6660,9 @@
       "zoom_out": "Zoom arrière (-)",
       "click_to_browse_shift_click_to_copy_path": "Cliquer pour parcourir / Shift+clic pour copier le chemin",
       "click_to_open_shift_click_to_copy_path": "Cliquer pour ouvrir / Shift+clic pour copier le chemin",
+      "copy_diagram_source": "Copier la source du diagramme",
+      "diagram_source": "Source du diagramme",
+      "copy_failed": "Échec de la copie",
       "mermaid_render_failed": "Impossible d’afficher ce diagramme. La source est affichée à la place."
     },
     "markdownToc": {
@@ -7872,7 +7945,12 @@
       "status_failed": "Impossible de lire l'état de la confirmation.",
       "confirm_failed": "La confirmation n'a pas été enregistrée.",
       "withdraw_failed": "La confirmation n'a pas été retirée.",
-      "retry": "Réessayer"
+      "retry": "Réessayer",
+      "badge_confirmed": "Confirmé",
+      "badge_not_enabled": "Non activé",
+      "confirmed_on": "confirmé le {{date}}",
+      "billing_notice_short": "Payant. Rien n'est envoyé avant votre confirmation.",
+      "withdraw_effect": "Après le retrait, les agents cessent d'utiliser ce service jusqu'à ce que tu confirmes de nouveau."
     },
     "confirmDialog": {
       "cancel": "Annuler"
@@ -7999,6 +8077,9 @@
       "confirm_discard": "Abandonner le dessin",
       "already_attached": "Joint — modifiez le canevas pour dessiner à nouveau",
       "load_failed": "Impossible de charger le bloc de croquis — vérifiez votre connexion et rouvrez-le"
+    },
+    "pinSurfaceButton": {
+      "pin_limit_reached": "Maximum {{n}} éléments épinglés à la barre latérale : détachez-en un d'abord"
     }
   },
   "hooks": {
@@ -9439,7 +9520,10 @@
         "pin_message": "Épingler le message",
         "unpin_message": "Désépingler le message",
         "copied": "Copié",
-        "copy_failed": "Échec de la copie"
+        "copy_failed": "Échec de la copie",
+        "steering": "Réorientation en cours…",
+        "redirecting_the_running_turn_not_yet_confirmed": "Réorientation du tour en cours — pas encore confirmé.",
+        "turn_ended_before_this_applied_runs_as_its_own_message": "Le tour s'est terminé avant que ceci ne s'applique — s'exécute comme un message distinct."
       },
       "workflowCompletionCard": {
         "hide_result": "Masquer le résultat",
@@ -9859,7 +9943,6 @@
       "show": "Afficher",
       "show_all_folders": "Afficher tous les dossiers",
       "show_all_older_sessions": "Afficher toutes les anciennes sessions",
-      "show_collapsed_folders": "Afficher les dossiers réduits :",
       "show_folder": "Afficher le dossier",
       "show_hidden_folder_many": "Afficher {{count}} dossiers masqués",
       "show_hidden_folder_one": "Afficher {{count}} dossier masqué",
@@ -10316,8 +10399,8 @@
       },
       "featurePreviewsTab": {
         "chat_on_a_crew": "Discuter sur un Crew",
-        "chat_on_a_crew_desc": "Ajoute « New chat on crew » au menu de création, qui démarre une session exécutée sur un Crew connecté. Inachevé : elle s’ouvre dans le panneau propre à ce Crew, et les sessions exécutées sur un Crew ne sont pas encore listées ici.",
-        "crew": "Crew",
+        "chat_on_a_crew_desc": "Ajoute « New chat on crew » au menu de création, qui démarre une session sur une instance distante, c’est-à-dire une autre machine que tu as connectée dans Paramètres > Instances distantes. Inachevé : la session s’ouvre dans le panneau propre à cette instance et n’apparaît pas encore dans la liste des sessions de ce tableau de bord ; pour y revenir plus tard, passe au panneau de cette instance.",
+        "crew": "Membres de l’équipe et Crew Mode",
         "inbound_webhook_tokens_registered_contexts_and_r": "Jetons de webhooks entrants, contextes enregistrés et historique des exécutions. L'API fonctionne, mais la page n'est pas terminée.",
         "open_webhooks": "Ouvrir Webhooks",
         "the_crew_members_page_and_crew_mode_chats_both_a": "La page Membres de l'équipe et les chats Crew Mode. Les deux sont encore en construction : rien n'est proposé tant que cette option n'est pas activée.",
@@ -10326,6 +10409,7 @@
     },
     "developerPage": {
       "developer": "Développeur",
+      "feature_previews_moved": "Les aperçus de fonctionnalités sont passés dans Paramètres > Développeur",
       "tabs": {
         "agentBackend": {
           "description": "Quel agent les nouvelles sessions démarrent : Kiro CLI, Claude Code ou KAS",
@@ -10342,10 +10426,6 @@
         "debugTools": {
           "label": "Outils de débogage",
           "description": "Des surcouches qui montrent, sur l'appareil, ce que l'application se fait à elle-même."
-        },
-        "featurePreviews": {
-          "description": "Fonctionnalités et pages non publiées, masquées dans la barre latérale et dans Rechercher partout jusqu'à ce que vous les activiez ici. Valable pour cet appareil uniquement, et inachevées à dessein.",
-          "label": "Aperçus de fonctionnalités"
         },
         "logs": {
           "description": "Visualiseur de journaux en direct avec filtrage par niveau et recherche",
@@ -10552,6 +10632,10 @@
       "session_color_hint": "Les sessions lancées par cet agent utilisent cette couleur, sauf si la session a sa propre couleur. La modifier recolore ces sessions. Laisser vide pour aucune couleur d’agent.",
       "session_color_hex": "Valeur hexadécimale de la couleur de session",
       "session_color_clear": "Effacer",
+      "discard_unsaved_changes": "Abandonner les modifications non enregistrées ?",
+      "discard_unsaved_body": "Cet équipage a des modifications qui n'ont jamais été enregistrées. Fermer maintenant les supprimera.",
+      "discard_confirm": "Abandonner les modifications",
+      "discard_also_crew_edits": "Les autres modifications non enregistrées de cet équipage seront supprimées avec elle.",
       "editor_options_load_failed": "Impossible de charger les options d'espace de travail, de modèle et de magasin de mémoire de l'éditeur de crew."
     },
     "knowledge": {
@@ -11156,7 +11240,7 @@
         "session_timeout": "Délai d'expiration de session",
         "subagent_settings": "Paramètres des sous-agents",
         "takes_effect_on_next_session_range_60_86400s": "Prend effet à la prochaine session. Plage : 60–86400s.",
-        "tool_call_budget_per_subagent_1_200_default_100": "Budget d’appels d’outils par sous-agent (1–200). Par défaut : 100.",
+        "tool_call_budget_per_subagent_1_1000_default_100": "Budget d’appels d’outils par sous-agent (1–1000). Par défaut : 100.",
         "used_by": "Utilisé par",
         "using_global_memory_settings": "Utilisation des paramètres de mémoire globaux",
         "using_legacy_mode_agent_default_agent_as_agent_t": "Mode héritage — agent.default_agent comme modèle d'agent",
@@ -12643,6 +12727,8 @@
       "developerPanel": {
         "developer_mode": "Mode développeur",
         "developer_tools": "Outils de développement",
+        "feature_previews": "Aperçus de fonctionnalités",
+        "feature_previews_desc": "Fonctionnalités et pages non publiées. Les pages restent masquées dans la barre latérale et dans Rechercher partout jusqu’à ce que tu les actives ici ; les interrupteurs eux-mêmes apparaissent bien dans la recherche des paramètres. Valable pour cet appareil uniquement, et inachevées à dessein.",
         "gateway": "Passerelle",
         "open_developer_page": "Ouvrir la page Développeur",
         "run_a_local_gateway": "Exécuter une passerelle locale",
@@ -14159,7 +14245,44 @@
       "driving_none": "Ne pilote aucune session pour le moment.",
       "driving_idle": "Inactif",
       "driving_show_all": "Tout afficher ({{count}})",
-      "driving_show_less": "Afficher moins"
+      "driving_show_less": "Afficher moins",
+      "patrol_title": "Patrouille automatique",
+      "patrol_active": "En patrouille",
+      "patrol_interval": "Intervalle",
+      "patrol_cycles": "Réveils",
+      "patrol_cycles_unlimited": "{{n}} · sans plafond",
+      "patrol_cycles_of": "{{n}} sur {{max}}",
+      "patrol_last_wake": "Dernier réveil",
+      "patrol_next_wake": "Prochain réveil",
+      "patrol_instruction": "Consigne",
+      "patrol_stopped": "Patrouille arrêtée.",
+      "patrol_stopped_manual": "Mise en pause manuellement.",
+      "patrol_stopped_cycle_cap": "Limite de réveils atteinte.",
+      "patrol_stopped_runtime_budget": "Budget de temps atteint.",
+      "patrol_stopped_approval_stalled": "Arrêtée en attendant une approbation d'outil dans cette conversation.",
+      "patrol_last_wake_ago": "Dernier réveil {{when}}",
+      "patrol_none": "Aucune patrouille planifiée.",
+      "patrol_error": "Impossible de charger l'état de patrouille de ce membre.",
+      "patrol_error_roster": "Impossible de charger l'état de patrouille de la liste.",
+      "patrol_badge": "En patrouille · {{cycle}}",
+      "patrol_badge_stopped": "Patrouille arrêtée",
+      "patrol_next_in": "Dans {{time}}",
+      "wake_patrol_every": "Toutes les {{every}}",
+      "filter_starred": "Favoris",
+      "filter_starred_description": "Afficher uniquement les membres favoris",
+      "filter_source_mine": "Les miens",
+      "filter_source_builtin": "Intégrés",
+      "filter_source_package": "Issus de packages",
+      "filters_hide_all": "Les filtres actifs masquent tous les membres.",
+      "filters_clear": "Effacer les filtres",
+      "star": "Ajouter {{name}} aux favoris",
+      "unstar": "Retirer {{name}} des favoris",
+      "star_failed_title": "Favori non enregistré",
+      "star_failed": "Impossible de mettre à jour le favori de ce membre.",
+      "filter_source_mine_description": "Crews que vous avez créés dans le gestionnaire de crews",
+      "filter_source_builtin_description": "Crews fournis avec {{productName}}",
+      "filter_source_package_description": "Crews installés par des packages de capacités",
+      "member_count_filtered": "{{shown}} membres sur {{count}}"
     }
   },
   "privacyDisclosure": {
@@ -14235,7 +14358,7 @@
         "label": "Utilisation de l'ordinateur"
       },
       "developer": {
-        "description": "Mode développeur, journaux, métriques système et diagnostics",
+        "description": "Mode développeur, aperçus de fonctionnalités, journaux, métriques système et diagnostics",
         "label": "Développeur"
       },
       "display": {

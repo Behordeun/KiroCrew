@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 from kiro_crew import name_grant, platform_compat
 from kiro_crew.agent_discovery import cached_project_agent_names, list_agents
 from kiro_crew.config.loader import DEFAULT_MODEL, KiroCrewConfig
-from kiro_crew.constants import SUBAGENT_COMPLETION_PREFIX
+from kiro_crew.constants import SUBAGENT_COMPLETION_PREFIX, SUBAGENT_TIMEOUT_SECS
 from kiro_crew.context import (
     CONTEXT_GROUP_LESSONS,
     CONTEXT_GROUP_MEMORY,
@@ -443,7 +443,11 @@ def _done_result(text: str) -> str:
     return "…(truncated)\n" + redacted[-_MAX_DONE_RESULT_LEN:]
 
 
-_TIMEOUT_SECS = 1800  # 30 minutes
+# Wall-clock deadline for one subagent run: the fallback when config is
+# unavailable or ``agent.subagent_timeout_secs`` is 0. One owner in
+# ``constants`` because the MCP gateway's hard-wedge ceiling has to sit above
+# it (see ``mcp_gateway/backend.py``).
+_TIMEOUT_SECS = SUBAGENT_TIMEOUT_SECS
 _TURN_LIMIT = 100
 _REAPER_INTERVAL = 60  # seconds between reaper sweeps
 # Idle TTL for continuable conversations (keep=True): a conversation with no
@@ -706,7 +710,7 @@ _SUPPRESS_CEILING = 4
 # so the count can never be reached and the only flush that ever fires is the
 # wave-close one. Every sibling's result is then withheld for the SLOWEST
 # member's entire remaining runtime; a member that HANGS rather than fails
-# withholds them for the full ``_TIMEOUT_SECS`` reap (30 min), which is
+# withholds them for the full ``_TIMEOUT_SECS`` reap, which is
 # indistinguishable from a dead session (issue #2215).
 #
 # This deadline is the latency half of that one-knob-two-jobs split: the count
@@ -1511,6 +1515,37 @@ def _context_groups_field(info: "SubagentInfo") -> str:
 class ToolApprovalCallback(Protocol):
     async def __call__(self, event: LLMEvent, parent_session_key: str = "") -> bool:
         pass
+
+
+class SpawnApprovalUnreachable(Exception):
+    """A spawn-approval prompt has no surface that could ever answer it.
+
+    Raised BY a :class:`SpawnApprovalCallback`, at the point it would otherwise
+    park, and handled by the spawn gate in ``subagent_manager/admission.py``.
+
+    Why an exception rather than a ``False`` return, and why the callback rather
+    than the gate decides:
+
+    * ``False`` already means "a human refused", and the two must not collapse:
+      a refusal is a decision, this is the absence of anyone who could decide.
+      They want different prose, and only this one is a misconfiguration.
+    * The gate cannot compute the answer. Every non-human auto-approve shortcut
+      the callback owns -- ``hooks.auto_approve_sources``, the CLI ``--approval``
+      mode, the YOLO override, slot trust -- is evaluated inside the callback and
+      never reaches the gate's cascade, so a gate-side probe would have to
+      re-derive all four and would reject spawns those rungs mean to allow (the
+      ``auto_approve_sources`` opt-in is issue #2381's own documented
+      workaround). Raising from the callback puts the check where "we are about
+      to park with nobody attached" is the only remaining possibility.
+
+    The message SHOULD name the surface that was missing ("no dashboard client is
+    connected"), because the raiser is the only party that knows what the
+    surfaces are. The gate quotes it and adds the config rungs, which are the
+    gate's own; that split is what keeps the gate's prose from going stale when
+    channel-side delivery lands.
+
+    A callback that never raises it keeps today's behaviour unchanged.
+    """
 
 
 class SpawnApprovalCallback(Protocol):

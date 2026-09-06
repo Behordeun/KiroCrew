@@ -127,7 +127,7 @@ from kiro_crew.providers.base import LLMProvider
 from kiro_crew.safety_override import (
     approval_mode_permitted,
     safety_override,
-    yolo_policy_verdict,
+    yolo_policy_permits,
 )
 from kiro_crew.sandbox import voice_runtime_workspace_conflict
 from kiro_crew.security import (
@@ -3189,19 +3189,22 @@ async def _reset_slot_session_or_warn(
     connected client rendering the OLD value over a switch that actually
     happened (the acting tab's ``performSlotSwitch`` also keeps its old store
     value on a non-2xx). ``None`` tells the caller to record the degraded
-    teardown and FALL THROUGH — its rebind guard (``effective_session_key``)
-    must still run, so a slot rebound during the raising await keeps answering
-    rollback + 409 — and then answer 200 with
-    :data:`_TEARDOWN_INCOMPLETE_WARNING` after the usual slots push. This is
-    the agent and reasoning-effort handlers' precedent, shared here so the
-    model and workspace handlers' four call sites (first attempt +
-    idle-decline retry each) do not repeat the try block. Only the raise path
-    is new: a normal ``bool`` verdict passes through untouched, so the decline
-    (``False``) ladders keep their semantics.
+    teardown and answer 200 with :data:`_TEARDOWN_INCOMPLETE_WARNING` after
+    the usual slots push; a caller with a rebind guard
+    (``effective_session_key`` — the model and workspace handlers) must still
+    FALL THROUGH and run it, so a slot rebound during the raising await keeps
+    answering rollback + 409. Shared
+    by all four commit-before-reset switch handlers (agent, reasoning effort,
+    model, workspace) so none of them repeats the try block: each calls twice
+    (first attempt + idle-decline retry). Only the raise path is
+    handled here: a normal ``bool`` verdict passes through untouched, so the
+    decline (``False``) ladders keep their semantics.
 
-    ``skip_if_busy`` is fixed at True because every caller is a switch handler
-    whose destructive fallback must decline atomically against a slipped-in
-    turn (their shared invariant); a caller that wants propagation keeps using
+    ``skip_if_busy`` is fixed at True: every caller is a switch handler with
+    a decline ladder (agent, reasoning effort, model, workspace), and
+    :func:`_reset_slot_session` must decline a busy session atomically with
+    the pop rather than tear it down mid-turn — the ladder then disambiguates
+    the decline. A caller that wants every raise to propagate keeps using
     :func:`_reset_slot_session` directly.
     """
     # Captured BEFORE the await: the post-raise probe must compare INSTANCE
@@ -5626,13 +5629,18 @@ async def api_chat_slot_agent(request: web.Request) -> web.Response:
         # flight creates a fresh session from the slot's CURRENT bindings,
         # so the new agent must already be visible or that session
         # cold-starts on the old binding and stays stale after the switch
-        # reports success. Deliberately NO rollback on a failing reset: the
+        # reports success. NO rollback on a POST-POP teardown failure: the
         # reset pops the session from the map before shutting the process
-        # down, so by the time shutdown can fail the old binding's session
-        # no longer exists — every future send cold-starts on the NEW
-        # binding, and a replacement session created by a concurrent send
-        # mid-reset already runs it. Restoring the old label would advertise
-        # a binding nothing runs (and tear against that replacement).
+        # down, so once the pop has happened the old binding's session no
+        # longer exists — every future send cold-starts on the NEW binding,
+        # and a replacement session created by a concurrent send mid-reset
+        # already runs it. Restoring the old label would advertise a binding
+        # nothing runs (and tear against that replacement). That the pop
+        # happened is VERIFIED, not assumed: the reset below routes through
+        # _reset_slot_session_or_warn, which propagates a pre-pop raise —
+        # and THAT path does roll back (see the except below), because the
+        # probe has proven the opposite premise: the old session survives on
+        # this old binding.
         slot.agent = _CommitToken(agent_name)
         # Ownership token for the rollback paths below: the committed value is
         # a str SUBCLASS instance whose identity only this request holds — it
@@ -5758,22 +5766,42 @@ async def api_chat_slot_agent(request: web.Request) -> web.Response:
             return children_409
         teardown_incomplete = False
         reset_ok = True
+        # The switch is COMMITTED already (slot.agent above), so a POST-POP
+        # teardown raise is answered as a success with a degraded-teardown
+        # warning — but only once the helper has verified the raise came
+        # AFTER the session pop. A PRE-POP raise means the old session
+        # survives on the old binding, so the helper propagates it and this
+        # request rolls the commit back and answers 500 instead of a false
+        # success. The helper resets with skip_if_busy=True, which keeps this
+        # handler's decline ladder
+        # below: SessionManager.reset evaluates busyness atomically with the
+        # session pop, so a turn that slipped into the microsecond residue
+        # after the re-check above is declined (reset_ok False) instead of
+        # torn down mid-stream. The helper's None verdict marks the degraded
+        # post-pop teardown; a bool verdict is the reset outcome the ladder
+        # reads.
         try:
-            # skip_if_busy: SessionManager.reset evaluates busyness atomically
-            # with the session pop, so a turn that slipped into the microsecond
-            # residue after the re-check above is declined instead of torn
-            # down mid-stream.
-            reset_ok = await _reset_slot_session(state, slot, session_key, skip_if_busy=True)
+            reset_verdict = await _reset_slot_session_or_warn(
+                state, slot, session_key, switch_kind="agent"
+            )
         except Exception:
-            # The switch is COMMITTED regardless: the reset pops the session
-            # before its shutdown can fail, so the new binding is what every
-            # replacement or future session runs. This is a success with a
-            # degraded teardown, and it must be reported as one — a 500 here
-            # would make the acting tab's performSlotSwitch keep the OLD
-            # store value, corrupting the cycle base and the displayed state
-            # for a switch that actually happened.
+            # The identity probe proved the pop never happened: the old
+            # session is still alive on the old binding, so the committed
+            # values describe a switch that did not take — and the acting tab
+            # keeps its OLD store value on the 500, so leaving them would
+            # split server state from every client. Roll back the commit
+            # (identity-scoped, so a concurrent explicit pick that landed
+            # during the raising await keeps its win) and re-push so clients
+            # and persisted state land on the rolled-back truth, then let the
+            # raise escape as a 500.
+            _rollback_switch()
+            slot._dirty = True
+            state.push_slots_update()
+            raise
+        if reset_verdict is None:
             teardown_incomplete = True
-            logger.exception("Slot %s agent switch: old session teardown incomplete", name)
+        else:
+            reset_ok = reset_verdict
         if not reset_ok and not teardown_incomplete:
             # Disambiguate the decline FAIL-CLOSED, the workspace handler's
             # template: a live provider mid-turn → roll back and 409; a live
@@ -5789,21 +5817,25 @@ async def api_chat_slot_agent(request: web.Request) -> web.Response:
                     return web.json_response(
                         {"error": "a turn is in flight", "code": "turn_in_flight"}, status=409
                     )
+                # Retry through the same probing helper: a pre-pop raise on
+                # the retry propagates (roll back + 500) exactly as the first
+                # attempt, and a post-pop raise becomes the committed 200 +
+                # warning. Left as a bare _reset_slot_session the retry would
+                # answer a false success on a pre-pop raise, the divergence
+                # the first-attempt guard prevents.
                 try:
-                    reset_ok = await _reset_slot_session(
-                        state, slot, session_key, skip_if_busy=True
+                    reset_verdict = await _reset_slot_session_or_warn(
+                        state, slot, session_key, switch_kind="agent"
                     )
                 except Exception:
-                    # Same as the first attempt: a post-pop teardown raise is a
-                    # COMMITTED switch with a degraded teardown, not a failure.
-                    # Left unwrapped this raise escapes the handler under
-                    # slot._lock as a 500 while slot.agent stays committed and
-                    # un-rolled-back, so the acting tab's performSlotSwitch keeps
-                    # the OLD store value for a switch that happened — the exact
-                    # divergence the first-attempt guard prevents. Fall through
-                    # to the committed 200 + warning path instead.
+                    _rollback_switch()
+                    slot._dirty = True
+                    state.push_slots_update()
+                    raise
+                if reset_verdict is None:
                     teardown_incomplete = True
-                    logger.exception("Slot %s agent switch: old session teardown incomplete", name)
+                else:
+                    reset_ok = reset_verdict
                 if (
                     not reset_ok
                     and not teardown_incomplete
@@ -7129,18 +7161,42 @@ async def api_chat_slot_reasoning_effort(request: web.Request) -> web.Response:
             teardown_incomplete = False
             reset_ok = True
             try:
-                # skip_if_busy: the re-check above is a best-effort fast path
-                # — SessionManager.reset evaluates busyness atomically with
-                # the session pop, so a turn that slipped into the residue
-                # (or holds the semaphore before its prompt is in flight,
-                # which has_active_turn cannot see) is declined here instead
-                # of torn down mid-stream.
-                reset_ok = await _reset_slot_session(state, slot, session_key, skip_if_busy=True)
-            except Exception:
-                logger.exception(
-                    "Slot %s reasoning_effort switch: old session teardown incomplete", name
+                # A POST-POP teardown raise does NOT undo the switch (the
+                # reset pops the session first, so every replacement runs the
+                # new value) and is answered as a success with a warning —
+                # but only once the helper has verified the raise came AFTER
+                # the session pop. A PRE-POP raise means the old session
+                # survives on the old effort, so the helper propagates it and
+                # this request restores the prior effort and answers 500.
+                # The helper resets with skip_if_busy=True, which keeps this
+                # handler's decline ladder below:
+                # SessionManager.reset evaluates busyness atomically with the
+                # session pop, so a turn that slipped into the residue (or
+                # holds the semaphore before its prompt is in flight, which
+                # has_active_turn cannot see) is declined here instead of torn
+                # down mid-stream. The helper's None verdict marks the
+                # degraded post-pop teardown; a bool verdict is the reset
+                # outcome the ladder reads.
+                reset_verdict = await _reset_slot_session_or_warn(
+                    state, slot, session_key, switch_kind="reasoning_effort"
                 )
+            except Exception:
+                # The identity probe proved the pop never happened: the old
+                # session is still alive on the old effort, so the committed
+                # value describes a switch that did not take and the acting
+                # tab keeps its OLD store value on the 500. Restore the prior
+                # effort (only if this request's write still stands) and
+                # re-push so clients and persisted state land on the truth,
+                # then let the raise escape as a 500.
+                if slot.reasoning_effort == effort:
+                    slot.reasoning_effort = prior_effort
+                slot._dirty = True
+                state.push_slots_update()
+                raise
+            if reset_verdict is None:
                 teardown_incomplete = True
+            else:
+                reset_ok = reset_verdict
             if not reset_ok and not teardown_incomplete:
                 # Disambiguate the decline FAIL-CLOSED (the workspace
                 # handler's template): live provider mid-turn → roll back and
@@ -7155,23 +7211,27 @@ async def api_chat_slot_reasoning_effort(request: web.Request) -> web.Response:
                             {"error": "a turn is in flight", "code": "turn_in_flight"},
                             status=409,
                         )
+                    # Retry through the same probing helper: a pre-pop raise on
+                    # the retry propagates (restore + 500) exactly as the first
+                    # attempt, and a post-pop raise becomes the committed 200 +
+                    # warning below.
                     try:
-                        reset_ok = await _reset_slot_session(
-                            state, slot, session_key, skip_if_busy=True
+                        reset_verdict = await _reset_slot_session_or_warn(
+                            state,
+                            slot,
+                            session_key,
+                            switch_kind="reasoning_effort",
                         )
                     except Exception:
-                        # A post-pop teardown raise on the retry is a COMMITTED
-                        # switch with a degraded teardown, not a failure; left
-                        # unwrapped it escapes under slot._lock as a 500 while
-                        # slot.reasoning_effort stays committed, so the acting
-                        # tab keeps the OLD store value. Fall through to the
-                        # committed 200 + warning path (the first attempt's
-                        # guard).
+                        if slot.reasoning_effort == effort:
+                            slot.reasoning_effort = prior_effort
+                        slot._dirty = True
+                        state.push_slots_update()
+                        raise
+                    if reset_verdict is None:
                         teardown_incomplete = True
-                        logger.exception(
-                            "Slot %s reasoning_effort switch: old session teardown incomplete",
-                            name,
-                        )
+                    else:
+                        reset_ok = reset_verdict
                     if (
                         not reset_ok
                         and not teardown_incomplete
@@ -8764,34 +8824,19 @@ async def api_chat_mode(request: web.Request) -> web.Response:
     # mode check rather than a YOLO special case so that widening the scope needs
     # no change here; YOLO is additionally guarded at arming in ``safety_override``.
     #
-    # ``mode_disabled_by_policy`` is reserved for a DEFINITE deny. Reading the
-    # boolean alone conflated two different answers: ``approval_mode_permitted``
-    # fails closed, so a governance READ FAILURE also returned False and the caller
-    # was told their organization's policy forbids the mode -- sending them to look
-    # for a policy that may not exist, while the real fault (governance unreadable)
-    # went unnamed. Same defect, and same three-way split, as the two Slack paths.
-    # ``yolo`` is the only deniable mode, so it is the only one that can be unknown.
+    # ``yolo`` reads the PUSHED verdict, which is resolved when a ceiling is installed
+    # and so needs no thread: there is one answer for the ceiling in force, and a
+    # governance-evaluation error resolved to a deny at that install. Every other mode
+    # is non-deniable and short-circuits inside ``approval_mode_permitted`` -- but an
+    # unrecognised ``mode`` string does reach governance, so that branch keeps its
+    # offload.
     if mode == "yolo":
-        _verdict = await asyncio.to_thread(yolo_policy_verdict)
-        if _verdict == "denied":
+        if not yolo_policy_permits():
             return _deny_approval_mode(
                 caller="dashboard:chat_mode",
                 operation=f"chat_mode:{mode}",
                 mode=mode,
                 resource=str(body.get("slot") or ""),
-            )
-        if _verdict != "permitted":
-            return web.json_response(
-                {
-                    "ok": False,
-                    "error": (
-                        "could not read the governance policy for approval mode "
-                        f"{mode!r}; try again"
-                    ),
-                    "code": "approval_mode_policy_unreadable",
-                    "mode": mode,
-                },
-                status=503,
             )
     elif not await asyncio.to_thread(approval_mode_permitted, mode):
         return _deny_approval_mode(
@@ -8859,7 +8904,7 @@ async def api_chat_mode(request: web.Request) -> web.Response:
             # them apart: an ``approval_modes`` deny of ``yolo`` is a permanent
             # policy answer (403, same code the picker already understands),
             # while anything else is a transient activation failure (503).
-            if not await asyncio.to_thread(approval_mode_permitted, "yolo"):
+            if not yolo_policy_permits():
                 return _deny_approval_mode(
                     caller="dashboard:chat_mode",
                     operation="mode_change:yolo",
@@ -9282,7 +9327,7 @@ async def api_chat_slot_approve(request: web.Request) -> web.Response:
             # deny of ``yolo`` is a permanent policy answer the client can render
             # (403 + the code the picker already understands), while anything else
             # is a transient activation failure worth retrying (503).
-            if not await asyncio.to_thread(approval_mode_permitted, "yolo"):
+            if not yolo_policy_permits():
                 return _deny_approval_mode(
                     caller=f"dashboard:{name}",
                     operation="tool_approval:yolo",
@@ -9298,6 +9343,26 @@ async def api_chat_slot_approve(request: web.Request) -> web.Response:
             # linked cron/workflow or channel-surfaced slot runs under its
             # linked_session_key.
             state.sessions.set_approval_policy(effective_session_key(s), "auto")
+        # Reconcile against a policy deny that landed while this was writing.
+        #
+        # This write is the grant's inherited half -- ``admission.parent_trusted``
+        # reads the slot's approval policy directly rather than any flag in
+        # ``safety_override`` -- and it happens OUTSIDE the lock the revocation takes.
+        # So a denying ceiling installed after the arm returned can revoke the grant
+        # and run its ``_on_expired`` cleanup, and this loop then puts the inherited
+        # trust straight back with nothing left to clear it: a subagent spawned under
+        # it is auto-approved, and is not un-spawned by the next event either.
+        #
+        # The two halves are complete together: a write that lands BEFORE the
+        # cleanup is cleared by the cleanup, and one that lands after -- or
+        # interleaved with it -- is cleared here. Standing trust is preserved on the
+        # same rule ``_on_override_expired`` uses, since a Trust press is a separate,
+        # longer-lived decision that no yolo deny expires.
+        if not yolo_policy_permits():
+            for s in state._slots.values():
+                if not (s._trust or s._trust_reads):
+                    state.sessions.set_approval_policy(effective_session_key(s), "")
+            state.push_slots_update()
         action = "approved"
     resolved = action if action in ("approved", "approved_trust_reads") else "rejected"
     if not fut or fut.done():

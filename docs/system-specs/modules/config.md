@@ -801,9 +801,9 @@ class AgentConfig:
     yolo: bool = False             # permanent YOLO mode (skip tool approval); tracked via _yolo_from_config flag
     max_subagents: int = 3         # concurrent subagent cap; 0 = auto-size from host memory/CPU. Load-time: 0 (auto) or [3, 64] — a fixed pin of 1/2 is raised to 3
     subagent_auto_max: int = 16    # ceiling on the auto-sized cap (max_subagents=0 only). Load-time clamped to [3, 64]
-    subagent_max_turns: int = 100  # default per-subagent tool-call budget. Load-time clamped to [1, 200]
+    subagent_max_turns: int = 100  # default per-subagent tool-call budget. Load-time clamped to [1, 1000]
     subagent_result_ttl_secs: int = 3600  # seconds a delivered subagent's result.txt is retained before the reaper prunes it
-    chat_turn_timeout_secs: int = 7200  # wall-clock ceiling for one chat turn. Load-time clamped to [300, 86400]; the ACP prompt wait follows it (resolve_prompt_timeout)
+    chat_turn_timeout_secs: int = 14400  # wall-clock ceiling for one chat turn. Load-time clamped to [300, 86400]; the ACP prompt wait follows it (resolve_prompt_timeout)
     tool_approval_timeout_secs: int = 600  # how long a chat turn waits for a human to answer a tool-approval prompt. Load-time clamped to [30, 7200] AND to 60s below chat_turn_timeout_secs
 
 @dataclass
@@ -949,8 +949,11 @@ and it is deliberately NOT re-exported from `loader.py` — the loader's
   booleans must be real JSON booleans (`bool("false")` is `True`, so a
   string-typed value is read as `False`); `tile` is the one pinned value — it is
   interpolated into SVG markup, so it goes through the same `#rrggbb` validator
-  as `session_color`. An all-empty trait set collapses to `{}` (the one canonical
-  "reset" spelling) rather than storing a featureless third state.
+  as `session_color`. An all-empty trait set drops the `traits` key rather than
+  storing a featureless third state, and a ghost override left with nothing but
+  `kind` collapses to `{}` (the one canonical "reset" spelling). `traits` is
+  therefore optional: `{"kind": "ghost", "sounds": {...}}` is valid and means
+  "name-derived face, plus these per-state overrides".
 - `{"kind": "image", "v": <int>, "file": "<16-hex>.<png|jpg|webp>"}` — the crew
   wears an uploaded picture served from `GET /api/agents/{name}/avatar`; the
   file itself lives under `<data home>/run/avatars/` and the record only marks
@@ -959,8 +962,35 @@ and it is deliberately NOT re-exported from `loader.py` — the loader's
   content-addressed variant and must match `^[0-9a-f]{16}\.(png|jpg|webp)$`.
   Wire-only keys (`promote`, `token`) never reach the record.
 
-Anything else — a non-dict, an unknown `kind`, a ghost override without a
-`traits` dict — collapses to `{}` on load (config.json is hand-editable and
+**Per-state overrides (`expressions`, `sounds`).** Both kinds may carry two
+optional keys, keyed on the agent lifecycle state (`working`, `done`, `error`
+exactly; any other key is dropped, so a version-skewed caller cannot grow the
+key set):
+
+- `expressions: {"<state>": {"eyes"?: str, "mouth"?: str}}` — only those two
+  axes, under the same 32-char truncation as a trait, with an empty string
+  dropped (it already means "absent"). The identity axes
+  (`brows`/`accessory`/`prop`/`tile`/`blush`/`flip`) are deliberately not
+  accepted per state: a crew must stay recognisable as itself while its
+  expression changes. Legal on `kind: "image"` too — stored, and ignored by the
+  picture renderer.
+- `sounds: {"<state>": "none"|"chime"|"ding"|"blip"|"pop"|"pulse"}` — a shipped
+  cue preset. Unlike a trait value this IS pinned to a vocabulary, because the
+  name selects a shipped asset rather than an option the renderer can resolve to
+  absent. `"none"` is kept as explicit silence, distinct from an absent state
+  (also silent), so one state can opt out of a cue the others use. No per-crew
+  audio upload exists.
+
+Either key is omitted from the record when validation leaves it empty, so a
+stored avatar never carries `{}` for one. Junk (`expressions: "x"`,
+`sounds: {"working": 5}`, a list) is stripped silently and never refused: the
+same forgiveness traits get, so a malformed per-state value costs that value and
+never the crew's whole avatar. The roster masks the `eyes`/`mouth` values like
+any other user-authored string (`_roster_avatar`) and leaves the preset-pinned
+`sounds` intact, for the same reason it leaves `file` intact.
+
+Anything else — a non-dict, an unknown `kind`, a ghost override carrying no
+trait, expression or sound that survives validation — collapses to `{}` on load (config.json is hand-editable and
 agent-writable, so junk must never crash the load), while the endpoints answer a
 non-empty raw value the coercer collapses with 400 `invalid_avatar` — except a
 well-formed ghost override whose traits all coerce to absent, which is the
@@ -1048,7 +1078,8 @@ in `sections.py` and re-exported by `loader.py`; the load-time clamp remains in
 | Constant | Value | Field |
 |----------|-------|-------|
 | `SUBAGENT_AUTO_MAX_CEILING` | 64 | `agent.subagent_auto_max`, `agent.max_subagents` |
-| `SUBAGENT_MAX_TURNS_CEILING` | 200 | `agent.subagent_max_turns` |
+| `SUBAGENT_MAX_TURNS_CEILING` | 1000 | `agent.subagent_max_turns` |
+| `SUBAGENT_TIMEOUT_MIN` / `SUBAGENT_TIMEOUT_MAX` | 60 / 86400 | `agent.subagent_timeout_secs` |
 | `POOL_SIZE_MAX` | 10 | `session.pool_size` |
 | `CHAT_TURN_TIMEOUT_MIN` / `_MAX` | 300 / 86400 | `agent.chat_turn_timeout_secs` |
 | `TOOL_APPROVAL_TIMEOUT_MIN` / `_MAX` | 30 / 7200 | `agent.tool_approval_timeout_secs` |

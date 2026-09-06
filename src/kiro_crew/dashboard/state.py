@@ -2889,6 +2889,7 @@ DENY_CAUSE_POLICY = "policy"
 DENY_CAUSE_INVALID_NAME = "invalid_name"
 DENY_CAUSE_HOOK_ERROR = "hook_error"
 DENY_CAUSE_BATCH_CASCADE = "batch_cascade"
+DENY_CAUSE_APPROVAL_TIMEOUT = "approval_timeout"
 
 #: cause → (clause completing "The tool call you just made …", what to do next).
 _DENY_CAUSE_TEXT: dict[str, tuple[str, str]] = {
@@ -2917,6 +2918,15 @@ _DENY_CAUSE_TEXT: dict[str, tuple[str, str]] = {
         "whole. Address what declined that earlier tool (the reason above), then "
         "re-issue the calls you still need; if you genuinely cannot proceed "
         "without them, say so and stop with the reason.",
+    ),
+    DENY_CAUSE_APPROVAL_TIMEOUT: (
+        "was auto-declined because its approval prompt expired unanswered",
+        "nobody answered within the window, so the action itself was never judged — "
+        "do not abandon it or route around it on this evidence. State the "
+        "permission you need and why, then continue with what you can do without "
+        "it. Do not immediately reissue the same call: the person who did not "
+        "answer is still away, and re-prompting re-arms the same wait for the "
+        "same silence.",
     ),
 }
 
@@ -2949,10 +2959,10 @@ def build_refusal_steer_notice(
     *cause* selects the wording. The distinction is not cosmetic: a policy block
     is a verdict the model must route around, an invalid tool name is the model's
     own malformed output and is the one case it can simply fix, a hook fault
-    judged nothing at all, and a batch cascade cut the group short without
-    judging its members. Telling the model "safety policy" for any non-policy
-    cause would send it looking for an allowed alternative to an action nobody
-    refused.
+    judged nothing at all, a batch cascade cut the group short without judging
+    its members, and an expired approval prompt means nobody answered. Telling
+    the model "safety policy" for any non-policy cause would send it looking for
+    an allowed alternative to an action nobody refused.
     An unknown cause degrades to the policy wording rather than raising: a wrong
     noun is recoverable, and losing the notice would hand the model back
     kiro-cli's "user denied" with nothing to correct it.
@@ -2966,10 +2976,10 @@ def build_refusal_steer_notice(
     what = f"{title}: {reason}" if reason else title
     # Class-specific remediation, for the policy cause only. The non-policy
     # causes judged nothing about the action — an invalid tool name is the
-    # model's own malformed output, a hook fault is a host fault, and a cascaded
-    # batch member was never reached — so naming a sanctioned alternative there
-    # would answer a question nobody asked and imply the action itself had been
-    # refused.
+    # model's own malformed output, a hook fault is a host fault, a cascaded
+    # batch member was never reached, and an expired approval prompt was simply
+    # never answered — so naming a sanctioned alternative there would answer a
+    # question nobody asked and imply the action itself had been refused.
     remediation = (
         remediation_for(reason, title, credential_tool_hint=credential_tool_hint)
         if cause == DENY_CAUSE_POLICY
@@ -5818,11 +5828,11 @@ class DashboardState:
     MAX_BACKGROUND_TURNS_CEIL = 16  # hard ceiling — config can raise up to here
     # Longest a queued turn may sit waiting for a permit. Needed because the
     # queue wait happens INSIDE the coroutine ``spawn_guarded_turn`` already
-    # bounds at ``CHAT_TURN_TIMEOUT`` (7200s), so an unbounded wait would let a
+    # bounds at ``CHAT_TURN_TIMEOUT`` (14400s), so an unbounded wait would let a
     # fully-saturated cap consume a turn's whole ceiling and then kill it with
-    # "turn exceeded the 7200s ceiling" — a true statement that names the wrong
-    # cause. 1800s never trips under ordinary throttling and leaves 90 minutes
-    # of the ceiling for the turn itself; on expiry the turn fails with a
+    # "turn exceeded the 14400s ceiling" — a true statement that names the wrong
+    # cause. 1800s never trips under ordinary throttling and leaves three and a half
+    # hours of the ceiling for the turn itself; on expiry the turn fails with a
     # message that says what actually happened.
     _BACKGROUND_QUEUE_WAIT_SECS = 1800
 
@@ -7800,7 +7810,9 @@ class DashboardState:
         from kiro_crew.dashboard.handlers.source_providers import (
             gitlab_hosts_generation,
         )
-        from kiro_crew.platform.context import governance_generation
+        from kiro_crew.platform.governance_profiles import (
+            governance_answer_generation,
+        )
 
         yolo_active = self.is_yolo_active()  # expire first if needed
         # PUBLIC-repo chip status rides the general frame so any authenticated
@@ -7833,6 +7845,16 @@ class DashboardState:
             raise
         mgr = getattr(self, "channel_manager", None)
         ch_trusted = bool(mgr and any(ch.trusted for ch in mgr._channels.values()))
+        # ONE read, shared by the generic and owner frames below. Two independent
+        # reads could straddle a ceiling install or a profile reload and ship two
+        # different tokens for one broadcast, which would make one of the two
+        # audiences invalidate while the other did not.
+        # test_public_repo_status_rides_general_frame_owner_gets_full asserts the two
+        # frames' governanceGeneration values are equal, so a torn read reddens it.
+        # Filesystem-free by contract: governance_answer_generation is two locked
+        # integer reads. The profiles directory re-stat lives in poll_profiles_fresh,
+        # which only the async watcher calls, and only off the event loop.
+        answer_generation = governance_answer_generation()
         # Piggyback the allowlist generation so clients invalidate the cached
         # ['dashboardConfig'] query only when the GitLab-hosts allowlist actually
         # changed -- an event-driven refresh that replaces a constant 30s poll
@@ -7878,7 +7900,7 @@ class DashboardState:
                 # blinked": this frame fires on routine slot activity, so the
                 # tree alone is not a change signal.
                 "foldersGeneration": self.folders_generation(),
-                "governanceGeneration": governance_generation(),
+                "governanceGeneration": answer_generation,
             }
         )
         # The owner frame is the owner's ONLY slots frame — `_send_ws_all` skips
@@ -7900,7 +7922,7 @@ class DashboardState:
                     gitlab_hosts_gen=gitlab_hosts_generation(),
                     folders=_safe_folder_tree(getattr(self, "_folders", None)),
                     folders_gen=self.folders_generation(),
-                    governance_gen=governance_generation(),
+                    governance_gen=answer_generation,
                 )
             )
 
@@ -8128,6 +8150,9 @@ class DashboardState:
 
     def ws_client_count(self) -> int:
         return _websocket_for(self).ws_client_count()
+
+    def dashboard_user_ws_count(self) -> int:
+        return _websocket_for(self).dashboard_user_ws_count()
 
     def broadcast_browser_event(self, event_type: str, data: dict) -> None:
         _websocket_for(self).broadcast_browser_event(event_type, data)

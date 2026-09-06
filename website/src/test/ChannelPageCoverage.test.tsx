@@ -481,17 +481,22 @@ describe('ChannelPage — agents sidebar', () => {
     await userEvent.click(screen.getByTitle('Dismiss'))
     await waitFor(() => expect(vi.mocked(api).channelDismissAgent)
       .toHaveBeenCalledWith('ch1', 'a1'))
-    // A dismissed agent is `done`, so its row loses both action buttons.
-    await waitFor(() => expect(screen.queryByTitle('Dismiss')).not.toBeInTheDocument())
-  })
-
-  it('hides the row actions for an already-finished agent', async () => {
-    mockApi([channelOf({ members: { a1: member({ state: 'failed' }) } })])
-    await renderPage()
-    await openAgentsPanel()
-    expect(screen.queryByTitle('Dismiss')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTitle('Dismiss')).toBeInTheDocument())
     expect(screen.queryByTitle('Clear context')).not.toBeInTheDocument()
   })
+
+  it.each(['done', 'failed'] as const)(
+    'allows dismissing a terminal %s agent but not clearing its context',
+    async state => {
+      mockApi([channelOf({ members: { a1: member({ state }) } })])
+      await renderPage()
+      await openAgentsPanel()
+      await userEvent.click(screen.getByTitle('Dismiss'))
+      await waitFor(() => expect(vi.mocked(api).channelDismissAgent)
+        .toHaveBeenCalledWith('ch1', 'a1'))
+      expect(screen.queryByTitle('Clear context')).not.toBeInTheDocument()
+    },
+  )
 
   it('closes the agents sidebar again', async () => {
     await renderPage()

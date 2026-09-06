@@ -134,7 +134,12 @@
       "streaming": "потоковая передача"
     },
     "chatMessageList": {
-      "open_path": "Открыть {{path}}"
+      "copied": "Скопировано!",
+      "copy": "Копировать",
+      "copy_failed": "Не удалось скопировать",
+      "open_path": "Открыть {{path}}",
+      "show_less": "Показать меньше",
+      "show_more": "Показать больше"
     }
   },
   "apps": {
@@ -4976,7 +4981,6 @@
         "keys_count_other": "{{count}} ключей",
         "keys_for_account": "Ключи: {{name}}",
         "key_healthy": "Исправен",
-        "key_failed": "Сбой",
         "parent_folders": "Родительские папки",
         "folder_actions": "Действия с папкой",
         "file_actions": "Действия с файлом",
@@ -5031,7 +5035,6 @@
         "search_files": "Поиск по имени файла или пути…",
         "search_clear": "Очистить поиск",
         "search_pending": "Идёт поиск…",
-        "search_no_results": "Нет файлов, соответствующих «{{query}}».",
         "search_capped": "Слишком много совпадений — показаны первые {{count}}.",
         "search_failed": "Поиск не удался. Попробуйте снова.",
         "search_goto": "Открыть содержащую папку",
@@ -5046,7 +5049,13 @@
         "move_root": "Файлы (верхний уровень)",
         "move_up": "Вверх, в {{name}}",
         "move_no_folders": "Здесь нет другой папки, в которую можно переместить файл. Сначала создайте её.",
-        "move_moving": "Перемещение…"
+        "move_moving": "Перемещение…",
+        "stat_storage": "Хранилище",
+        "stat_objects": "Объекты",
+        "key_needs_attention": "Требует внимания",
+        "backup_state_current": "Есть копия",
+        "backup_state_never": "Ни разу не запускался",
+        "costs_refresh_failed": "Последнее чтение счёта не удалось. Показано значение из кеша."
       },
       "page": {
         "totals_summary": "Аккаунтов: {{accounts}} · Исправных ключей: {{healthy}} из {{keys}}",
@@ -5096,7 +5105,6 @@
         "add_accounts_error": "Не удалось зарегистрировать эти профили. Ничего не было добавлено. Попробуйте снова.",
         "add_accounts_load_error": "Не удалось получить список локальных профилей AWS.",
         "search_placeholder": "Поиск аккаунтов",
-        "search_none": "Нет аккаунтов, соответствующих «{{query}}».",
         "aggregate_accounts_few": "{{count}} аккаунта",
         "aggregate_accounts_many": "{{count}} аккаунтов",
         "aggregate_keys_few": "{{count}} ключа",
@@ -5108,7 +5116,15 @@
         "add_accounts_count_few": "{{count}} из {{max}} зарегистрировано",
         "add_accounts_count_many": "{{count}} из {{max}} зарегистрировано",
         "paid_services_title": "Платные сервисы",
-        "orphan_consent": "Подтверждено для аккаунта AWS, который здесь не зарегистрирован. Отзовите подтверждение ниже или зарегистрируйте этот аккаунт снова, чтобы управлять им на его собственной странице."
+        "orphan_consent": "Подтверждено для аккаунта AWS, который здесь не зарегистрирован. Отзовите подтверждение ниже или зарегистрируйте этот аккаунт снова, чтобы управлять им на его собственной странице.",
+        "account_actions": "Действия с аккаунтом",
+        "remove_account": "Убрать из AWS Control…",
+        "remove_account_action": "Убрать",
+        "remove_account_confirm": "Убрать «{{name}}» из AWS Control? В AWS и в вашей конфигурации AWS CLI ничего не изменится.",
+        "remove_account_error": "Не удалось убрать аккаунт.",
+        "remove_account_hint": "В AWS ничего не изменится",
+        "forget_key_confirm": "Забыть ключ «{{name}}» этой строки? В AWS и в вашей конфигурации AWS CLI ничего не изменится.",
+        "forget_key_action": "Забыть ключ"
       },
       "rail": {
         "accounts": "Аккаунты и учётные данные",
@@ -5116,6 +5132,44 @@
         "switch_account": "Сменить аккаунт",
         "usage": "Использование и расходы",
         "use_account": "Использовать этот аккаунт"
+      },
+      "overview": {
+        "title": "Обзор",
+        "subtitle": "Одна комната для аккаунтов, ключей, облачного диска и платных сервисов, к которым допущены ваши агенты.",
+        "stat_accounts": "Аккаунты",
+        "stat_accounts_attention_one": "{{count}} требует внимания",
+        "stat_accounts_attention_other": "{{count}} требуют внимания",
+        "stat_accounts_all_ok": "Всё в порядке",
+        "stat_keys": "Ключи в порядке",
+        "stat_keys_sub_one": "{{count}} ключ добавлен",
+        "stat_keys_sub_other": "{{count}} ключей добавлено",
+        "stat_drive": "Занято на диске",
+        "stat_drive_none": "Диска ещё нет",
+        "stat_spend": "С начала месяца",
+        "stat_spend_consent": "Отчёт о расходах выключен",
+        "stat_shares_none": "Нет общего доступа",
+        "stat_shares_sub_one": "{{count}} активная ссылка",
+        "stat_shares_sub_other": "{{count}} активных ссылок",
+        "stat_backups_nightly": "Ночью",
+        "stat_backups_manual": "Вручную",
+        "stat_backups_sub_nightly": "Запускается каждую ночь",
+        "stat_backups_sub_manual": "Расписание не задано",
+        "accounts_title": "Аккаунты",
+        "accounts_note": "Агенты используют эти ключи, никогда их не видя. Ничего из ключа не попадает в чат.",
+        "add_account": "Добавить аккаунт",
+        "drive_title": "Облачный диск",
+        "drive_bar_label": "{{size}} хранится: файлы, библиотека артефактов и резервные копии",
+        "drive_empty_title": "Облачного диска пока нет",
+        "drive_empty_body": "Создайте один приватный зашифрованный бакет в этом аккаунте для файлов, библиотеки артефактов и резервных копий.",
+        "drive_setup": "Настроить облачный диск",
+        "stat_accounts_attention_few": "{{count}} требуют внимания",
+        "stat_accounts_attention_many": "{{count}} требуют внимания",
+        "stat_keys_sub_few": "{{count}} ключа добавлено",
+        "stat_keys_sub_many": "{{count}} ключей добавлено",
+        "stat_shares_sub_few": "{{count}} активные ссылки",
+        "stat_shares_sub_many": "{{count}} активных ссылок",
+        "drive_bucket_label": "Бакет",
+        "stat_spend_scope": "Счёт AWS этого аккаунта"
       }
     }
   },
@@ -5214,10 +5268,15 @@
       "cancel": "Отмена",
       "customize": "Настроить…",
       "customized_note": "Используется своё лицо",
+      "expr_hint": "Выберите своё лицо и звук для каждого момента.",
+      "expr_picture_note": "У изображения нет лица, которое можно изменить, поэтому применяются только звуки.",
+      "expr_reset_state": "Сбросить",
+      "expr_sound": "Звук",
       "field_hint": "Лицо этого участника везде, где он появляется.",
       "field_label": "Аватар",
       "image_load_failed": "Не удалось загрузить сохранённое изображение — показано лицо по умолчанию.",
       "mirror": "Отразить по горизонтали",
+      "mode_expressions": "Выражения",
       "mode_face": "Лицо призрака",
       "mode_picture": "Изображение",
       "opt_angry": "Сердитые",
@@ -5249,6 +5308,7 @@
       "opt_party": "Праздничный колпак",
       "opt_phones": "Наушники",
       "opt_raised": "Приподнятые",
+      "opt_same_as_idle": "Как обычно",
       "opt_sleepy": "Сонные",
       "opt_smile": "Улыбка",
       "opt_smirk": "Усмешка",
@@ -5265,6 +5325,16 @@
       "opt_wrench": "Гаечный ключ",
       "randomize": "Случайно",
       "reset_default": "Вернуть лицо по умолчанию",
+      "sound_blip": "Блип",
+      "sound_chime": "Колокольчик",
+      "sound_ding": "Динь",
+      "sound_pop": "Поп",
+      "sound_preview": "Прослушать этот звук",
+      "sound_pulse": "Пульс",
+      "sound_silent": "Без звука",
+      "state_done": "Готово",
+      "state_error": "Ошибка",
+      "state_working": "Работает",
       "tile_amber": "Янтарный",
       "tile_bronze": "Бронзовый",
       "tile_coral": "Коралловый",
@@ -5702,6 +5772,9 @@
       "could_not_submit_that_decision_see_the_console_f": "Не удалось отправить это решение — подробности в консоли.",
       "detached_head_at": "Отсоединённый HEAD на {{branch}}",
       "drag_to_resize_double_click_to_reset": "Потяните, чтобы изменить размер (двойной щелчок — сброс)",
+      "collapse_composer": "Свернуть поле ввода сообщения",
+      "collapse_composer_desc": "Скрывает поле, освобождая место для ответа; черновик сохраняется",
+      "expand_composer": "Показать поле ввода сообщения",
       "file": "Файл",
       "force_kill_discards_in_progress_work_and_queued": "Принудительно завершить — текущая работа и очередь сообщений будут отброшены",
       "force_kill_session_discards_in_progress_work_and": "Принудительно завершить сессию (текущая работа и очередь сообщений будут отброшены)",
@@ -5783,7 +5856,8 @@
       "sketch": "Эскиз",
       "sketch_desc": "Нарисуйте эскиз; прикрепляет изображение и его редактируемый исходник",
       "optimize_failed": "Не удалось оптимизировать промпт. Исходный текст восстановлен.",
-      "optimize_failed_elsewhere": "Не удалось оптимизировать промпт, запущенный в другой сессии. Исходный текст восстановлен там."
+      "optimize_failed_elsewhere": "Не удалось оптимизировать промпт, запущенный в другой сессии. Исходный текст восстановлен там.",
+      "more_actions": "Другие действия"
     },
     "chatPane": {
       "agent_list": "Список агентов",
@@ -5853,7 +5927,6 @@
         },
         "pagesProvider": {
           "developer": "Разработчик",
-          "hooks": "Хуки",
           "kirocrew_agents": "Агенты {{productName}}",
           "logs": "Логи",
           "pages": "Страницы",
@@ -6689,6 +6762,9 @@
       "zoom_out": "Уменьшить (-)",
       "click_to_browse_shift_click_to_copy_path": "Щелчок — просмотреть / Shift+щелчок — скопировать путь",
       "click_to_open_shift_click_to_copy_path": "Щелчок — открыть / Shift+щелчок — скопировать путь",
+      "copy_diagram_source": "Копировать исходный код диаграммы",
+      "diagram_source": "Исходный код диаграммы",
+      "copy_failed": "Не удалось скопировать",
       "mermaid_render_failed": "Не удалось отобразить эту диаграмму. Вместо неё показан исходный код."
     },
     "markdownToc": {
@@ -7978,7 +8054,12 @@
       "status_failed": "Не удалось прочитать состояние подтверждения.",
       "confirm_failed": "Подтверждение не было записано.",
       "withdraw_failed": "Подтверждение не было отозвано.",
-      "retry": "Повторить"
+      "retry": "Повторить",
+      "badge_confirmed": "Подтверждено",
+      "badge_not_enabled": "Не включено",
+      "confirmed_on": "подтверждено {{date}}",
+      "billing_notice_short": "Платно. Ничего не отправляется, пока вы не подтвердите.",
+      "withdraw_effect": "После отзыва агенты перестанут использовать этот сервис, пока ты не подтвердишь снова."
     },
     "confirmDialog": {
       "cancel": "Отмена"
@@ -8106,6 +8187,9 @@
       "confirm_discard": "Удалить рисунок",
       "already_attached": "Прикреплено — измените холст, чтобы нарисовать снова",
       "load_failed": "Не удалось загрузить блокнот для эскизов — проверьте соединение и откройте снова"
+    },
+    "pinSurfaceButton": {
+      "pin_limit_reached": "Не более {{n}} закреплённых элементов на боковой панели - сначала открепите один"
     }
   },
   "hooks": {
@@ -9572,7 +9656,10 @@
         "pin_message": "Закрепить сообщение",
         "unpin_message": "Открепить сообщение",
         "copied": "Скопировано",
-        "copy_failed": "Не удалось скопировать"
+        "copy_failed": "Не удалось скопировать",
+        "steering": "Направляется…",
+        "redirecting_the_running_turn_not_yet_confirmed": "Перенаправление выполняющегося хода — ещё не подтверждено.",
+        "turn_ended_before_this_applied_runs_as_its_own_message": "Ход завершился до того, как это применилось, — сообщение выполняется отдельно."
       },
       "workflowCompletionCard": {
         "hide_result": "Скрыть результат",
@@ -10001,7 +10088,6 @@
       "show": "Показать",
       "show_all_folders": "Показать все папки",
       "show_all_older_sessions": "Показать все старые сессии",
-      "show_collapsed_folders": "Показывать свёрнутые папки:",
       "show_folder": "Показать папку",
       "show_hidden_folder_few": "Показать {{count}} скрытые папки",
       "show_hidden_folder_many": "Показать {{count}} скрытых папок",
@@ -10463,8 +10549,8 @@
       },
       "featurePreviewsTab": {
         "chat_on_a_crew": "Чат на Crew",
-        "chat_on_a_crew_desc": "Добавляет «New chat on crew» в меню создания: запускает сессию, которая выполняется на подключённом Crew. Не завершено: она открывается в собственной панели этого Crew, а сессии, выполняемые на Crew, здесь пока не отображаются.",
-        "crew": "Crew",
+        "chat_on_a_crew_desc": "Добавляет «New chat on crew» в меню создания: запускает сессию на удалённом экземпляре — другой машине, которую ты подключил в разделе Настройки > Удалённые экземпляры. Не завершено: сессия открывается в собственной панели этого экземпляра и пока не отображается в списке сессий этой панели; чтобы вернуться к ней позже, переключись на панель этого экземпляра.",
+        "crew": "Участники команды и Crew Mode",
         "inbound_webhook_tokens_registered_contexts_and_r": "Токены входящих вебхуков, зарегистрированные контексты и история запусков. API работает, но страница не доделана.",
         "open_webhooks": "Открыть вебхуки",
         "the_crew_members_page_and_crew_mode_chats_both_a": "Страница «Участники команды» и чаты Crew Mode. Оба ещё в разработке, поэтому не отображаются, пока эта опция не включена.",
@@ -10473,6 +10559,7 @@
     },
     "developerPage": {
       "developer": "Разработчик",
+      "feature_previews_moved": "Предпросмотр функций переехал в Настройки > Разработчик",
       "tabs": {
         "agentBackend": {
           "description": "Какого агента запускают новые сессии — Kiro CLI, Claude Code или KAS",
@@ -10489,10 +10576,6 @@
         "debugTools": {
           "label": "Инструменты отладки",
           "description": "Наложения, показывающие прямо на устройстве, что приложение делает с собой."
-        },
-        "featurePreviews": {
-          "description": "Невыпущенные функции и страницы: они не показываются в боковой панели и в поиске «Искать везде», пока вы не включите их здесь. Настройка действует только на этом устройстве, а сами они намеренно не доработаны.",
-          "label": "Предпросмотр функций"
         },
         "logs": {
           "description": "Просмотр логов в реальном времени с фильтром по уровню и поиском",
@@ -10700,6 +10783,10 @@
       "session_color_hint": "Сессии, запущенные этим агентом, используют этот цвет, если у сессии нет собственного цвета. Его изменение перекрашивает такие сессии. Оставьте пустым, чтобы не задавать цвет агента.",
       "session_color_hex": "Шестнадцатеричное значение цвета сессии",
       "session_color_clear": "Очистить",
+      "discard_unsaved_changes": "Отменить несохранённые изменения?",
+      "discard_unsaved_body": "В этой команде есть изменения, которые так и не были сохранены. Закрытие сейчас удалит их.",
+      "discard_confirm": "Отменить изменения",
+      "discard_also_crew_edits": "Остальные несохранённые изменения этой команды будут удалены вместе с ним.",
       "editor_options_load_failed": "Не удалось загрузить параметры рабочей области, шаблона и хранилища памяти редактора crew."
     },
     "knowledge": {
@@ -11312,7 +11399,7 @@
         "session_timeout": "Тайм-аут сессии",
         "subagent_settings": "Настройки субагентов",
         "takes_effect_on_next_session_range_60_86400s": "Применится в следующей сессии. Диапазон: 60–86400s.",
-        "tool_call_budget_per_subagent_1_200_default_100": "Бюджет вызовов инструментов на субагента (1–200). По умолчанию: 100.",
+        "tool_call_budget_per_subagent_1_1000_default_100": "Бюджет вызовов инструментов на субагента (1–1000). По умолчанию: 100.",
         "used_by": "Используется",
         "using_global_memory_settings": "Используются глобальные настройки памяти",
         "using_legacy_mode_agent_default_agent_as_agent_t": "Используется устаревший режим — agent.default_agent как шаблон агента",
@@ -12812,6 +12899,8 @@
       "developerPanel": {
         "developer_mode": "Режим разработчика",
         "developer_tools": "Инструменты разработчика",
+        "feature_previews": "Предпросмотр функций",
+        "feature_previews_desc": "Невыпущенные функции и страницы. Сами страницы не показываются в боковой панели и в поиске «Искать везде», пока ты не включишь их здесь; переключатели же находятся через поиск по настройкам. Настройка действует только на этом устройстве, а сами они намеренно не доработаны.",
         "gateway": "Шлюз",
         "open_developer_page": "Открыть страницу разработчика",
         "run_a_local_gateway": "Запускать локальный шлюз",
@@ -14338,7 +14427,44 @@
       "driving_none": "Сейчас не управляет ни одним сеансом.",
       "driving_idle": "Простой",
       "driving_show_all": "Показать все ({{count}})",
-      "driving_show_less": "Свернуть"
+      "driving_show_less": "Свернуть",
+      "patrol_title": "Автопатруль",
+      "patrol_active": "Патрулирует",
+      "patrol_interval": "Интервал",
+      "patrol_cycles": "Пробуждения",
+      "patrol_cycles_unlimited": "{{n}} · без лимита",
+      "patrol_cycles_of": "{{n}} из {{max}}",
+      "patrol_last_wake": "Последнее пробуждение",
+      "patrol_next_wake": "Следующее пробуждение",
+      "patrol_instruction": "Инструкция",
+      "patrol_stopped": "Патруль остановлен.",
+      "patrol_stopped_manual": "Приостановлен вручную.",
+      "patrol_stopped_cycle_cap": "Достигнут лимит пробуждений.",
+      "patrol_stopped_runtime_budget": "Исчерпан бюджет времени.",
+      "patrol_stopped_approval_stalled": "Остановлен в ожидании одобрения инструмента в этой беседе.",
+      "patrol_last_wake_ago": "Последнее пробуждение {{when}}",
+      "patrol_none": "Патруль не запланирован.",
+      "patrol_error": "Не удалось загрузить состояние патруля этого участника.",
+      "patrol_error_roster": "Не удалось загрузить состояние патруля для списка.",
+      "patrol_badge": "Патрулирует · {{cycle}}",
+      "patrol_badge_stopped": "Патруль остановлен",
+      "patrol_next_in": "Через {{time}}",
+      "wake_patrol_every": "Каждые {{every}}",
+      "filter_starred": "Избранные",
+      "filter_starred_description": "Показывать только избранных участников",
+      "filter_source_mine": "Мои",
+      "filter_source_builtin": "Встроенные",
+      "filter_source_package": "Из пакетов",
+      "filters_hide_all": "Активные фильтры скрывают всех участников.",
+      "filters_clear": "Сбросить фильтры",
+      "star": "Добавить {{name}} в избранное",
+      "unstar": "Убрать {{name}} из избранного",
+      "star_failed_title": "Избранное не сохранено",
+      "star_failed": "Не удалось обновить отметку избранного для этого участника.",
+      "filter_source_mine_description": "Команды, созданные вами в менеджере команд",
+      "filter_source_builtin_description": "Команды, входящие в {{productName}}",
+      "filter_source_package_description": "Команды, установленные пакетами возможностей",
+      "member_count_filtered": "{{shown}} из {{count}} участников"
     }
   },
   "privacyDisclosure": {
@@ -14414,7 +14540,7 @@
         "label": "Управление компьютером"
       },
       "developer": {
-        "description": "Режим разработчика, журналы, системные метрики и диагностика",
+        "description": "Режим разработчика, предпросмотр функций, журналы, системные метрики и диагностика",
         "label": "Разработчик"
       },
       "display": {

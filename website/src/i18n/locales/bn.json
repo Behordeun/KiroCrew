@@ -128,7 +128,12 @@
       "streaming": "স্ট্রিমিং হচ্ছে"
     },
     "chatMessageList": {
-      "open_path": "{{path}} খোলো"
+      "copied": "কপি হয়েছে!",
+      "copy": "কপি করুন",
+      "copy_failed": "কপি ব্যর্থ হয়েছে",
+      "open_path": "{{path}} খোলো",
+      "show_less": "কম দেখান",
+      "show_more": "আরও দেখান"
     }
   },
   "apps": {
@@ -4816,7 +4821,6 @@
         "keys_count_other": "{{count}}টি কী",
         "keys_for_account": "{{name}}-এর কী",
         "key_healthy": "সুস্থ",
-        "key_failed": "ব্যর্থ",
         "parent_folders": "প্যারেন্ট ফোল্ডার",
         "folder_actions": "ফোল্ডারের কাজ",
         "file_actions": "ফাইলের কাজ",
@@ -4869,7 +4873,6 @@
         "search_files": "ফাইলের নাম বা পাথ দিয়ে খুঁজুন…",
         "search_clear": "অনুসন্ধান মুছুন",
         "search_pending": "খোঁজা হচ্ছে…",
-        "search_no_results": "“{{query}}” এর সাথে মেলে এমন কোনো ফাইল নেই।",
         "search_capped": "অনেক বেশি মিল — শুধু প্রথম {{count}}টি দেখানো হচ্ছে।",
         "search_failed": "অনুসন্ধান ব্যর্থ হয়েছে। আবার চেষ্টা করুন।",
         "search_goto": "ধারক ফোল্ডার খুলুন",
@@ -4884,7 +4887,13 @@
         "move_root": "ফাইল (শীর্ষ স্তর)",
         "move_up": "উপরে {{name}}-এ",
         "move_no_folders": "এখানে সরানোর জন্য অন্য কোনো ফোল্ডার নেই। প্রথমে একটি তৈরি করুন।",
-        "move_moving": "সরানো হচ্ছে…"
+        "move_moving": "সরানো হচ্ছে…",
+        "stat_storage": "স্টোরেজ",
+        "stat_objects": "অবজেক্ট",
+        "key_needs_attention": "নজর দরকার",
+        "backup_state_current": "ব্যাকআপ হয়েছে",
+        "backup_state_never": "কখনো চলেনি",
+        "costs_refresh_failed": "সর্বশেষ বিল পড়া ব্যর্থ হয়েছে; এটি ক্যাশ করা সংখ্যা।"
       },
       "page": {
         "totals_summary": "{{accounts}} অ্যাকাউন্ট · {{keys}}টির মধ্যে {{healthy}}টি কী সুস্থ",
@@ -4934,9 +4943,16 @@
         "add_accounts_error": "সেই প্রোফাইলগুলি নিবন্ধন করা যায়নি। কিছুই যোগ করা হয়নি। আবার চেষ্টা করুন।",
         "add_accounts_load_error": "স্থানীয় AWS প্রোফাইলগুলোর তালিকা করা যায়নি।",
         "search_placeholder": "অ্যাকাউন্ট খুঁজুন",
-        "search_none": "“{{query}}” এর সাথে মেলে এমন কোনো অ্যাকাউন্ট নেই।",
         "paid_services_title": "পেইড পরিষেবা",
-        "orphan_consent": "এখানে নিবন্ধিত নয় এমন একটি AWS অ্যাকাউন্টের জন্য নিশ্চিত করা হয়েছে। নিচে নিশ্চিতকরণ প্রত্যাহার করুন, বা সেই অ্যাকাউন্টটি আবার নিবন্ধন করে তার নিজের পেজ থেকে পরিচালনা করুন।"
+        "orphan_consent": "এখানে নিবন্ধিত নয় এমন একটি AWS অ্যাকাউন্টের জন্য নিশ্চিত করা হয়েছে। নিচে নিশ্চিতকরণ প্রত্যাহার করুন, বা সেই অ্যাকাউন্টটি আবার নিবন্ধন করে তার নিজের পেজ থেকে পরিচালনা করুন।",
+        "account_actions": "অ্যাকাউন্টের ক্রিয়া",
+        "remove_account": "AWS Control থেকে সরান…",
+        "remove_account_action": "সরান",
+        "remove_account_confirm": "“{{name}}” AWS Control থেকে সরাবেন? AWS-এ বা আপনার AWS CLI কনফিগারেশনে কিছুই বদলাবে না।",
+        "remove_account_error": "অ্যাকাউন্টটি সরানো যায়নি।",
+        "remove_account_hint": "AWS-এ কিছুই বদলাবে না",
+        "forget_key_confirm": "এই সারির কী “{{name}}” ভুলে যাবেন? AWS-এ বা আপনার AWS CLI কনফিগারেশনে কিছুই বদলাবে না।",
+        "forget_key_action": "কী ভুলে যান"
       },
       "rail": {
         "accounts": "অ্যাকাউন্ট ও ক্রেডেনশিয়াল",
@@ -4944,6 +4960,38 @@
         "switch_account": "অ্যাকাউন্ট পরিবর্তন করুন",
         "usage": "ব্যবহার ও খরচ",
         "use_account": "এই অ্যাকাউন্টটি ব্যবহার করুন"
+      },
+      "overview": {
+        "title": "ওভারভিউ",
+        "subtitle": "আপনার এজেন্টরা যে অ্যাকাউন্ট, কী, ক্লাউড ড্রাইভ ও পেইড সার্ভিস ব্যবহার করতে পারে, সবের জন্য একটি ঘর।",
+        "stat_accounts": "অ্যাকাউন্ট",
+        "stat_accounts_attention_one": "{{count}}টি অ্যাকাউন্টে নজর দরকার",
+        "stat_accounts_attention_other": "{{count}}টি অ্যাকাউন্টে নজর দরকার",
+        "stat_accounts_all_ok": "সব ঠিক আছে",
+        "stat_keys": "কী ঠিক আছে",
+        "stat_keys_sub_one": "{{count}}টি কী নিবন্ধিত",
+        "stat_keys_sub_other": "{{count}}টি কী নিবন্ধিত",
+        "stat_drive": "ড্রাইভ ব্যবহৃত",
+        "stat_drive_none": "এখনও ড্রাইভ নেই",
+        "stat_spend": "এই মাসে এখন পর্যন্ত",
+        "stat_spend_consent": "খরচের রিপোর্ট বন্ধ",
+        "stat_shares_none": "কিছু শেয়ার করা নেই",
+        "stat_shares_sub_one": "{{count}}টি সক্রিয় লিংক",
+        "stat_shares_sub_other": "{{count}}টি সক্রিয় লিংক",
+        "stat_backups_nightly": "প্রতি রাতে",
+        "stat_backups_manual": "ম্যানুয়াল",
+        "stat_backups_sub_nightly": "প্রতি রাতে চলে",
+        "stat_backups_sub_manual": "কোনো সময়সূচি নেই",
+        "accounts_title": "অ্যাকাউন্ট",
+        "accounts_note": "এজেন্টরা এই কীগুলো ব্যবহার করে কিন্তু কখনো দেখে না; কী-এর কোনো অংশ চ্যাটে আসে না।",
+        "add_account": "অ্যাকাউন্ট যোগ করুন",
+        "drive_title": "ক্লাউড ড্রাইভ",
+        "drive_bar_label": "{{size}} রাখা আছে: ফাইল, আর্টিফ্যাক্ট লাইব্রেরি ও ব্যাকআপ",
+        "drive_empty_title": "এখনও ক্লাউড ড্রাইভ নেই",
+        "drive_empty_body": "আপনার ফাইল, আর্টিফ্যাক্ট লাইব্রেরি ও ব্যাকআপের জন্য এই অ্যাকাউন্টে একটি প্রাইভেট, এনক্রিপ্টেড বাকেট তৈরি করুন।",
+        "drive_setup": "ক্লাউড ড্রাইভ সেট করুন",
+        "drive_bucket_label": "বাকেট",
+        "stat_spend_scope": "এই অ্যাকাউন্টের AWS বিল"
       }
     }
   },
@@ -5042,10 +5090,15 @@
       "cancel": "বাতিল",
       "customize": "কাস্টমাইজ…",
       "customized_note": "কাস্টম মুখ ব্যবহার হচ্ছে",
+      "expr_hint": "প্রতিটি মুহূর্তের জন্য আলাদা মুখ আর শব্দ বেছে নিন।",
+      "expr_picture_note": "ছবির বদলানোর মতো কোনো মুখ নেই, তাই শুধু শব্দই কাজ করে।",
+      "expr_reset_state": "রিসেট",
+      "expr_sound": "শব্দ",
       "field_hint": "এই সদস্য যেখানে দেখা যায় সেখানে এই মুখ।",
       "field_label": "অবতার",
       "image_load_failed": "সংরক্ষিত ছবি লোড করা যায়নি — ডিফল্ট মুখ দেখানো হচ্ছে।",
       "mirror": "দিক উল্টান",
+      "mode_expressions": "অভিব্যক্তি",
       "mode_face": "ঘোস্ট মুখ",
       "mode_picture": "ছবি",
       "opt_angry": "রাগী",
@@ -5077,6 +5130,7 @@
       "opt_party": "পার্টি টুপি",
       "opt_phones": "হেডফোন",
       "opt_raised": "উঁচু",
+      "opt_same_as_idle": "যেমন সবসময়",
       "opt_sleepy": "ঘুমঘুম",
       "opt_smile": "হাসি",
       "opt_smirk": "বাঁকা হাসি",
@@ -5093,6 +5147,16 @@
       "opt_wrench": "রেঞ্চ",
       "randomize": "এলোমেলো",
       "reset_default": "ডিফল্ট মুখে রিসেট করুন",
+      "sound_blip": "ব্লিপ",
+      "sound_chime": "চাইম",
+      "sound_ding": "ডিং",
+      "sound_pop": "পপ",
+      "sound_preview": "এই শব্দ শুনুন",
+      "sound_pulse": "পালস",
+      "sound_silent": "কোনো শব্দ নেই",
+      "state_done": "সম্পন্ন",
+      "state_error": "ব্যর্থ",
+      "state_working": "কাজ করছে",
       "tile_amber": "অ্যাম্বার",
       "tile_bronze": "ব্রোঞ্জ",
       "tile_coral": "প্রবাল",
@@ -5522,6 +5586,9 @@
       "could_not_submit_that_decision_see_the_console_f": "সেই সিদ্ধান্ত জমা দেওয়া যায়নি — বিস্তারিত জানতে কনসোল দেখো।",
       "detached_head_at": "{{branch}}-এ detached HEAD",
       "drag_to_resize_double_click_to_reset": "আকার বদলাতে টানুন (রিসেট করতে ডাবল-ক্লিক করুন)",
+      "collapse_composer": "বার্তা ইনপুট সংকুচিত করুন",
+      "collapse_composer_desc": "উত্তরের জন্য জায়গা করতে বক্সটি লুকায়; খসড়া সংরক্ষিত থাকে",
+      "expand_composer": "বার্তা ইনপুট দেখান",
       "file": "ফাইল",
       "force_kill_discards_in_progress_work_and_queued": "জোর করে বন্ধ — চলমান কাজ ও সারিতে থাকা বার্তা বাতিল করে",
       "force_kill_session_discards_in_progress_work_and": "জোর করে সেশন বন্ধ করুন (চলমান কাজ ও সারিতে থাকা বার্তা বাতিল হয়)",
@@ -5603,7 +5670,8 @@
       "sketch": "স্কেচ",
       "sketch_desc": "স্কেচ আঁকুন; ছবি এবং সম্পাদনাযোগ্য উৎস সংযুক্ত করে",
       "optimize_failed": "প্রম্পট অপ্টিমাইজ করা যায়নি। আপনার মূল লেখা পুনরুদ্ধার করা হয়েছে।",
-      "optimize_failed_elsewhere": "অন্য সেশনে শুরু করা প্রম্পট অপ্টিমাইজ করা যায়নি। সেখানে মূল লেখা পুনরুদ্ধার করা হয়েছে।"
+      "optimize_failed_elsewhere": "অন্য সেশনে শুরু করা প্রম্পট অপ্টিমাইজ করা যায়নি। সেখানে মূল লেখা পুনরুদ্ধার করা হয়েছে।",
+      "more_actions": "আরও অ্যাকশন"
     },
     "chatPane": {
       "agent_list": "এজেন্ট তালিকা",
@@ -5673,7 +5741,6 @@
         },
         "pagesProvider": {
           "developer": "ডেভেলপার",
-          "hooks": "Hooks",
           "kirocrew_agents": "{{productName}} এজেন্ট",
           "logs": "লগ",
           "pages": "পেজ",
@@ -6491,6 +6558,9 @@
       "zoom_out": "জুম আউট (-)",
       "click_to_browse_shift_click_to_copy_path": "ব্রাউজ করতে ক্লিক করুন / পাথ কপি করতে Shift+ক্লিক করুন",
       "click_to_open_shift_click_to_copy_path": "খুলতে ক্লিক করুন / পাথ কপি করতে Shift+ক্লিক করুন",
+      "copy_diagram_source": "ডায়াগ্রামের সোর্স কপি করুন",
+      "diagram_source": "ডায়াগ্রামের সোর্স",
+      "copy_failed": "কপি ব্যর্থ",
       "mermaid_render_failed": "এই ডায়াগ্রামটি রেন্ডার করা যায়নি। এর পরিবর্তে সোর্স দেখানো হচ্ছে।"
     },
     "markdownToc": {
@@ -7766,7 +7836,12 @@
       "status_failed": "নিশ্চিতকরণের অবস্থা পড়া যায়নি।",
       "confirm_failed": "নিশ্চিতকরণ রেকর্ড করা হয়নি।",
       "withdraw_failed": "নিশ্চিতকরণ প্রত্যাহার করা হয়নি।",
-      "retry": "আবার চেষ্টা করুন"
+      "retry": "আবার চেষ্টা করুন",
+      "badge_confirmed": "নিশ্চিত",
+      "badge_not_enabled": "চালু নেই",
+      "confirmed_on": "{{date}} তারিখে নিশ্চিত",
+      "billing_notice_short": "চার্জ হবে। আপনি নিশ্চিত করার আগে কিছু পাঠানো হয় না।",
+      "withdraw_effect": "প্রত্যাহার করলে এজেন্টরা এই সার্ভিস ব্যবহার বন্ধ করবে, যতক্ষণ না তুমি আবার নিশ্চিত করো।"
     },
     "confirmDialog": {
       "cancel": "বাতিল"
@@ -7892,6 +7967,9 @@
       "confirm_discard": "আঁকা বাতিল করুন",
       "already_attached": "সংযুক্ত — আবার স্কেচ করতে ক্যানভাস সম্পাদনা করুন",
       "load_failed": "স্কেচ প্যাড লোড করা যায়নি — সংযোগ পরীক্ষা করে আবার খুলুন"
+    },
+    "pinSurfaceButton": {
+      "pin_limit_reached": "সাইডবারে সর্বোচ্চ {{n}}টি পিন - প্রথমে একটি আনপিন করুন"
     }
   },
   "hooks": {
@@ -9306,7 +9384,10 @@
         "pin_message": "বার্তা পিন করুন",
         "unpin_message": "বার্তা আনপিন করুন",
         "copied": "কপি হয়েছে",
-        "copy_failed": "কপি করা যায়নি"
+        "copy_failed": "কপি করা যায়নি",
+        "steering": "স্টিয়ার করা হচ্ছে…",
+        "redirecting_the_running_turn_not_yet_confirmed": "চলমান টার্ন পুনর্নির্দেশ করা হচ্ছে — এখনও নিশ্চিত হয়নি।",
+        "turn_ended_before_this_applied_runs_as_its_own_message": "এটি প্রযোজ্য হওয়ার আগেই টার্ন শেষ হয়ে গেছে — এটি একটি আলাদা বার্তা হিসেবে চলে।"
       },
       "workflowCompletionCard": {
         "hide_result": "ফলাফল লুকাও",
@@ -9717,7 +9798,6 @@
       "show": "দেখাও",
       "show_all_folders": "সব ফোল্ডার দেখান",
       "show_all_older_sessions": "সব পুরোনো সেশন দেখান",
-      "show_collapsed_folders": "সংকুচিত ফোল্ডার দেখান:",
       "show_folder": "ফোল্ডার দেখান",
       "show_hidden_folder_one": "{{count}}টি লুকানো ফোল্ডার দেখান",
       "show_hidden_folder_other": "{{count}}টি লুকানো ফোল্ডার দেখান",
@@ -10169,8 +10249,8 @@
       },
       "featurePreviewsTab": {
         "chat_on_a_crew": "কোনো crew-এ চ্যাট",
-        "chat_on_a_crew_desc": "তৈরির মেনুতে “New chat on crew” যোগ করে, যা একটি সংযুক্ত crew-এ চলা সেশন শুরু করে। অসম্পূর্ণ: এটি সেই crew-এর নিজস্ব প্যানেলে খোলে, এবং crew-এ চলা সেশনগুলি এখনও এখানে তালিকাভুক্ত হয় না।",
-        "crew": "Crew",
+        "chat_on_a_crew_desc": "তৈরির মেনুতে “New chat on crew” যোগ করে, যা একটি রিমোট ইনস্ট্যান্সে সেশন শুরু করে — অর্থাৎ সেই অন্য মেশিন যেটি তুমি সেটিংস > রিমোট ইনস্ট্যান্স-এ সংযুক্ত করেছ। অসম্পূর্ণ: সেশনটি সেই ইনস্ট্যান্সের নিজস্ব প্যানেলে খোলে এবং এখনও এই ড্যাশবোর্ডের সেশন তালিকায় দেখা যায় না; পরে ফিরে যেতে সেই ইনস্ট্যান্সের প্যানেলে যাও।",
+        "crew": "ক্রু সদস্য এবং Crew Mode",
         "inbound_webhook_tokens_registered_contexts_and_r": "ইনবাউন্ড ওয়েবহুক টোকেন, নিবন্ধিত কনটেক্সট ও রান ইতিহাস। API কাজ করে, তবে পেজটি এখনও শেষ হয়নি।",
         "open_webhooks": "ওয়েবহুক খুলুন",
         "the_crew_members_page_and_crew_mode_chats_both_a": "ক্রু সদস্যরা পেজ এবং Crew Mode চ্যাট। দুটোই এখনও তৈরি হচ্ছে, তাই এটি চালু না করা পর্যন্ত কোনোটিই দেখানো হবে না।",
@@ -10179,6 +10259,7 @@
     },
     "developerPage": {
       "developer": "ডেভেলপার",
+      "feature_previews_moved": "ফিচার প্রিভিউ এখন সেটিংস > ডেভেলপার-এ আছে",
       "tabs": {
         "agentBackend": {
           "description": "নতুন সেশন কোন এজেন্ট চালু করে — Kiro CLI, Claude Code বা KAS",
@@ -10195,10 +10276,6 @@
         "debugTools": {
           "label": "ডিবাগ টুল",
           "description": "অ্যাপ নিজের ভিতরে কী করছে তা ডিভাইসেই দেখানো ওভারলে।"
-        },
-        "featurePreviews": {
-          "description": "অপ্রকাশিত ফিচার ও পেজ। এখানে চালু না করা পর্যন্ত এগুলো সাইডবারে ও সর্বত্র অনুসন্ধান করুন-এ দেখা যায় না। সেটিংটি শুধু এই ডিভাইসে প্রযোজ্য, আর এগুলো ইচ্ছাকৃতভাবেই অসম্পূর্ণ।",
-          "label": "ফিচার প্রিভিউ"
         },
         "logs": {
           "description": "লেভেল ফিল্টার ও সার্চসহ লাইভ লগ ভিউয়ার",
@@ -10404,6 +10481,10 @@
       "session_color_hint": "এই এজেন্ট শুরু করা সেশনগুলি এই রঙ ব্যবহার করে, যদি না সেশনের নিজস্ব রঙ থাকে। এটি সম্পাদনা করলে সেই সেশনগুলি পুনরায় রঙিন হয়। কোনো এজেন্ট রঙ না রাখতে খালি রাখুন।",
       "session_color_hex": "সেশন রঙের হেক্স মান",
       "session_color_clear": "সাফ করুন",
+      "discard_unsaved_changes": "অসংরক্ষিত পরিবর্তন বাতিল করবেন?",
+      "discard_unsaved_body": "এই ক্রুতে এমন সম্পাদনা রয়েছে যা কখনও সংরক্ষণ করা হয়নি। এখন বন্ধ করলে সেগুলি মুছে যাবে।",
+      "discard_confirm": "পরিবর্তন বাতিল করুন",
+      "discard_also_crew_edits": "এই ক্রুর অন্য অসংরক্ষিত সম্পাদনাগুলিও এর সঙ্গে মুছে যাবে।",
       "editor_options_load_failed": "ক্রু এডিটরের ওয়ার্কস্পেস, টেমপ্লেট এবং মেমরি স্টোর অপশন লোড করা যায়নি।"
     },
     "knowledge": {
@@ -11000,7 +11081,7 @@
         "session_timeout": "সেশন টাইমআউট",
         "subagent_settings": "সাবএজেন্ট সেটিংস",
         "takes_effect_on_next_session_range_60_86400s": "পরের সেশনে কার্যকর হবে। সীমা: 60–86400s।",
-        "tool_call_budget_per_subagent_1_200_default_100": "প্রতি সাবএজেন্টের টুল-কল বাজেট (1–200)। ডিফল্ট: 100।",
+        "tool_call_budget_per_subagent_1_1000_default_100": "প্রতি সাবএজেন্টের টুল-কল বাজেট (1–1000)। ডিফল্ট: 100।",
         "used_by": "যেখানে ব্যবহৃত",
         "using_global_memory_settings": "গ্লোবাল মেমরি সেটিংস ব্যবহার করা হচ্ছে",
         "using_legacy_mode_agent_default_agent_as_agent_t": "লিগ্যাসি মোড ব্যবহার হচ্ছে — এজেন্ট টেম্পলেট হিসেবে agent.default_agent",
@@ -12474,6 +12555,8 @@
       "developerPanel": {
         "developer_mode": "ডেভেলপার মোড",
         "developer_tools": "ডেভেলপার টুল",
+        "feature_previews": "ফিচার প্রিভিউ",
+        "feature_previews_desc": "অপ্রকাশিত ফিচার ও পেজ। এখানে চালু না করা পর্যন্ত এই পেজগুলো সাইডবারে ও সর্বত্র অনুসন্ধান করুন-এ দেখা যায় না; তবে নিচের সুইচগুলো সেটিংস অনুসন্ধানে খুঁজে পাওয়া যায়। সেটিংটি শুধু এই ডিভাইসে প্রযোজ্য, আর এগুলো ইচ্ছাকৃতভাবেই অসম্পূর্ণ।",
         "gateway": "গেটওয়ে",
         "open_developer_page": "ডেভেলপার পেজ খুলুন",
         "run_a_local_gateway": "লোকাল গেটওয়ে চালান",
@@ -13980,7 +14063,44 @@
       "driving_none": "এই মুহূর্তে কোনো সেশন পরিচালনা করছে না।",
       "driving_idle": "নিষ্ক্রিয়",
       "driving_show_all": "সব দেখুন ({{count}})",
-      "driving_show_less": "কম দেখুন"
+      "driving_show_less": "কম দেখুন",
+      "patrol_title": "অটো পেট্রোল",
+      "patrol_active": "পেট্রোল চলছে",
+      "patrol_interval": "ব্যবধান",
+      "patrol_cycles": "ওয়েক",
+      "patrol_cycles_unlimited": "{{n}} · কোনো সীমা নেই",
+      "patrol_cycles_of": "{{max}}টির মধ্যে {{n}}",
+      "patrol_last_wake": "সর্বশেষ ওয়েক",
+      "patrol_next_wake": "পরবর্তী ওয়েক",
+      "patrol_instruction": "নির্দেশনা",
+      "patrol_stopped": "পেট্রোল বন্ধ হয়েছে।",
+      "patrol_stopped_manual": "হাতে থামানো হয়েছে।",
+      "patrol_stopped_cycle_cap": "ওয়েক সীমায় পৌঁছেছে।",
+      "patrol_stopped_runtime_budget": "সময় বাজেটে পৌঁছেছে।",
+      "patrol_stopped_approval_stalled": "এই কথোপকথনে টুল অনুমোদনের অপেক্ষায় থেমে গেছে।",
+      "patrol_last_wake_ago": "সর্বশেষ ওয়েক {{when}}",
+      "patrol_none": "কোনো পেট্রোল নির্ধারিত নেই।",
+      "patrol_error": "এই সদস্যের পেট্রোল অবস্থা লোড করা যায়নি।",
+      "patrol_error_roster": "তালিকার পেট্রোল অবস্থা লোড করা যায়নি।",
+      "patrol_badge": "পেট্রোলে · {{cycle}}",
+      "patrol_badge_stopped": "পেট্রোল বন্ধ হয়েছে",
+      "patrol_next_in": "{{time}} পরে",
+      "wake_patrol_every": "প্রতি {{every}}",
+      "filter_starred": "তারকাচিহ্নিত",
+      "filter_starred_description": "শুধু তারকাচিহ্নিত সদস্য দেখান",
+      "filter_source_mine": "আমার",
+      "filter_source_builtin": "অন্তর্নির্মিত",
+      "filter_source_package": "প্যাকেজ থেকে",
+      "filters_hide_all": "সক্রিয় ফিল্টার সব সদস্যকে লুকিয়ে রাখছে।",
+      "filters_clear": "ফিল্টার মুছুন",
+      "star": "{{name}} তারকাচিহ্নিত করুন",
+      "unstar": "{{name}} এর তারকাচিহ্ন সরান",
+      "star_failed_title": "তারকাচিহ্ন সংরক্ষিত হয়নি",
+      "star_failed": "এই সদস্যের তারকাচিহ্ন আপডেট করা যায়নি।",
+      "filter_source_mine_description": "ক্রু ম্যানেজারে আপনার তৈরি করা ক্রু",
+      "filter_source_builtin_description": "{{productName}}-এর সাথে আসা ক্রু",
+      "filter_source_package_description": "ক্ষমতা প্যাকেজ দ্বারা ইনস্টল করা ক্রু",
+      "member_count_filtered": "{{count}} জনের মধ্যে {{shown}} জন সদস্য"
     }
   },
   "privacyDisclosure": {
@@ -14056,7 +14176,7 @@
         "label": "কম্পিউটার ব্যবহার"
       },
       "developer": {
-        "description": "ডেভেলপার মোড, লগ, সিস্টেম মেট্রিক, এবং ডায়াগনস্টিকস",
+        "description": "ডেভেলপার মোড, ফিচার প্রিভিউ, লগ, সিস্টেম মেট্রিক, এবং ডায়াগনস্টিকস",
         "label": "ডেভেলপার"
       },
       "display": {

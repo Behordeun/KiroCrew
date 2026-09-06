@@ -102,6 +102,17 @@ export interface RegisterProfilesResult {
 }
 
 /**
+ * Outcome of dropping profiles from the registry. Registry-only: nothing in
+ * AWS or in the operator's AWS CLI configuration changes. `consentWithdrawn`
+ * names the paid services whose grant named a removed profile.
+ */
+export interface UnregisterProfilesResult {
+  removed: number
+  skipped: number
+  consentWithdrawn: string[]
+}
+
+/**
  * Payload of `GET /profiles/{name}/reconnect-plan`.
  *
  * `command` is a literal shell command and is never translated. `method` is

@@ -12,6 +12,7 @@ import type {
   AwsAccountsResponse,
   AvailableProfilesResponse,
   RegisterProfilesResult,
+  UnregisterProfilesResult,
   ReconnectPlan,
   DriveSection,
   DriveStatus,
@@ -153,6 +154,11 @@ export const awsControlApi = {
   /** Register the named local profiles into the registry the accounts list reads. */
   registerProfiles(names: string[]): Promise<RegisterProfilesResult> {
     return postJson<RegisterProfilesResult>('/profiles/register', { names })
+  },
+
+  /** Forget the named profiles here only; the AWS CLI configuration and every AWS resource stay as they are. */
+  unregisterProfiles(names: string[]): Promise<UnregisterProfilesResult> {
+    return postJson<UnregisterProfilesResult>('/profiles/unregister', { names })
   },
 
   /** Reconnect guidance for a degraded/unknown profile, by profile name. */

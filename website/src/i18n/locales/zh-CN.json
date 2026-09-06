@@ -125,7 +125,12 @@
       "streaming": "流式输出中"
     },
     "chatMessageList": {
-      "open_path": "打开 {{path}}"
+      "copied": "已复制！",
+      "copy": "复制",
+      "copy_failed": "复制失败",
+      "open_path": "打开 {{path}}",
+      "show_less": "收起",
+      "show_more": "展开更多"
     }
   },
   "apps": {
@@ -4736,7 +4741,6 @@
         "keys_count_other": "{{count}} 个密钥",
         "keys_for_account": "{{name}} 的密钥",
         "key_healthy": "正常",
-        "key_failed": "失败",
         "parent_folders": "上级文件夹",
         "folder_actions": "文件夹操作",
         "file_actions": "文件操作",
@@ -4788,7 +4792,6 @@
         "search_files": "按文件名或路径搜索…",
         "search_clear": "清除搜索",
         "search_pending": "正在搜索…",
-        "search_no_results": "没有匹配“{{query}}”的文件。",
         "search_capped": "匹配项过多，仅显示前 {{count}} 条。",
         "search_failed": "搜索失败，请重试。",
         "search_goto": "打开所在文件夹",
@@ -4803,7 +4806,13 @@
         "move_root": "文件（顶层）",
         "move_up": "上移到 {{name}}",
         "move_no_folders": "这里没有其他可移入的文件夹。请先创建一个。",
-        "move_moving": "正在移动…"
+        "move_moving": "正在移动…",
+        "stat_storage": "存储",
+        "stat_objects": "对象",
+        "key_needs_attention": "需要处理",
+        "backup_state_current": "已备份",
+        "backup_state_never": "从未运行",
+        "costs_refresh_failed": "最新一次账单读取失败，显示的是缓存数值。"
       },
       "page": {
         "totals_summary": "{{accounts}} 个账户 · {{keys}} 个密钥中 {{healthy}} 个正常",
@@ -4848,9 +4857,16 @@
         "add_accounts_error": "无法注册这些配置文件。没有添加任何内容。请重试。",
         "add_accounts_load_error": "无法列出本地 AWS 配置文件。",
         "search_placeholder": "搜索账户",
-        "search_none": "没有匹配“{{query}}”的账户。",
         "paid_services_title": "付费服务",
-        "orphan_consent": "已为一个未在此注册的 AWS 账号确认。可在下方撤回确认，或重新注册该账号以在它自己的页面上管理。"
+        "orphan_consent": "已为一个未在此注册的 AWS 账号确认。可在下方撤回确认，或重新注册该账号以在它自己的页面上管理。",
+        "account_actions": "账户操作",
+        "remove_account": "从 AWS Control 移除…",
+        "remove_account_action": "移除",
+        "remove_account_confirm": "从 AWS Control 移除“{{name}}”？AWS 和你的 AWS CLI 配置不会有任何改动。",
+        "remove_account_error": "无法移除该账户。",
+        "remove_account_hint": "AWS 中不会有任何改动",
+        "forget_key_confirm": "忘记这一行的密钥“{{name}}”？AWS 和你的 AWS CLI 配置不会有任何改动。",
+        "forget_key_action": "忘记密钥"
       },
       "rail": {
         "accounts": "账户与凭证",
@@ -4858,6 +4874,35 @@
         "switch_account": "切换账户",
         "usage": "用量与费用",
         "use_account": "使用此账户"
+      },
+      "overview": {
+        "title": "概览",
+        "subtitle": "在一个地方管理智能体可以使用的账户、密钥、云盘和付费服务。",
+        "stat_accounts": "账户",
+        "stat_accounts_attention_other": "{{count}} 个需要处理",
+        "stat_accounts_all_ok": "全部正常",
+        "stat_keys": "密钥正常",
+        "stat_keys_sub_other": "已登记 {{count}} 个密钥",
+        "stat_drive": "云盘用量",
+        "stat_drive_none": "尚无云盘",
+        "stat_spend": "本月至今",
+        "stat_spend_consent": "费用报告已关闭",
+        "stat_shares_none": "没有共享",
+        "stat_shares_sub_other": "{{count}} 个有效链接",
+        "stat_backups_nightly": "每晚",
+        "stat_backups_manual": "手动",
+        "stat_backups_sub_nightly": "每晚运行",
+        "stat_backups_sub_manual": "未设置计划",
+        "accounts_title": "账户",
+        "accounts_note": "智能体使用这些密钥但永远看不到它们，密钥内容不会出现在聊天中。",
+        "add_account": "添加账户",
+        "drive_title": "云盘",
+        "drive_bar_label": "已存储 {{size}}，分布在文件、工件库和备份中",
+        "drive_empty_title": "尚无云盘",
+        "drive_empty_body": "在此账户中创建一个私有加密存储桶，用于存放文件、工件库和备份。",
+        "drive_setup": "设置云盘",
+        "drive_bucket_label": "存储桶",
+        "stat_spend_scope": "此账户的 AWS 账单"
       }
     }
   },
@@ -4956,10 +5001,15 @@
       "cancel": "取消",
       "customize": "自定义…",
       "customized_note": "已使用自定义脸",
+      "expr_hint": "为每个时刻挑一张不同的脸和一个声音。",
+      "expr_picture_note": "图片没有可以变化的脸，因此只有声音生效。",
+      "expr_reset_state": "重置",
+      "expr_sound": "声音",
       "field_hint": "这个成员在所有地方显示的面孔。",
       "field_label": "头像",
       "image_load_failed": "已保存的图片无法加载，暂以默认面孔显示。",
       "mirror": "左右翻转",
+      "mode_expressions": "表情",
       "mode_face": "捏脸",
       "mode_picture": "上传图片",
       "opt_angry": "生气",
@@ -4991,6 +5041,7 @@
       "opt_party": "派对帽",
       "opt_phones": "耳机",
       "opt_raised": "扬起",
+      "opt_same_as_idle": "与平时相同",
       "opt_sleepy": "困",
       "opt_smile": "微笑",
       "opt_smirk": "坏笑",
@@ -5007,6 +5058,16 @@
       "opt_wrench": "扳手",
       "randomize": "随机",
       "reset_default": "恢复默认脸",
+      "sound_blip": "嘀",
+      "sound_chime": "铃声",
+      "sound_ding": "叮",
+      "sound_pop": "啵",
+      "sound_preview": "播放这个声音",
+      "sound_pulse": "脉冲",
+      "sound_silent": "没有声音",
+      "state_done": "已完成",
+      "state_error": "失败",
+      "state_working": "工作中",
       "tile_amber": "琥珀色",
       "tile_bronze": "古铜色",
       "tile_coral": "珊瑚色",
@@ -5432,6 +5493,9 @@
       "could_not_submit_that_decision_see_the_console_f": "无法提交此决定 — 详见控制台。",
       "detached_head_at": "游离 HEAD，位于 {{branch}}",
       "drag_to_resize_double_click_to_reset": "拖动调整大小（双击重置）",
+      "collapse_composer": "收起消息输入",
+      "collapse_composer_desc": "隐藏输入框，让回答占满空间；草稿会保留",
+      "expand_composer": "展开消息输入",
       "file": "文件",
       "force_kill_discards_in_progress_work_and_queued": "强制终止 — 丢弃进行中的工作和排队消息",
       "force_kill_session_discards_in_progress_work_and": "强制终止会话（丢弃进行中的工作和排队消息）",
@@ -5513,7 +5577,8 @@
       "sketch": "草图",
       "sketch_desc": "画个草图；会附上图片和可编辑源文件",
       "optimize_failed": "无法优化提示词。已恢复原始文本。",
-      "optimize_failed_elsewhere": "无法优化在另一个会话中发起的提示词。原始文本已在该会话中恢复。"
+      "optimize_failed_elsewhere": "无法优化在另一个会话中发起的提示词。原始文本已在该会话中恢复。",
+      "more_actions": "更多操作"
     },
     "chatPane": {
       "agent_list": "代理列表",
@@ -5583,7 +5648,6 @@
         },
         "pagesProvider": {
           "developer": "开发者",
-          "hooks": "钩子",
           "kirocrew_agents": "{{productName}} 代理",
           "logs": "日志",
           "pages": "页面",
@@ -6392,6 +6456,9 @@
       "zoom_out": "缩小（-）",
       "click_to_browse_shift_click_to_copy_path": "点击浏览 / Shift+点击复制路径",
       "click_to_open_shift_click_to_copy_path": "点击打开 / Shift+点击复制路径",
+      "copy_diagram_source": "复制图表源代码",
+      "diagram_source": "图表源代码",
+      "copy_failed": "复制失败",
       "mermaid_render_failed": "无法渲染此图表。改为显示源代码。"
     },
     "markdownToc": {
@@ -7660,7 +7727,12 @@
       "status_failed": "无法读取确认状态。",
       "confirm_failed": "确认未被记录。",
       "withdraw_failed": "确认未被撤销。",
-      "retry": "重试"
+      "retry": "重试",
+      "badge_confirmed": "已确认",
+      "badge_not_enabled": "未启用",
+      "confirmed_on": "已于 {{date}} 确认",
+      "billing_notice_short": "会产生费用。确认前不会发送任何内容。",
+      "withdraw_effect": "撤回后，智能体将停止使用此服务，直到你再次确认。"
     },
     "confirmDialog": {
       "cancel": "取消"
@@ -7785,6 +7857,9 @@
       "confirm_discard": "丢弃画作",
       "already_attached": "已附加——继续编辑画布可再次草图",
       "load_failed": "草图板加载失败——请检查网络后重新打开"
+    },
+    "pinSurfaceButton": {
+      "pin_limit_reached": "侧边栏最多置顶 {{n}} 项 - 请先取消置顶一项"
     }
   },
   "hooks": {
@@ -9173,7 +9248,10 @@
         "pin_message": "置顶消息",
         "unpin_message": "取消置顶",
         "copied": "已复制",
-        "copy_failed": "复制失败"
+        "copy_failed": "复制失败",
+        "steering": "正在引导…",
+        "redirecting_the_running_turn_not_yet_confirmed": "正在重定向正在运行的这一轮——尚未确认。",
+        "turn_ended_before_this_applied_runs_as_its_own_message": "这一轮在此生效前已结束，此消息作为独立消息运行。"
       },
       "workflowCompletionCard": {
         "hide_result": "隐藏结果",
@@ -9575,7 +9653,6 @@
       "show": "展开",
       "show_all_folders": "显示所有文件夹",
       "show_all_older_sessions": "显示所有较早的会话",
-      "show_collapsed_folders": "显示折叠的文件夹：",
       "show_folder": "显示文件夹",
       "show_hidden_folder_other": "显示 {{count}} 个隐藏的文件夹",
       "show_in_flat_view": "在平铺视图中显示 {{name}}",
@@ -10022,8 +10099,8 @@
       },
       "featurePreviewsTab": {
         "chat_on_a_crew": "在 crew 上聊天",
-        "chat_on_a_crew_desc": "在新建菜单里加入“New chat on crew”，用它创建的会话运行在已连接的 crew 上。尚未完善：它会打开该 crew 自己的面板，而运行在 crew 上的会话还不会显示在这里。",
-        "crew": "Crew",
+        "chat_on_a_crew_desc": "在新建菜单里加入“New chat on crew”，用它创建的会话运行在远程实例上，也就是你在“设置 > 远程实例”里连接的另一台机器。尚未完善：会话会在该实例自己的面板中打开，且暂不会出现在本仪表板的会话列表里；之后要回到它，请切换到该实例的面板。",
+        "crew": "团队成员与 Crew Mode",
         "inbound_webhook_tokens_registered_contexts_and_r": "入站 Webhook 令牌、已注册的上下文和运行历史。API 可用，但页面尚未完成。",
         "open_webhooks": "打开 Webhook",
         "the_crew_members_page_and_crew_mode_chats_both_a": "团队成员页面和 Crew Mode 聊天。两者仍在开发中，开启后才会显示。",
@@ -10032,6 +10109,7 @@
     },
     "developerPage": {
       "developer": "开发者",
+      "feature_previews_moved": "功能预览已移至“设置 > 开发者”",
       "tabs": {
         "agentBackend": {
           "description": "新会话启动哪个代理 — Kiro CLI、Claude Code 或 KAS",
@@ -10048,10 +10126,6 @@
         "debugTools": {
           "label": "调试工具",
           "description": "在真实设备上叠加显示应用内部行为的诊断浮层。"
-        },
-        "featurePreviews": {
-          "description": "尚未发布的功能和页面。在此开启之前，它们不会出现在侧边栏和全局搜索中。设置仅对本设备生效，且这些内容有意保留未完善的状态。",
-          "label": "功能预览"
         },
         "logs": {
           "description": "支持按级别筛选和搜索的实时日志查看器",
@@ -10256,6 +10330,10 @@
       "session_color_hint": "由此代理启动的会话在自身没有颜色时使用此颜色。修改它会重新为这些会话着色。留空则不使用代理颜色。",
       "session_color_hex": "会话颜色十六进制值",
       "session_color_clear": "清除",
+      "discard_unsaved_changes": "放弃未保存的更改？",
+      "discard_unsaved_body": "此团队有从未保存的编辑内容。现在关闭将会丢弃它们。",
+      "discard_confirm": "放弃更改",
+      "discard_also_crew_edits": "此团队其他未保存的编辑内容也会随之丢弃。",
       "editor_options_load_failed": "无法加载团队编辑器的工作区、模板和记忆存储选项。"
     },
     "knowledge": {
@@ -10844,7 +10922,7 @@
         "session_timeout": "会话超时",
         "subagent_settings": "子代理设置",
         "takes_effect_on_next_session_range_60_86400s": "下次会话生效。范围：60–86400 秒。",
-        "tool_call_budget_per_subagent_1_200_default_100": "每个子代理的工具调用预算（1–200）。默认值：100。",
+        "tool_call_budget_per_subagent_1_1000_default_100": "每个子代理的工具调用预算（1–1000）。默认值：100。",
         "used_by": "使用者",
         "using_global_memory_settings": "使用全局记忆设置",
         "using_legacy_mode_agent_default_agent_as_agent_t": "使用旧版模式 — 以 agent.default_agent 作为代理模板",
@@ -12304,6 +12382,8 @@
       "developerPanel": {
         "developer_mode": "开发者模式",
         "developer_tools": "开发者工具",
+        "feature_previews": "功能预览",
+        "feature_previews_desc": "尚未发布的功能和页面。在此开启之前，这些页面不会出现在侧边栏和全局搜索中；下面的开关本身则可以通过设置搜索找到。设置仅对本设备生效，且这些内容有意保留未完善的状态。",
         "gateway": "网关",
         "open_developer_page": "打开开发者页面",
         "run_a_local_gateway": "运行本地网关",
@@ -13800,7 +13880,44 @@
       "driving_none": "当前没有正在驱动的会话。",
       "driving_idle": "空闲",
       "driving_show_all": "查看全部（{{count}}）",
-      "driving_show_less": "收起"
+      "driving_show_less": "收起",
+      "patrol_title": "自动巡逻",
+      "patrol_active": "巡逻中",
+      "patrol_interval": "间隔",
+      "patrol_cycles": "唤醒次数",
+      "patrol_cycles_unlimited": "第 {{n}} 轮 · 无上限",
+      "patrol_cycles_of": "第 {{n}} 次，共 {{max}} 次",
+      "patrol_last_wake": "上次唤醒",
+      "patrol_next_wake": "下次唤醒",
+      "patrol_instruction": "指令",
+      "patrol_stopped": "巡逻已停止。",
+      "patrol_stopped_manual": "已手动暂停。",
+      "patrol_stopped_cycle_cap": "已达到唤醒次数上限。",
+      "patrol_stopped_runtime_budget": "已达到时长预算。",
+      "patrol_stopped_approval_stalled": "在此对话中等待工具审批时停止。",
+      "patrol_last_wake_ago": "上次唤醒：{{when}}",
+      "patrol_none": "未安排巡逻。",
+      "patrol_error": "无法加载此成员的巡逻状态。",
+      "patrol_error_roster": "无法加载成员列表的巡逻状态。",
+      "patrol_badge": "巡逻中 · {{cycle}}",
+      "patrol_badge_stopped": "巡逻已停止",
+      "patrol_next_in": "还有 {{time}}",
+      "wake_patrol_every": "每 {{every}}",
+      "filter_starred": "已收藏",
+      "filter_starred_description": "只显示已收藏的成员",
+      "filter_source_mine": "我创建的",
+      "filter_source_builtin": "内置",
+      "filter_source_package": "来自安装包",
+      "filters_hide_all": "当前筛选条件隐藏了所有成员。",
+      "filters_clear": "清除筛选",
+      "star": "收藏 {{name}}",
+      "unstar": "取消收藏 {{name}}",
+      "star_failed_title": "收藏未保存",
+      "star_failed": "无法更新该成员的收藏状态。",
+      "filter_source_mine_description": "你在 Crew 管理器里创建的成员",
+      "filter_source_builtin_description": "{{productName}} 自带的成员",
+      "filter_source_package_description": "由能力安装包安装的成员",
+      "member_count_filtered": "显示 {{shown}} / {{count}} 位成员"
     }
   },
   "privacyDisclosure": {
@@ -13876,7 +13993,7 @@
         "label": "电脑操作"
       },
       "developer": {
-        "description": "开发者模式、日志、系统指标与诊断",
+        "description": "开发者模式、功能预览、日志、系统指标与诊断",
         "label": "开发者"
       },
       "display": {

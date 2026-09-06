@@ -2549,6 +2549,35 @@ during connection setup registers as a change. The client invalidates its cached
 counter restarts with the process) — so a withdrawn entry disappears within one
 status tick rather than waiting out the cache's stale window.
 
+**And follows a profile-layer edit.** The value in that frame is
+`governance_profiles.governance_answer_generation()`, which is
+`context.governance_generation()` plus a module-private `_profile_generation()`
+bumped whenever `ProfileStore._ensure_fresh` publishes a new snapshot. The field's
+contract is unchanged — it stays an opaque, comparison-only integer, so combining two
+monotonic counters is not a change of meaning and no consumer needs to know. This
+exists because the ceiling counter alone missed Level-2 edits: a profile file
+tightening a capability is enforced on the very next decision (the authorization
+path calls `_ensure_fresh`), while the dashboard's cached answer kept the withdrawn
+entry until its 30-second stale window, focus, or an unrelated slot mutation.
+
+Detecting the edit needs the profiles directory re-stat'd, and on an idle dashboard
+nothing else would touch the store, so the watcher has to be what looks. That walk
+lives in a separate `poll_profiles_fresh()`, which the watcher offloads with
+`asyncio.to_thread`: `_dir_fingerprint` is an `iterdir` plus a `stat` per file, and
+AUTOSDE's `no-blocking-call-on-event-loop` names filesystem walks as the prohibited
+class, so a slow or large profile store must delay one socket's tick rather than
+stall chat turns and heartbeats for every session. `governance_answer_generation()`
+itself is two locked integer reads with no filesystem access, which is why the
+synchronous slots broadcast may call it inline. Measured walk cost on one host: 57us
+at 5 profile files, 107us at 15, 303us at 50, 1.12ms at 200 — small at a realistic
+count and unbounded in principle, hence offloaded rather than defended by the number.
+
+`_profile_generation()` is an OUTPUT of the profile store and must never become an
+input to it. Folding it into `_ceiling_token()` — the obvious-looking symmetry with
+the ceiling half described below — would make the store reload on every access
+forever, because `_ensure_fresh` computes its fingerprint *before* reloading and so
+would commit a pre-bump value that the next read can never match.
+
 The Security panel picks the row up automatically (`api_governance_policy` iterates
 `SCOPE_CATALOG`; its label is the humanised leaf, "Social share").
 
@@ -2762,22 +2791,50 @@ resurrected auto-approve the operator had explicitly revoked. Tearing the grant 
 makes both readings agree. The cost is that a policy which denies and then relaxes
 requires a fresh arm, which is the honest outcome anyway.
 
+The teardown runs at the moment the denying ceiling is INSTALLED, not on the next
+`is_active()` call — `safety_override.revoke_for_policy` drops the session-wide grant
+and every scoped grant, then fires `_on_expired("policy")`. That callback is the rest
+of the revocation, and it is not optional: a dashboard grant also writes
+`approval_policy="auto"` onto the slots and into the shared channel-trust mapping, and
+`subagent_manager.admission.parent_trusted` reads *that policy* rather than any flag in
+`safety_override` — so a revocation that stopped at the flag left `spawn_run`
+auto-approved. `is_active` / `is_scope_active` / `renew_scoped` keep their policy check
+as the fail-closed mask if that teardown was partial.
+
 **Every refusal is SEL-audited.** A governance denial that leaves no trace is
 indistinguishable from the request never having been made, which is exactly the
 record an operator needs after an attempted escalation. The audit is best-effort at
 each site: an SEL write failure never turns a refusal into a grant.
 
-**Nothing resolves governance on the event loop.** Resolving the scope walks the
-profiles dir (`iterdir` + per-file `stat`), and two call shapes forbid a per-call
-read: `status_snapshot` is emitted on the 5s WebSocket push, and `is_active` is the
-predicate every transport hands to `TurnDriver`, so it runs per *tool call*. Hence
-two forms, chosen by frequency — `yolo_policy_permits()` and
-`cached_disabled_approval_modes()` read memory and schedule an off-loop refresh (at
-most one in flight, 5s TTL, stale in the SAFE direction since a tightening lands
-within one TTL), while arming reads authoritatively because it is rare and already
-does filesystem I/O for its fail-closed audit. `/api/status` primes the status cache
-from inside the `asyncio.to_thread` it already used, so the HTTP, SSE and WebSocket
-frames cannot disagree.
+**The verdict is PUSHED at ceiling install, never polled.** Resolving the scope walks
+the profiles dir (`iterdir` + per-file `stat`), and every consumer is on a path that
+must not do that: `status_snapshot` is emitted on the 5s WebSocket push, `is_active` is
+the predicate every transport hands to `TurnDriver` (so it runs per *tool call*), and
+arming reaches the module from the event loop through synchronous callers. So
+`approval_mode_permitted("yolo")` is resolved **once per ceiling**, by a hook
+`safety_override` registers with `platform.context.register_ceiling_install_hook`.
+`platform.context._install` is the single writer of the active context — central
+distribution (`policy_distribution.apply_ceiling`), boot, the lazy default and the test
+reset all go through it — so no ceiling escapes the hook. Every consumer
+(`yolo_policy_permits()`, and `cached_disabled_approval_modes()` on top of it) is then a
+bare attribute read: no TTL, no lock, no thread.
+
+A governance-evaluation error at install time resolves to **denied**, and a process
+that reads the verdict before any ceiling was installed resolves once through
+`current_context()` — which composes and installs the standalone default, firing the
+same hook. A host whose context refuses to compose (a governed profile whose boot did
+not run) leaves the verdict denied, which is the fail-closed direction.
+
+This replaced a pull-based cache — a 5s TTL plus a governance-generation stamp,
+refreshed on a worker thread — and the reason is worth recording. Polling a value that
+only changes on a discrete event needs a freshness key, a third
+`unknown` verdict for the window before a refresh lands, and a per-caller rule for
+collapsing that third state (approval had to fail closed on it; revocation had to *not*
+fire, or an unrelated ceiling install would destroy a live grant permanently). Each of
+those is a window in which a permit resolved under a retired ceiling is still served,
+and the windows — not the scope, the arming gate or the audits — were where every
+security finding against that design landed. Pushing removes them instead of shortening
+them.
 
 The denied set rides the shared `state.status_snapshot()` as
 `disabled_approval_modes`. The picker **hides** each denied mode rather than showing
