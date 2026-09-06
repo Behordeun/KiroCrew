@@ -515,6 +515,9 @@ from kiro_crew.dashboard.handlers.usage import (  # noqa: E402, F401
     api_kiro_usage,
     api_usage,
 )
+from kiro_crew.dashboard.handlers.wakatime import (  # noqa: E402, F401
+    api_wakatime_export,
+)
 
 # ── Themes: validation/parsing core (extracted to theme_validate.py) ──
 from kiro_crew.dashboard.theme_validate import (  # noqa: E402, F401
