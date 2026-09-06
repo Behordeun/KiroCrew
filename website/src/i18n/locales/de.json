@@ -8081,6 +8081,7 @@
       "cycle_approval_mode": "Genehmigungsmodus durchschalten",
       "cycle_model": "Modell durchschalten",
       "cycle_reasoning_effort": "Denkaufwand durchschalten",
+      "focus_pending_approval": "Ausstehende Genehmigung fokussieren",
       "focus_text_input": "Texteingabe fokussieren",
       "group_actions": "Aktionen",
       "group_chat_navigation": "Chat-Navigation",
