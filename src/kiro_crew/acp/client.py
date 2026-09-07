@@ -4170,7 +4170,7 @@ class AcpClient:
                 model_id, self._model_registry_namespace
             )
         if self.backend in ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION:
-            await self.set_config_option("model", model_id)
+            model_id = await self._push_model_config_option(model_id, strict=True)
         else:
             await self._send_request(
                 METHOD_SET_MODEL,
@@ -4329,6 +4329,79 @@ class AcpClient:
         """
         return model_is_unusable(model_id, self._advertised_model_ids())
 
+    @staticmethod
+    def _model_config_candidates(model_id: str) -> list[str]:
+        """Ordered fallback spellings for a config-option model push.
+
+        The cold-cache companion to :func:`resolve_wire_model_id`'s fold: with
+        an empty advertised cache there is nothing to fold against, so a
+        prefixed ``[1m]`` id would otherwise reach the wire verbatim. Candidates
+        are derived from the id itself — verbatim, then prefix-stripped, then
+        prefix- and window-stripped — and the adapter judges each; it knows
+        what it accepts.
+        """
+        out = [model_id]
+        stripped = model_registry.strip_provider_id_prefix(model_id)
+        if stripped != model_id:
+            out.append(stripped)
+        bare = stripped.replace("[1m]", "")
+        if bare != stripped:
+            out.append(bare)
+        return out
+
+    async def _push_model_config_option(self, model_id: str, *, strict: bool) -> str:
+        """Push ``model`` over ``session/set_config_option`` with cold-cache fallback.
+
+        The value-rejection twin of ``_set_effort_config_option``'s ladder in
+        ``providers.acp``: a model the adapter refuses must not bubble up as a
+        generic ``AcpError`` — that failure path resets the session and drops
+        the user onto the adapter default with no explanation. Each candidate
+        spelling is tried in turn; the first accepted one wins and is returned
+        so the caller records the spelling that actually went on the wire.
+
+        ``strict=True`` (an explicit user pick, ``set_model``) raises
+        ``AcpModelUnavailable`` when every candidate is refused — a silent
+        downgrade would report success while running something else.
+        ``strict=False`` (startup application of an inherited value) returns
+        ``""`` so the caller stays on the backend default, mirroring the
+        withhold contract in :meth:`_apply_startup_model`.
+        """
+        last_exc: AcpError | None = None
+        for cand in self._model_config_candidates(model_id):
+            try:
+                await self.set_config_option("model", cand)
+            except AcpError as exc:
+                msg = str(exc)
+                lowered = msg.lower()
+                if "unknown config option" in lowered:
+                    # No 'model' config option at all (other adapter build):
+                    # retrying spellings cannot help.
+                    if strict:
+                        raise
+                    logger.debug("adapter exposes no 'model' config option; skipping model push")
+                    return ""
+                if "config option model" not in lowered:
+                    raise  # transport/protocol failure — not a value rejection
+                last_exc = exc
+                continue
+            if cand != model_id:
+                logger.info(
+                    "ACP model %r rejected by the adapter; applied fallback spelling %r",
+                    model_id,
+                    cand,
+                )
+            return cand
+        _rejected_log, _ = redact_exfiltration_urls(str(model_id))
+        _rejected_log, _ = redact_credentials(_rejected_log)
+        if strict:
+            raise AcpModelUnavailable(_rejected_log, self._advertised_model_ids()) from last_exc
+        logger.warning(
+            "ACP model %s rejected by the adapter; staying on the backend default %s",
+            _rejected_log,
+            self._resolved_model_id or DEFAULT_MODEL,
+        )
+        return ""
+
     async def _apply_startup_model(self) -> None:
         """Apply the configured model to a freshly initialized session.
 
@@ -4398,7 +4471,15 @@ class AcpClient:
                 self._model = DEFAULT_MODEL
                 return
         if self.backend in ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION:
-            await self.set_config_option("model", self._model)
+            sent = await self._push_model_config_option(self._model, strict=False)
+            if not sent:
+                # Every spelling refused: record the session as running the
+                # default (the warm-pool re-apply path reads this field, so
+                # leaving the refused id here would re-offer it every claim)
+                # and let session/new's own model stand.
+                self._model = DEFAULT_MODEL
+                return
+            self._model = sent
         else:
             await self._send_request(
                 METHOD_SET_MODEL,
