@@ -12,6 +12,11 @@ from __future__ import annotations
 from aiohttp import web
 
 from kiro_crew.dashboard import handlers, ws
+from kiro_crew.feature_videos import (
+    api_feature_videos_feedback,
+    api_feature_videos_next,
+    api_feature_videos_status,
+)
 from kiro_crew.suggestions import api_suggestions
 from kiro_crew.tips import api_tips_feedback, api_tips_next, api_tips_status
 
@@ -109,3 +114,8 @@ def register(app: web.Application) -> None:
     app.router.add_get("/api/tips/next", api_tips_next)
     app.router.add_get("/api/tips/status", api_tips_status)
     app.router.add_post("/api/tips/feedback", api_tips_feedback)
+
+    # Feature videos (deterministic feature-intro clips, sibling of tips above)
+    app.router.add_get("/api/feature-videos/next", api_feature_videos_next)
+    app.router.add_get("/api/feature-videos/status", api_feature_videos_status)
+    app.router.add_post("/api/feature-videos/feedback", api_feature_videos_feedback)

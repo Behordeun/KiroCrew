@@ -3403,6 +3403,9 @@ class KiroCrewConfig:
                 user_role_other=str(dashboard_data.get("user_role_other", "")),
                 user_technical_level=str(dashboard_data.get("user_technical_level", "")),
                 tips_enabled=bool(dashboard_data.get("tips_enabled", True)),
+                feature_videos_enabled=_safe_bool(
+                    dashboard_data.get("feature_videos_enabled"), True
+                ),
                 folder_suggestions_enabled=bool(
                     dashboard_data.get("folder_suggestions_enabled", True)
                 ),

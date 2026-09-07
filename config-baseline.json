@@ -5911,6 +5911,7 @@
         "user_role_other": "",
         "user_technical_level": "",
         "tips_enabled": true,
+        "feature_videos_enabled": true,
         "folder_suggestions_enabled": true,
         "tips_cadence_hours": 6.0,
         "tips_snooze_hours": 48.0,
@@ -6669,6 +6670,20 @@
       "tags": [],
       "label": "Tips Enabled",
       "help": "Show feature tip cards while the agent is thinking.",
+      "hasChildren": false,
+      "enumValues": null,
+      "defaultValue": true
+    },
+    {
+      "path": "dashboard.feature_videos_enabled",
+      "kind": "core",
+      "type": "boolean",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "label": "Feature Videos Enabled",
+      "help": "Show short feature-intro clips for features this install has not used yet. Instance-wide kill switch.",
       "hasChildren": false,
       "enumValues": null,
       "defaultValue": true

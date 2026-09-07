@@ -2869,6 +2869,14 @@ class DashboardConfig:
             "Show feature tip cards while the agent is thinking.",
         ),
     )
+    feature_videos_enabled: bool = field(
+        default=True,
+        metadata=_meta(
+            "Feature Videos Enabled",
+            "Show short feature-intro clips for features this install has not used "
+            "yet. Instance-wide kill switch.",
+        ),
+    )
     folder_suggestions_enabled: bool = field(
         default=True,
         metadata=_meta(
