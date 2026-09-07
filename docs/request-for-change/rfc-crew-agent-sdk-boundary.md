@@ -1410,6 +1410,24 @@ An `ast`-based test in house style, modelled on
   both, and never neither. This is what stops an implement-and-raise stub.
 - The existing dialect-parity harness continues to run against the driver
   unchanged.
+- A per-backend frame-replay snapshot. `test/fixtures/acp_frames/<id>/` holds
+  recorded agent-to-client JSON-RPC sequences per backend and
+  `test/test_acp_frame_replay.py` replays each one through the dispatch parsers,
+  comparing the whole resulting event stream against a committed snapshot.
+
+The replay corpus is what makes the field-level tests above sufficient rather
+than merely necessary. A per-field translation test asserts one field of one
+frame it constructs inline, so it passes while the SHAPE of a turn changes
+underneath it — a `tool_call_update` that stops emitting the refinement event
+beside its result, a tool input that stops being redacted, two events reordered.
+Each of those is a behaviour change every field test tolerates and the snapshot
+does not. It landed ahead of PR 2 deliberately, so the baseline it locks is
+pre-refactor behaviour: a PR in this sequence that changes an event stream shows
+up as a snapshot diff a reviewer reads, and one that does not touch behaviour
+leaves the snapshots alone. Two ratchets keep it honest for backends added later
+— a backend in `ACP_BACKENDS_KNOWN` with no fixture directory fails rather than
+skips, and an action `classify_notification` can return that the replay harness
+does not handle fails too.
 
 ## 9. Backward compatibility
 

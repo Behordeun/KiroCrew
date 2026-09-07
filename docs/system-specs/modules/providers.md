@@ -113,6 +113,10 @@ is `BASELINE_SELECTABLE_BACKENDS`, not this file. Binary resolution and
 config isolation per backend live in [`acp-client.md`](acp-client.md); do not add
 a second provider or a provider-level selector (see the repo-root `CLAUDE.md`).
 
+Adding an id to `ACP_BACKENDS_KNOWN` also obliges a frame-replay corpus under
+`test/fixtures/acp_frames/<id>/`; the requirement and what it buys are stated once,
+in [agent-host-contract.md](agent-host-contract.md).
+
 **Key APIs:**
 - `start()` → `AcpClient.ensure_ready()` (spawns process, handshake, session/new)
 - `stream()` → maps events from `stream_events()`

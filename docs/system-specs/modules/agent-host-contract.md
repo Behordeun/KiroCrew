@@ -401,6 +401,24 @@ enforced by *behaviour* rather than by text: a new builder that drops the marker
 recovery fails a test instead of shipping a monitor loop that never arms. A
 bucket whose requirement can be expressed that way should be.
 
+The frame-replay corpus is the second requirement of that kind. A provider must
+add `test/fixtures/acp_frames/<id>/` holding at least one recorded frame
+sequence, and `test/test_acp_frame_replay.py` must pass on it. The gate fails
+rather than skips when an id in `ACP_BACKENDS_KNOWN` has no directory, and fails
+again when a directory does not reach an initialize response, a `session/new`
+response, an `agent_message_chunk` turn, a `tool_call`, a `tool_call_update`, a
+`session/request_permission` frame, and a response carrying a `stopReason`.
+
+What that buys is narrower than the checklist above and worth stating exactly.
+The corpus does not judge whether a declaration is true. It pins the event
+stream each backend's frames translate into, so a refactor of the dispatch layer
+that changes the SHAPE of a turn — a dropped refinement event, a tool input that
+stops being redacted, two events reordered — fails with a diff of the events
+instead of passing green. That is the property the Agent SDK boundary work needs
+and did not have. `test/fixtures/acp_frames/README.md` documents how to record a
+sequence, the review a recording must pass before it is committed, and which of
+the committed fixtures are captures rather than synthesized shapes.
+
 ## What supporting one foreign host costs today
 
 Because none of the buckets above is a typed contract, the public core carries the
