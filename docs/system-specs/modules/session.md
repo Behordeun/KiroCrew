@@ -750,8 +750,19 @@ state a close compensates is not all scoped the same way.
   original's slot object.** A hand-over exit stops referencing the popped
   slot, and `_flush_dirty_slots` iterates exactly `state._slots`, so an
   unreferenced slot has NO retry path: anything past its last commit —
-  `messages[_disk_window_len:]`, plus a note the bulk path is still holding in the
-  in-memory-only `_deferred_notes` — would simply cease to exist. The pre-save
+  `messages[_disk_window_len:]`, plus a note the bulk path is still holding in
+  `_deferred_notes` — would simply cease to exist from this gateway's own
+  delivery paths. (Since #4093 a held note also has a durable copy in the
+  slot's metadata line, so a dropped hold is re-delivered after the NEXT
+  restart rather than lost outright — but deferring an acknowledged note to a
+  hypothetical future restart is not delivery, so the hand-over drain below
+  is still what honors it in this lifetime. One version-skew caveat: the
+  retirement invariant holds only for gateways that stamp `meta.noteId` on
+  delivered rows. An older gateway carries `deferred_notes` as unowned
+  metadata, its flush stamps no id and its save retires nothing, so a
+  downgrade-deliver-reupgrade cycle replays already-delivered notes as
+  duplicates — bounded harm, and the chosen at-least-once direction, but the
+  invariant silently does not hold across versions.) The pre-save
   exits need no store failure to reach it either; they return before the save is
   attempted, in a window that opens while a turn is in flight. So every hand-over
   exit routes through `_persist_handover_tail(state, name, slot)`, which flushes
