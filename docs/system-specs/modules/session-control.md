@@ -243,8 +243,10 @@ per-agent server assignment).
 
 ### Cron callers: unattended admission, bounded by the same fence
 
-A cron job's own slot (`cron-<job_id>`, minted by
-`inject_cron_result_to_dashboard`) is admitted to the surface even though nobody
+A cron job's own slot (`cron-<job_id>`, minted at run start by
+`ensure_cron_slot` so identity exists while the turn runs — with
+`inject_cron_result_to_dashboard` as the idempotent delivery-time fallback
+creator, #8336) is admitted to the surface even though nobody
 is watching it, so a scheduled run can enumerate work and dispatch a session per
 item. Three refusals had to move for that, and one deliberately did not:
 
