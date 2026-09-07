@@ -1090,6 +1090,55 @@ generous — a real complexity regression is orders of magnitude, so a wide boun
 catches it. Raising an absolute budget instead banks the overhead as headroom and hides
 the next real regression.
 
+### Interleavings: name the point, do not sleep toward it
+
+Some races are not reachable from outside the process. Which of two coroutines lands inside
+the other's critical section is decided by who holds the event loop between two awaits, and
+an HTTP client can only issue both requests and hope — so `await asyncio.sleep(0.05); assert
+nothing_happened_yet()` is the shape these tests keep taking, and it is a wall-clock race
+(class 2) dressed as a concurrency test.
+
+Where a race matters enough to pin, the answer is a **test-only interception seam**: a
+module-level `Callable[[str], Awaitable[None]] | None`, default `None`, awaited at named
+points inside the paths that race. `chat_handlers._test_interleave` is the worked example,
+with four points across the session-teardown paths (`reload:pre_reset`,
+`switch:post_commit`, `reset:pre_pop`, `reset:post_pop`). A test suspends one racer at a
+point by name and drives the other from there, so the interleaving is a property of the test
+and identical on every host.
+
+The rules such a seam follows, each of which it stops being safe without:
+
+- **`None` by default, and settable only from tests.** No env var, no config key: a knob that
+  suspends a teardown mid-pop is a way to wedge a live session, and nothing outside the suite
+  wants one. Production pays one global read and an identity comparison per point, and
+  creates no coroutine.
+- **Points earn their names.** Each marks a boundary the race actually crosses, with a
+  comment at the call site saying what suspending there intercepts. A point reachable only
+  where a test could already observe the state is one more thing to keep correct for nothing.
+- **Placed on the shared chokepoint, not per caller.** One point on the helper every switch
+  handler resets through covers the family; a point per handler is how one of them ends up
+  without one.
+- **Assigned with `monkeypatch`**, which reverts even when the test fails, and floored by an
+  autouse fixture that fails a test which INHERITED a set hook. Check on the way in, not at
+  teardown: `monkeypatch` is built early as a dependency of an earlier autouse fixture, so its
+  undo runs *after* a teardown-side check, which then cannot tell a pending undo from a real
+  leak and reddens every legitimate test. Entry-side, the only thing that can still be set is
+  a raw assignment — exactly the leak worth catching.
+
+Two shapes recur when writing against a seam:
+
+- **Bounded yields, not sleeps, to let the other racer run.** Yield the loop until a monotone
+  marker holds (`task.done()`), capped by a turn count. Turns are not milliseconds: how many
+  a given interleaving needs is a property of the code, so the cap only bounds a coroutine
+  that can never progress and never decides the outcome for one that can.
+- **Report, do not assert, inside the helper.** Returning a bool keeps a test readable in the
+  world where a future fix makes the other racer BLOCK: it fails on its own named assertion
+  instead of hanging until `--timeout` kills it with nothing to read.
+
+A test that pins today's WRONG outcome says so at the assertion, names the issue, and states
+which assertion the fix flips — otherwise the next reader repairs the test instead of the
+defect.
+
 ```python
 # WRONG: passes bare, fails under --cov, and the margin shrinks as the catalog grows
 assert self._elapsed(build(8000)) < 5.0

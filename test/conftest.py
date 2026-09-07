@@ -1444,3 +1444,37 @@ def gateway_posts(request, monkeypatch):
 
     monkeypatch.setattr(mcp_core, "_post", _capture)
     yield posted
+
+
+@pytest.fixture(autouse=True)
+def _no_leaked_interleave_hook():
+    """Fail a test that INHERITED a set ``chat_handlers._test_interleave``.
+
+    The seam suspends a session teardown mid-pop, so a leaked hook does not
+    merely pollute state -- it re-enters an unrelated test's teardown path and
+    can await an event that test will never set, which under ``-n auto`` reads as
+    a timeout in a file that never mentioned the seam. Nothing legitimately
+    leaves it set, so this restores AND fails.
+
+    Checked on the way IN, not at teardown, and that is not a preference. The
+    supported way to set the hook is ``monkeypatch``, whose undo is registered
+    against the shared ``monkeypatch`` fixture -- and that fixture is built early,
+    as a dependency of an autouse fixture above, so its teardown runs AFTER this
+    one. A teardown-side check therefore cannot tell a pending undo from a real
+    leak and fails every legitimate test. Entry-side, the only thing that can
+    still be set is a raw assignment, which is exactly the leak worth catching.
+    The cost is that the report names the test that inherited the hook rather
+    than the one that leaked it, so the message says so.
+
+    Read through ``sys.modules`` rather than an import: a test that never touches
+    the dashboard pays one dict lookup and does not drag ``chat_handlers`` and its
+    import graph into every worker's collection.
+    """
+    mod = sys.modules.get("kiro_crew.dashboard.chat_handlers")
+    if mod is not None and mod._test_interleave is not None:
+        mod._test_interleave = None
+        pytest.fail(
+            "chat_handlers._test_interleave was already set on entry, so an "
+            "earlier test leaked it (this test is the victim, not the cause). "
+            "Set it with monkeypatch.setattr so it reverts even on failure."
+        )

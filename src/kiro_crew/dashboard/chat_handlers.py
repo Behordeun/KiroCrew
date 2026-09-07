@@ -3090,6 +3090,32 @@ def _subagents_attached_response(
     return None
 
 
+# Test-only scheduling seam for the session-teardown races. Production leaves it
+# None, so each point below costs one global read and an identity comparison, and
+# no coroutine is created. It is reachable from no env var and no config key on
+# purpose: an operator-facing knob that can suspend a teardown mid-pop is a way to
+# wedge a live session, and nothing outside the test suite has a reason to want
+# one.
+#
+# The interleavings it exists to make reachable cannot be driven from outside the
+# process. Which of two teardowns lands inside the other's span is decided by
+# which coroutine holds the event loop between two awaits; an HTTP client can only
+# issue both requests and hope. A test awaits a named point, drives the other
+# racer while suspended there, and so fixes the interleaving as a property of the
+# test rather than of the scheduler -- the shape-determinism the async-flake rules
+# ask for, with no sleep to tune.
+#
+# The names are the contract. Each marks a boundary the race actually crosses, and
+# the comment at each call site says what suspending there is positioned to
+# intercept; a point whose boundary no test can otherwise reach is the only kind
+# worth adding.
+#
+# Assign it with monkeypatch, which reverts on teardown even when the test fails.
+# ``_no_leaked_interleave_hook`` in test/conftest.py fails any test that leaves it
+# set, because nothing legitimately does.
+_test_interleave: Callable[[str], Awaitable[None]] | None = None
+
+
 async def _reset_slot_session(
     state: DashboardState,
     slot: _ChatSlot,
@@ -3129,6 +3155,12 @@ async def _reset_slot_session(
     stale-evidence failure that report exists to remove.
     """
     _unblock_pending_waits(state, slot)
+    if _test_interleave is not None:
+        # The near side of the pop. Every teardown in the process funnels through
+        # this one await, and the pop is what decides a race between two of them,
+        # so this is the position from which a test can hold one teardown open and
+        # put a second in flight over the same key.
+        await _test_interleave("reset:pre_pop")
     try:
         reloaded = await state.sessions.reset(session_key, skip_if_busy=skip_if_busy)
     except BaseException:
@@ -3136,6 +3168,13 @@ async def _reset_slot_session(
         # cannot vouch for, so neither is its verdict. Unknown fails open.
         slot.record_model_withheld(None)
         raise
+    if _test_interleave is not None:
+        # The far side of the pop, ahead of the verdict-gated bookkeeping below.
+        # That bookkeeping describes the session this call just tore down, and a
+        # concurrent teardown can have registered and popped a successor under the
+        # same key by the time it runs -- reachable only by suspending here,
+        # because the pop and the bookkeeping are otherwise adjacent.
+        await _test_interleave("reset:post_pop")
     if reloaded:
         # The withhold verdict describes the session that advertised the model
         # list, not the slot, so it goes with the session. Routed through this one
@@ -3229,6 +3268,14 @@ async def _reset_slot_session_or_warn(
     # cold-started from the slot's CURRENT (committed) bindings, so the
     # committed-success answer is truthful for it.
     prior_provider = state.sessions.get_provider(session_key)
+    if _test_interleave is not None:
+        # Inside the caller's locks, after it committed its new setting, before
+        # the old session goes -- the span a concurrent teardown must be able to
+        # land in for the ordering to be observable at all. Placed on this shared
+        # helper rather than in each handler because all four commit-before-reset
+        # switches reach the teardown through here, and a point per handler is how
+        # one of them ends up without one.
+        await _test_interleave("switch:post_commit")
     try:
         return await _reset_slot_session(state, slot, session_key, skip_if_busy=True)
     except Exception:
@@ -7335,6 +7382,12 @@ async def api_chat_slot_reload(request: web.Request) -> web.Response:
     denied_409 = _subagents_attached_response(state, slot, session_key, "reload")
     if denied_409 is not None:
         return denied_409
+    if _test_interleave is not None:
+        # Reload's teardown takes neither slot._lock nor the session-keyed switch
+        # lock, so nothing orders it against a switch's commit-then-reset span.
+        # Suspending here is the only way to hold the unguarded teardown open
+        # across another actor's whole transaction and observe what that produces.
+        await _test_interleave("reload:pre_reset")
     reloaded = await _reset_slot_session(state, slot, session_key, skip_if_busy=True)
     if not reloaded:
         provider = state.sessions.get_provider(session_key)
