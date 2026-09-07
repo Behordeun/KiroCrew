@@ -181,6 +181,12 @@ Base metadata always carries `format`, `title` (file stem), `file_size`, `extens
 - Returns `[(full_path, mtime)]`.
 
 **Scan bookkeeping (`_do_scan`)**:
+- **Embedding attendance is call-scoped.** Scheduled `KnowledgeWatcher` folder and
+  single-file re-ingest pass `PRIORITY_BULK` through `FolderWatcher` and
+  `IngestionPipeline`, so background work uses the reduced bulk inference pool.
+  Dashboard/manual `scan_source` and `ingest_file` calls omit the argument and retain
+  `PRIORITY_NORMAL`. The priority is never stored on the shared pipeline, so a
+  concurrent attended ingest cannot be downgraded by a watcher sweep.
 - Discovered files above `props["max_files"]` (default `DEFAULT_MAX_FILES` = 5000) are capped **newest-first** (sort by mtime desc); the surplus count is reported as `capped`.
 - Deletion detection uses the **full** discovered set (pre-cap) so capping never triggers false deletions; a vanished file's items are archived via `_handle_deleted` → `store.delete_items_batch`.
 - Change detection is mtime-then-content-hash: unchanged mtime → `last_seen` bump only; changed mtime but identical SHA-256 → state refresh, no re-ingest.

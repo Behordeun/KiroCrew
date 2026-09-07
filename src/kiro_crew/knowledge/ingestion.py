@@ -454,13 +454,28 @@ class IngestionPipeline:
         except Exception:
             logger.debug("Post-ingest dedup skipped", exc_info=True)
 
-    async def ingest_file(self, path: str, on_progress=None, original_name: str = "", namespace: str = "default", source_id: str = "", old_item_ids: list[str] | None = None, on_committed: Callable[[list[str]], None] | None = None, on_duplicate: Callable[[str], None] | None = None) -> str | None:
+    async def ingest_file(
+        self,
+        path: str,
+        on_progress=None,
+        original_name: str = "",
+        namespace: str = "default",
+        source_id: str = "",
+        old_item_ids: list[str] | None = None,
+        on_committed: Callable[[list[str]], None] | None = None,
+        on_duplicate: Callable[[str], None] | None = None,
+        *,
+        embed_priority: int = PRIORITY_NORMAL,
+    ) -> str | None:
         """Full pipeline. Returns job_id, or None if content hash unchanged.
 
         If source_id is provided, ingests into that existing source instead of
         creating a new one (used for remote source sync).
         If old_item_ids is provided, only those items are replaced (folder sources).
         Otherwise all items for the source are replaced (single-file sources).
+
+        ``embed_priority`` is call-scoped so unattended watchers can use the
+        reduced bulk pool without downgrading concurrent attended ingestion.
 
         ``on_committed`` receives the ids this call created -- collected at each
         write, never inferred from a before/after comparison of the source, which
@@ -645,7 +660,7 @@ class IngestionPipeline:
                 display_name=display_name, namespace=namespace,
                 existing=existing, old_item_ids=old_item_ids,
                 _old_item_ids=_old_item_ids, path=path, on_progress=on_progress,
-                on_committed=on_committed,
+                embed_priority=embed_priority, on_committed=on_committed,
             )
         except Exception:
             try:
@@ -671,7 +686,8 @@ class IngestionPipeline:
     async def _ingest_file_body(self, *, job_id, source_id, props, meta, ext, text,
                                 uri, content_hash, display_name, namespace,
                                 existing, old_item_ids, _old_item_ids, path,
-                                on_progress, on_committed=None) -> str | None:
+                                on_progress, embed_priority,
+                                on_committed=None) -> str | None:
         """Chunk/extract/store/finalize — split out so ingest_file can mark the
         pre-inserted job row 'failed' on ANY exception in one place."""
         # 4. Chunk (use per-source chunk size if configured)
@@ -771,7 +787,11 @@ class IngestionPipeline:
                 # and sqlite connections are thread-local, so this is thread-safe.
                 await asyncio.to_thread(self._store_entities, extraction, item_id)
                 await self._embed_item(
-                    item_id, item_title, extraction.get('summary'), chunk['content']
+                    item_id,
+                    item_title,
+                    extraction.get('summary'),
+                    chunk['content'],
+                    embed_priority=embed_priority,
                 )
                 processed += 1
             except Exception:
@@ -1063,13 +1083,20 @@ class IngestionPipeline:
                 )
 
     async def _embed_item(
-        self, item_id: str, title: str, summary: str | None, content: str | None = None
+        self,
+        item_id: str,
+        title: str,
+        summary: str | None,
+        content: str | None = None,
+        *,
+        embed_priority: int = PRIORITY_NORMAL,
     ) -> None:
         """Generate and store embedding for an item. No-op if embedder is None.
 
         Includes chunk ``content`` so vector search matches body text, not just
         the title/summary (which previously left body-only queries unmatchable).
         Respects the global embed rate limiter (knowledge.embed_rate_limit).
+        The caller selects the shared inference scheduling class per ingest.
         """
         if not self.embedder:
             return
@@ -1094,9 +1121,21 @@ class IngestionPipeline:
         # sweep re-embeds it — wasteful, never wrong.
         sig = embedder_signature(self.embedder)
         loop = asyncio.get_running_loop()
-        vec = await loop.run_in_executor(
-            None, self.embedder.embed_for_item, title, summary, content
-        )
+        if embed_priority == PRIORITY_NORMAL:
+            # Preserve the established attended-call contract for lightweight
+            # embedders that do not expose scheduling; bulk is an explicit opt-in.
+            embed_call = functools.partial(
+                self.embedder.embed_for_item, title, summary, content
+            )
+        else:
+            embed_call = functools.partial(
+                self.embedder.embed_for_item,
+                title,
+                summary,
+                content,
+                priority=embed_priority,
+            )
+        vec = await loop.run_in_executor(None, embed_call)
         if vec:
             blob = floats_to_bytes(vec)
             stamped_at = datetime.now().isoformat()

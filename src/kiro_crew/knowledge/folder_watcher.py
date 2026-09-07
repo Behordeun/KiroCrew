@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 from kiro_crew.config.loader import KiroCrewConfig
+from kiro_crew.embeddings import PRIORITY_NORMAL
 from kiro_crew.security import is_sensitive_path
 from kiro_crew.sel import sel
 
@@ -335,13 +336,22 @@ class FolderWatcher:
         self.pipeline = pipeline
         self._locks: dict[str, asyncio.Lock] = {}
 
-    async def scan_source(self, source: dict, *, chunk_budget: int | None = None) -> dict:
+    async def scan_source(
+        self,
+        source: dict,
+        *,
+        chunk_budget: int | None = None,
+        embed_priority: int = PRIORITY_NORMAL,
+    ) -> dict:
         """Scan a folder source. Returns {new, changed, deleted, skipped, capped}.
 
         ``chunk_budget`` stops the scan once that many chunks have been ingested
         in THIS sweep, leaving the rest for later sweeps. ``None`` is unbounded.
         Callers resolve the value with :func:`folder_chunk_budget`, capped by the
         watcher's global ``knowledge.sweep_chunk_budget``.
+
+        ``embed_priority`` is forwarded per scan. Scheduled sweeps choose the
+        bulk pool while dashboard-triggered scans retain the normal default.
 
         **A source Kiro Crew registered itself is refused here, not scanned.** The two
         paths that registered folders on their own are gone, and with them the
@@ -382,9 +392,19 @@ class FolderWatcher:
         if source_id not in self._locks:
             self._locks[source_id] = asyncio.Lock()
         async with self._locks[source_id]:
-            return await self._do_scan(source, chunk_budget=chunk_budget)
+            return await self._do_scan(
+                source,
+                chunk_budget=chunk_budget,
+                embed_priority=embed_priority,
+            )
 
-    async def _do_scan(self, source: dict, *, chunk_budget: int | None = None) -> dict:
+    async def _do_scan(
+        self,
+        source: dict,
+        *,
+        chunk_budget: int | None = None,
+        embed_priority: int = PRIORITY_NORMAL,
+    ) -> dict:
         source_id = source["id"]
         uri = source["uri"]
         props = json.loads(source.get("properties") or "{}") if isinstance(
@@ -556,6 +576,7 @@ class FolderWatcher:
 
             item_ids, outcome = await self._ingest_file(
                 file_path, source_id, namespace, props, old_ids, root=uri,
+                embed_priority=embed_priority,
                 on_duplicate=lambda text_hash: self._record_deduped_state(
                     source_id, file_path, content_hash, mtime, now, text_hash))
             if item_ids is None:
@@ -935,6 +956,7 @@ class FolderWatcher:
                            old_item_ids: list[str],
                            root: str = "",
                            on_duplicate: Callable[[str], None] | None = None,
+                           embed_priority: int = PRIORITY_NORMAL,
                            ) -> tuple[list[str] | None, str]:
         """Ingest one file.
 
@@ -1098,7 +1120,8 @@ class FolderWatcher:
                 original_name=Path(file_path).name,
                 old_item_ids=old_item_ids,
                 on_committed=_record_committed,
-                on_duplicate=_record_refused)
+                on_duplicate=_record_refused,
+                embed_priority=embed_priority)
 
             if refused:
                 return [], "deduped"

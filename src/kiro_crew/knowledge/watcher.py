@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from kiro_crew.config.loader import KiroCrewConfig
+from kiro_crew.embeddings import PRIORITY_BULK
 from kiro_crew.security import is_sensitive_path
 from kiro_crew.sel import sel
 
@@ -129,7 +130,11 @@ class KnowledgeWatcher:
                     else:
                         budget = min(budget, remaining)
 
-                stats = await self._folder_watcher.scan_source(source, chunk_budget=budget)
+                stats = await self._folder_watcher.scan_source(
+                    source,
+                    chunk_budget=budget,
+                    embed_priority=PRIORITY_BULK,
+                )
                 # Track consumed chunks against global budget.
                 sweep_chunks_used += stats.get("chunks_ingested", 0)
                 if stats.get("error"):
@@ -194,6 +199,7 @@ class KnowledgeWatcher:
                                 uri,
                                 source_id=row["id"],
                                 namespace=props.get("namespace", "default"),
+                                embed_priority=PRIORITY_BULK,
                             )
                         except FileTooLargeError:
                             # Warning already logged by the pipeline (names the file
