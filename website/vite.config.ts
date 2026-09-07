@@ -176,15 +176,51 @@ function vendorRuntimePlugin(): Plugin {
  * plugin makes that path real: build emits every font file from the npm
  * package into `dist/vendor/excalidraw/fonts/**`, and the dev server serves
  * the same files straight from node_modules.
+ *
+ * Deployment-time size choice (issue #8091): the Xiaolai CJK handwriting family
+ * is 12.67 MB of the 13.11 MB emitted here (96.6%); everything else combined is
+ * 0.44 MB. A size-sensitive deployment can opt OUT of shipping it by setting
+ * `KIROCREW_PRUNE_SKETCH_CJK_FONT=1` at build time. The DEFAULT is unset, which
+ * ships every family exactly as before, so no existing build changes and no user
+ * is affected unless a deployer deliberately opts in. When engaged, a pruned build
+ * emits a loud build-time warning rather than silently changing what a user sees:
+ * zh/ja/ko sketch text falls back to a system font (Excalidraw substitutes one when
+ * the family is absent), losing only the hand-drawn style, not legibility. What a
+ * pruned build should surface to those users at RUNTIME is a product decision left
+ * open on the issue and deliberately not made here.
  */
+// Families excluded from the emitted set when the prune flag is on. Kept as a set
+// so the predicate is a filename lookup over what listFonts() already enumerates,
+// not a new configuration layer. Only Xiaolai carries meaningful weight.
+const PRUNABLE_CJK_FONT_FAMILIES = new Set(['Xiaolai'])
+
 function excalidrawFontsPlugin(): Plugin {
   const FONTS_ROOT = path.resolve(__dirname, 'node_modules/@excalidraw/excalidraw/dist/prod/fonts')
   const SERVE_PREFIX = '/vendor/excalidraw/fonts/'
+  // Default OFF: unset ships everything (today's behaviour). Only an explicit
+  // opt-in prunes. Evaluated once so the warning fires once per build/serve.
+  const pruneCjk = process.env.KIROCREW_PRUNE_SKETCH_CJK_FONT === '1'
+  // familyOf('Xiaolai/Xiaolai-Regular-....woff2') === 'Xiaolai'
+  const familyOf = (rel: string): string => rel.split('/')[0]
+  const isPruned = (rel: string): boolean => pruneCjk && PRUNABLE_CJK_FONT_FAMILIES.has(familyOf(rel))
+  if (pruneCjk) {
+    // A line of build output, not a runtime UI surface. It must be loud because
+    // an inherited env var would otherwise SILENTLY ship a build with degraded
+    // CJK sketching, which is the one thing #8091's direction forbids.
+    console.warn(
+      `\n[kirocrew-excalidraw-fonts] KIROCREW_PRUNE_SKETCH_CJK_FONT=1: pruning ` +
+        `${[...PRUNABLE_CJK_FONT_FAMILIES].join(', ')} (~12.67 MB) from the sketch-pad fonts. ` +
+        `zh/ja/ko sketch text will fall back to a system font (no hand-drawn style). ` +
+        `Unset the variable to ship every family.\n`,
+    )
+  }
   const listFonts = (): string[] => {
     const out: string[] = []
     for (const family of readdirSync(FONTS_ROOT)) {
       for (const file of readdirSync(path.join(FONTS_ROOT, family))) {
-        out.push(`${family}/${file}`)
+        const rel = `${family}/${file}`
+        if (isPruned(rel)) continue
+        out.push(rel)
       }
     }
     return out
@@ -199,6 +235,9 @@ function excalidrawFontsPlugin(): Plugin {
         // Path-traversal guard: the joined path must stay under FONTS_ROOT.
         const abs = path.resolve(FONTS_ROOT, rel)
         if (!abs.startsWith(FONTS_ROOT + path.sep) || !existsSync(abs)) return next()
+        // Dev-server parity with a pruned build: 404 the pruned family so a dev
+        // preview shows the same fallback a pruned deployment would.
+        if (isPruned(rel)) return next()
         res.setHeader('Content-Type', 'font/woff2')
         res.end(readFileSync(abs))
       })
