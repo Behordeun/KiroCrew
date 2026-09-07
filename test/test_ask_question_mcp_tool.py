@@ -69,13 +69,14 @@ def default_install(monkeypatch):
 def test_ask_question_returns_directive_with_validated_questions(default_install, gateway_posts):
     """A valid call on a default install returns a directive that decodes to the
     validated questions payload — no session key, no HTTP round-trip."""
-    result = _call_tool_inner("ask_question", {"questions": QUESTIONS})
+    result = _call_tool("ask_question", {"questions": QUESTIONS})
     args = session_directive.decode(result, "ask_question")
     assert args == {"questions": _validated_questions()}
-    # BOTH halves of the delivery contract: the marker above, and the
-    # out-of-band record parked for a consumer that never sees the marker.
+    # BOTH halves of the delivery contract: the marker above, and the CALL
+    # reported out of band (tool + raw args) for the gateway to derive the same
+    # record from, for a consumer that never sees the marker.
     assert gateway_posts == [
-        ("/api/session-directive", {"kind": "ask_question", "args": args})
+        ("/api/session-directive", {"tool": "ask_question", "raw_args": {"questions": QUESTIONS}})
     ]
 
 
@@ -155,9 +156,7 @@ def test_timeout_secs_is_not_advertised_but_is_still_accepted(default_install):
     assert "timeout_secs" not in spec["inputSchema"]["properties"]
     assert "timeout_secs" not in spec["description"]
 
-    result = _call_tool_inner(
-        "ask_question", {"questions": QUESTIONS, "timeout_secs": 60}
-    )
+    result = _call_tool_inner("ask_question", {"questions": QUESTIONS, "timeout_secs": 60})
     args = session_directive.decode(result, "ask_question")
     assert args == {"questions": _validated_questions()}
 
@@ -206,7 +205,10 @@ def test_applier_with_no_attached_client_steers_to_plain_text():
     slot = _FakeSlot()
     result = asyncio.run(
         apply_session_directive(
-            state, slot, "dashboard:chat-1-1700000000", "ask_question",
+            state,
+            slot,
+            "dashboard:chat-1-1700000000",
+            "ask_question",
             {"questions": _validated_questions()},
         )
     )

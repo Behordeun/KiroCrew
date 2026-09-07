@@ -124,8 +124,13 @@ class TestOverLongStopReasonStillStops:
         # BOTH halves of the delivery contract: the marker above, and the
         # out-of-band record parked for a consumer that never sees the marker.
         # The clamped reason must be the one published, not the raw argument.
+        # The CALL is reported with the RAW (unclamped) argument the model sent;
+        # the gateway re-runs the tool and clamps it the same way.
         assert dashboard_session == [
-            ("/api/session-directive", {"kind": "autonudge_stop", "args": {"reason": reason}})
+            (
+                "/api/session-directive",
+                {"tool": "autonudge_stop", "raw_args": {"reason": _OVERSIZED_REASON}},
+            )
         ]
 
     def test_monitor_stop_reason_is_clamped_the_same_way(self, dashboard_session):

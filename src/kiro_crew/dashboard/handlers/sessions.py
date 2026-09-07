@@ -24,7 +24,7 @@ from aiohttp import web
 # binds via sys.modules and defers attribute access to call time, which also
 # keeps tests' monkeypatching of handlers.redact_* effective (late binding).
 import kiro_crew.dashboard.handlers as _h
-from kiro_crew import session_ledger
+from kiro_crew import session_directive, session_ledger
 from kiro_crew.acp.client import _resolve_kiro_bin_for_spawn
 from kiro_crew.config.paths import kiro_agents_dir
 from kiro_crew.dashboard import directive_queue
@@ -1632,9 +1632,9 @@ async def api_session_directive(request: web.Request) -> web.Response:
     to a session key other than the declared one, which is the check that stops a
     caller parking a directive against somebody else's session.
 
-    Unknown ``kind`` is a 400, not a silent drop: the only legitimate callers are
-    Kiro Crew's own directive tools, so an unrecognized kind means the request did
-    not come from one and the caller should hear about it.
+    A call that derives no directive (unknown tool, validation refusal) is a 400,
+    not a silent drop: the only legitimate callers are Kiro Crew's own directive
+    tools, so a request that does not derive did not come from one.
     """
     # Re-assert the caller's locality BEFORE the header is read. The route is in
     # server.py's strict allowlist, but a ``local_only=False`` deployment
@@ -1680,12 +1680,41 @@ async def api_session_directive(request: web.Request) -> web.Response:
         return web.json_response(
             {"error": "malformed JSON body", "code": "invalid_body"}, status=400
         )
-    kind = str(body.get("kind") or "").strip()
-    args = body.get("args")
-    if not isinstance(args, dict):
-        args = {}
+    # The body names the CALL -- the directive tool's name and the raw
+    # ``tools/call`` arguments the MCP stub served -- and nothing else. The
+    # payload is DERIVED here by re-running that tool on those arguments
+    # (``mcp_core.derive_directive``), and the claim key is computed here from the
+    # same pair. A caller who can reach this route therefore controls only what
+    # the named session's own call would have produced: it cannot pair payload X
+    # with the digest of call Y, which a caller-supplied (args, input_digest) body
+    # allowed and which is exactly the substitution the two-channel design exists
+    # to prevent.
+    # Lazy on purpose: mcp_core is the MCP server module and imports every tool
+    # handler; no dashboard module loads it at import time, and this route is
+    # the only one that needs it.
+    from kiro_crew import mcp_core
+
+    tool = str(body.get("tool") or "").strip()
+    raw_args = body.get("raw_args")
+    if not isinstance(raw_args, dict):
+        raw_args = {}
+    derived = mcp_core.derive_directive(tool, raw_args, session_key)
+    if derived is None:
+        logger.warning(
+            "session-directive REFUSED (not_derivable) for session_key=%r tool=%r: "
+            "re-running the tool on the reported arguments published no directive "
+            "(unknown tool, validation refusal, or handler error). Nothing was parked.",
+            session_key,
+            tool,
+        )
+        return web.json_response(
+            {"error": "directive could not be derived from the call", "code": "not_derivable"},
+            status=400,
+        )
+    kind, args = derived
+    input_digest = session_directive.call_input_digest(tool, raw_args)
     try:
-        record_id = directive_queue.publish(session_key, kind, args)
+        record_id = directive_queue.publish(session_key, kind, args, input_digest)
     except ValueError as exc:
         logger.warning(
             "session-directive REFUSED (invalid_directive) for session_key=%r kind=%r: "

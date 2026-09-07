@@ -50,8 +50,6 @@ from kiro_crew.acp import seed_provenance
 from kiro_crew.acp._dispatch import (
     _kiro_mcp_server_name,
     _kiro_tool_name,
-    _marker_bearing_text,
-    _repair_escaped_marker,
     agent_version_from_init,
     build_permission_event,
     derive_edit_diff,
@@ -186,7 +184,6 @@ from kiro_crew.sandbox import (
 )
 from kiro_crew.security import is_sensitive_path, redact_credentials, redact_exfiltration_urls
 from kiro_crew.sel import sel
-from kiro_crew.session_directive import content_free_digest
 from kiro_crew.skill_usage import get_global_skill_read_observer
 
 logger = logging.getLogger(__name__)
@@ -7774,8 +7771,15 @@ class AcpClient:
             return None
         if update.get("sessionUpdate") == UPDATE_TOOL_CALL:
             title = update.get("title", "unknown")
+            _wire_title = title if isinstance(title, str) and title != "unknown" else ""
             kind = update.get("kind", "unknown")
-            raw_input = update.get("rawInput") or update.get("input") or update.get("params")
+            # First PRESENT key, not first truthy one -- an explicit empty
+            # rawInput is a real argument set for the directive digest. Mirrors
+            # _dispatch._build_tool_call_event.
+            raw_input = next(
+                (update[k] for k in ("rawInput", "input", "params") if update.get(k) is not None),
+                None,
+            )
             purpose = extract_tool_purpose(raw_input)
             logger.debug(
                 "ACP tool_call raw: %s",
@@ -7844,7 +7848,12 @@ class AcpClient:
             # scopes (filesystem.write / network.egress). Bounded by the same
             # clear() as _tool_call_inputs; capped to avoid unbounded growth on a
             # stream that never sends a matching permission request.
-            if tool_call_id and isinstance(raw_input, dict):
+            # Truthy-gated, like _dispatch's raw_params_cache: this cache is the
+            # permission event's TRUSTED params source, and an empty ``{}`` here
+            # (Claude's initial frame) would be found by ``.get`` and suppress the
+            # inline-frame fallback, so the refinement's sensitive path never
+            # reached governance. The event's own raw_tool_params keeps the ``{}``.
+            if tool_call_id and isinstance(raw_input, dict) and raw_input:
                 if len(self._tool_call_params) > _MAX_CACHED_TOOL_PARAMS:
                     self._tool_call_params.clear()
                 self._tool_call_params[tool_call_id] = raw_input
@@ -7883,6 +7892,10 @@ class AcpClient:
             return AcpEvent(
                 kind=EVENT_TOOL_CALL,
                 title=title,
+                # The backend's OWN title, before select_tool_title swaps in a
+                # shell call's description: the directive claim's tool resolver
+                # reads this and only this (see AcpEvent.wire_title).
+                wire_title=_wire_title,
                 tool_kind=kind,
                 tool_purpose=purpose,
                 tool_input=input_str,
@@ -7967,26 +7980,7 @@ class AcpClient:
                             if "stdout" in j and j.get("stdout"):
                                 output_parts.append(str(j["stdout"]))
                             else:
-                                # An unrecognised structured envelope reaches the
-                                # consumer through json.dumps, which escapes every
-                                # quote in it. That is lossless for display but
-                                # fatal for a session-directive marker: the
-                                # sentinel survives while its payload becomes
-                                # \\"kind\\", so peek() can no longer name the
-                                # parked record and the directive is dropped. Emit
-                                # that one string verbatim instead.
-                                _marker = _marker_bearing_text(j)
-                                if _marker is not None:
-                                    logger.warning(
-                                        "tool-result rawOutput Json envelope carries a "
-                                        "session-directive marker; using that string "
-                                        "verbatim instead of json.dumps, which would "
-                                        "escape its payload. Envelope keys: %s",
-                                        sorted(j.keys()),
-                                    )
-                                    output_parts.append(_marker)
-                                else:
-                                    output_parts.append(json.dumps(j, default=str))
+                                output_parts.append(json.dumps(j, default=str))
                 # Path 3: an object that is not that envelope at all. Mirrors
                 # ``_dispatch._build_tool_result_event`` -- ``rawOutput`` is
                 # unstructured passthrough, so ``items[]`` is one producer's
@@ -8008,19 +8002,6 @@ class AcpClient:
             return None
 
         final_output = "\n".join(output_parts)
-        # Repair a marker that arrived JSON-escaped, BEFORE redaction and the
-        # head cut: the consumer reads its selector out of this exact string.
-        _repaired = _repair_escaped_marker(final_output)
-        if _repaired is not None:
-            logger.warning(
-                "tool-result text carried a JSON-ESCAPED session-directive "
-                "marker; repaired it so the selector is readable. "
-                "Original: %dB sha=%s (content withheld -- this runs BEFORE "
-                "redaction, so the frame is unredacted here).",
-                len(final_output),
-                content_free_digest(final_output),
-            )
-            final_output = _repaired
         # Redact the WHOLE join, then bound -- never the reverse. Bounding first
         # can split a credential across the cut into fragments no pattern
         # matches: with a connection URI whose "@" lands on byte 8000, the head
@@ -8065,6 +8046,14 @@ class AcpClient:
         # updates (content/rawOutput only) are handled by the result extractor.
         if title is None and kind is None and not raw_input:
             return None
+        # The refinement carries the COMPLETE params (Claude streams an empty
+        # rawInput on the initial tool_call). Refresh the permission event's
+        # trusted-params cache from it, as _dispatch._build_tool_refinement_event
+        # does, so governance's sensitive-path scope reads the real arguments.
+        if tool_use_id and isinstance(raw_input, dict) and raw_input:
+            if len(self._tool_call_params) > _MAX_CACHED_TOOL_PARAMS:
+                self._tool_call_params.clear()
+            self._tool_call_params[tool_use_id] = raw_input
         # Build the input string the same way `_extract_tool_event` does so
         # the merged toolLog entry / message meta lines up across both events.
         input_str = ""
@@ -8137,6 +8126,7 @@ class AcpClient:
         return AcpEvent(
             kind=EVENT_TOOL_CALL_UPDATE,
             title=title_str,
+            wire_title=title if isinstance(title, str) else "",
             tool_kind=kind_str,
             tool_purpose=purpose,
             tool_input=input_str,
@@ -8191,16 +8181,7 @@ class AcpClient:
                                     if out:
                                         output_parts.append(out[:4000])
                                 else:
-                                    # See the rawOutput Json branch above: a dump
-                                    # escapes an embedded directive marker beyond
-                                    # what peek() can read.
-                                    _marker = (
-                                        _marker_bearing_text(d) if isinstance(d, dict) else None
-                                    )
-                                    if _marker is not None:
-                                        output_parts.append(_marker[:4000])
-                                    else:
-                                        output_parts.append(json.dumps(d, indent=2)[:4000])
+                                    output_parts.append(json.dumps(d, indent=2)[:4000])
                             elif rc.get("kind") == "text":
                                 output_parts.append(str(rc.get("data", ""))[:4000])
                         if output_parts:
@@ -8208,10 +8189,7 @@ class AcpClient:
                                 AcpEvent(
                                     kind=EVENT_TOOL_RESULT,
                                     tool_call_id=tool_use_id,
-                                    tool_output=(
-                                        _repair_escaped_marker("\n".join(output_parts))
-                                        or "\n".join(output_parts)
-                                    )[:8000],
+                                    tool_output="\n".join(output_parts)[:8000],
                                 )
                             )
         except Exception:

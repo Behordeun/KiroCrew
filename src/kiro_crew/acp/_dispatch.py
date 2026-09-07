@@ -1127,8 +1127,17 @@ def _build_tool_call_event(
 ) -> AcpEvent:
     """Build an ``EVENT_TOOL_CALL`` from a ``tool_call`` update (with redaction)."""
     title = update.get("title", "unknown")
+    _wire_title = title if isinstance(title, str) and title != "unknown" else ""
     kind = update.get("kind", "unknown")
-    raw_input = update.get("rawInput") or update.get("input") or update.get("params")
+    # First PRESENT key, not first truthy one: an explicit empty ``rawInput``
+    # (``reset_conversation({})``, ``resource_status({})``) is a real argument
+    # set, and the out-of-band directive claim digests it. An ``or`` chain
+    # collapsed ``{}`` to None, so a no-argument directive recorded no digest
+    # and its parked record was never claimed.
+    raw_input = next(
+        (update[k] for k in ("rawInput", "input", "params") if update.get(k) is not None),
+        None,
+    )
     purpose = extract_tool_purpose(raw_input)
     tool_call_id = update.get("toolCallId", "")
     # ORIGIN-BOUND cache key (see build_permission_event): entries written
@@ -1138,7 +1147,12 @@ def _build_tool_call_event(
     # permission_request — which carries only a truncated title — can recover
     # them for governance enforcement (raw_tool_params). Mirrors AcpClient's
     # _tool_call_params. shell_cache/tool_input_cache below serve display/is_shell.
-    if tool_call_id and raw_params_cache is not None and isinstance(raw_input, dict):
+    # Truthy-gated on purpose, unlike the event's own ``raw_tool_params`` below:
+    # this cache is the permission event's TRUSTED params source, and an empty
+    # dict here would earn ``raw_params_trusted`` for a call whose arguments the
+    # refinement has not streamed yet (claude-agent-acp sends ``{}`` first). The
+    # directive digest reads the event field, not this cache.
+    if tool_call_id and raw_params_cache is not None and isinstance(raw_input, dict) and raw_input:
         raw_params_cache[_ck] = raw_input
     # Capture the shell signal from the RAW kind (before redaction) so a later
     # permission_request (which carries no kind) can inherit it via shell_cache.
@@ -1232,6 +1246,7 @@ def _build_tool_call_event(
     return AcpEvent(
         kind=EVENT_TOOL_CALL,
         title=title,
+        wire_title=_wire_title,
         tool_kind=kind,
         tool_purpose=purpose,
         tool_input=input_str,
@@ -1283,72 +1298,8 @@ def _mcp_content_text(payload: dict[str, Any]) -> str | None:
     return "\n".join(parts)
 
 
-def _marker_bearing_text(payload: dict[str, Any], _max_nodes: int = 512) -> str | None:
-    """Return the ONE string inside *payload* that carries the directive sentinel.
-
-    The last-resort companion to :func:`_mcp_content_text`, for a tool-result
-    envelope this module does not recognise as a pure text envelope. Such a
-    payload currently reaches the consumer through ``json.dumps``, which escapes
-    every quote in it -- so a directive marker embedded in one of its string
-    values arrives with ``\"kind\"`` instead of ``"kind"`` and
-    ``session_directive.peek`` can no longer parse the selector. The sentinel
-    itself survives that escaping unchanged, so the frame still LOOKS like it
-    carries a directive while naming no record: observed on the KAS backend as
-    ``json-unparseable (JSONDecodeError)`` with the envelope's own ``"}`` still
-    attached to the payload's tail.
-
-    Keyed on the SENTINEL rather than on any envelope field name, because the
-    field differs per backend and the sentinel is a fixed control token this
-    process emitted itself. Requires exactly one DISTINCT match: zero means
-    there is no directive here and the caller should keep dumping the envelope,
-    while two DIFFERENT marker-bearing strings mean the frame is ambiguous about
-    which one is the directive, and guessing between them could apply the wrong
-    payload. Bounded walk (``_max_nodes``, depth 6) so a pathological envelope
-    cannot spin here.
-
-    DISTINCT, not merely one occurrence, because a backend may COPY the whole
-    tool-result text into several envelope fields. KAS does exactly that --
-    ``{"response": <text>, "imageBase64Urls": [], "message": <same text>}`` --
-    so a single ``monitor_start`` directive arrived as two byte-identical hits
-    and this function refused as "ambiguous", which is what left the conductor's
-    patrol loop unarmed: the escaped marker was never repaired, ``peek`` could
-    name no selector, and the gateway-parked record was never claimed. Two
-    copies of one payload pose no choice, so there is nothing to guess: dedupe
-    by value and only refuse when the values genuinely DIFFER.
-
-    The chosen string must also carry exactly one sentinel. The caller's own
-    multi-marker refusal only guards its line-based recovery, so without this a
-    string holding two different directives would resolve here to whichever came
-    first -- the same wrong-payload guess, one level down.
-    """
-    hits: list[str] = []
-    budget = [_max_nodes]
-
-    def _walk(node: Any, depth: int) -> None:
-        if budget[0] <= 0 or depth > 6 or len(hits) > 1:
-            return
-        budget[0] -= 1
-        if isinstance(node, str):
-            if session_directive.has_marker(node) and node not in hits:
-                hits.append(node)
-        elif isinstance(node, dict):
-            for value in node.values():
-                _walk(value, depth + 1)
-        elif isinstance(node, list):
-            for value in node:
-                _walk(value, depth + 1)
-
-    _walk(payload, 0)
-    if len(hits) != 1 or hits[0].count(session_directive.SENTINEL) != 1:
-        return None
-    return hits[0]
-
-
-ELIDED_MARKER_VALUE = "[[directive marker emitted on its own line above]]"
-
-#: Stands in for one top-level sibling whose value the JSON encoder refuses (see
-#: :func:`_dumps_elided_siblings`), and for a whole payload the encoder refuses
-#: at any dispatch-path encode (see :func:`_dumps_degraded`). Visible in the
+#: Stands in for a payload the JSON encoder refuses at any dispatch-path encode
+#: (see :func:`_dumps_degraded`). Visible in the
 #: transcript on purpose: the user can see that detail is missing, which is the
 #: whole difference between this and dropping the field.
 UNSERIALISABLE_SIBLING_VALUE = "[[value omitted: nested too deeply to serialise]]"
@@ -1364,9 +1315,7 @@ def _dumps_degraded(payload: Any, **kwargs: Any) -> str:
     one of these sites does not catch and the others do not guard at all, so the
     raise escapes frame rendering and aborts the whole agent turn. The intended
     cost of an unrenderable frame is that ONE frame, degraded visibly, never the
-    turn. The marker-bearing branch got this treatment in
-    :func:`_dumps_elided_siblings`; this is the same refusal posture for the
-    remaining encodes, which carry no directive and so need no per-field walk.
+    turn. Every encode on this path gets the same refusal posture.
 
     A ``TypeError``/``ValueError`` refusal degrades to ``str(payload)`` -- the
     payload still has a repr, and this preserves byte-identically the arm that
@@ -1385,223 +1334,6 @@ def _dumps_degraded(payload: Any, **kwargs: Any) -> str:
             return UNSERIALISABLE_SIBLING_VALUE
     except RecursionError:
         return UNSERIALISABLE_SIBLING_VALUE
-
-
-def _elide_marker_value(payload: Any, marker: str) -> Any:
-    """Copy *payload* with the one *marker*-bearing string replaced by a note.
-
-    The marker has to leave the envelope on its OWN line for
-    ``session_directive.peek`` to read it, but the envelope's other fields are
-    real tool output the user is owed -- dropping them to make room for the
-    marker loses transcript content (an exit status, a second text block). So
-    the marker goes out verbatim and this copy carries everything ELSE, with the
-    one value that already went out replaced by a short note instead of
-    duplicated.
-
-    Iterative over an explicit heap stack, NOT recursive. The nesting depth comes
-    out of a tool's own output, so whatever produced the frame chooses it, and a
-    recursive walk raises ``RecursionError`` on a deep one -- a ``RuntimeError``,
-    which neither this module's ``(ValueError, TypeError)`` handlers nor any
-    caller catches, so it escapes ``parse_session_update`` and kills the whole
-    agent turn. A heap stack has no such ceiling, so no depth constant and no
-    refusal branch is needed.
-
-    ``payload`` is always JSON-DECODED input (``json.loads`` of a frame, or a
-    parsed JSON-RPC member), which cannot contain a reference cycle. That
-    invariant is what makes the unbounded loop safe.
-    """
-    # One slot to receive the root, so the loop can write every result through
-    # the same (container, key) mechanism.
-    root: list[Any] = [None]
-    stack: list[tuple[Any, Any, Any]] = [(payload, root, 0)]
-    while stack:
-        node, target, key = stack.pop()
-        if isinstance(node, str):
-            target[key] = ELIDED_MARKER_VALUE if node == marker else node
-        elif isinstance(node, dict):
-            copied: dict[Any, Any] = {}
-            target[key] = copied
-            for k, v in node.items():
-                # Reserve the slot NOW so the copy keeps the source's key order
-                # regardless of the order the stack pops the children in.
-                copied[k] = None
-                stack.append((v, copied, k))
-        elif isinstance(node, list):
-            listed: list[Any] = [None] * len(node)
-            target[key] = listed
-            for i, v in enumerate(node):
-                stack.append((v, listed, i))
-        else:
-            target[key] = node
-    return root[0]
-
-
-def _dumps_elided_siblings(payload: Any, marker: str) -> str | None:
-    """Serialise *payload*'s marker-elided copy, or None if it cannot be encoded.
-
-    The second, independent limit on this path: ``json.dumps`` recurses in C
-    against the PROCESS stack rather than ``sys.recursionlimit``, so a payload
-    :func:`_elide_marker_value` copies fine can still overflow the ENCODER -- and
-    at a depth that differs per platform, since a thread's stack size does. The
-    depth is chosen by whatever produced the frame, so the encoder can always be
-    reached, and the failure is the same uncaught ``RecursionError`` that kills
-    the turn.
-
-    Degrades per FIELD rather than all-or-nothing, because the two possible
-    losses are not symmetric. A lost directive silently unarms a loop the model
-    was told was armed -- there is no error anywhere and no way to notice. Lost
-    sibling detail costs transcript content the user can SEE is missing. So the
-    marker (emitted by the caller, not here) always survives, every top-level
-    field that encodes is kept whole, and only the offending branches become
-    :data:`UNSERIALISABLE_SIBLING_VALUE`. Returns None only when even the reduced
-    object will not encode, leaving the caller to emit the directive alone.
-    """
-    elided = _elide_marker_value(payload, marker)
-    try:
-        return json.dumps(elided, default=str)
-    except RecursionError:
-        pass
-
-    def _encodable(value: Any) -> bool:
-        try:
-            json.dumps(value, default=str)
-        except RecursionError:
-            return False
-        return True
-
-    # Re-encoding the survivors together adds exactly one level over the deepest
-    # of them, which each one just cleared on its own -- but a value sitting on
-    # the boundary can still fail there, so the outer dump stays guarded too.
-    if isinstance(elided, dict):
-        reduced: Any = {
-            k: (v if _encodable(v) else UNSERIALISABLE_SIBLING_VALUE) for k, v in elided.items()
-        }
-    elif isinstance(elided, list):
-        reduced = [(v if _encodable(v) else UNSERIALISABLE_SIBLING_VALUE) for v in elided]
-    else:
-        return None
-    try:
-        return json.dumps(reduced, default=str)
-    except RecursionError:
-        return None
-
-
-def _repair_escaped_marker(text: str) -> str | None:
-    """Recover a directive marker whose payload arrived JSON-ESCAPED, or None.
-
-    Some backends (observed on KAS) hand the whole tool result back already
-    serialised as JSON, so the text this module receives is the DUMP of an
-    envelope rather than the envelope itself. Every quote in the embedded
-    directive is then ``\\"`` and the envelope's own ``"}`` is glued to the
-    payload's tail, so the sentinel still arrives intact while
-    ``session_directive.peek`` can no longer read a selector out of it -- the
-    frame names a directive it cannot identify, and the parked record is never
-    claimed.
-
-    Two recoveries, tried in order, because the escaping can wrap the WHOLE text
-    or just reach the marker:
-
-    1. The whole text parses as JSON -- take the one string inside it that
-       carries the sentinel (:func:`_marker_bearing_text` for a container, the
-       value itself for a bare string).
-    2. Only the marker line is escaped -- unescape it and ``raw_decode`` the
-       first JSON value, which ignores the envelope's trailing punctuation.
-
-    ACCEPTANCE IS THE TEST, not the shape: a candidate is returned only when
-    ``peek`` actually reads a selector from it, so a wrong guess degrades to
-    None and leaves the original text untouched rather than substituting
-    something worse.
-    """
-    if not text or not session_directive.has_marker(text):
-        return None
-    if session_directive.peek(text) is not None:
-        return None  # already readable -- nothing to repair
-
-    # (1) the entire text is a JSON dump.
-    #
-    # Tried BEFORE the multi-marker refusal below, because this recovery does not
-    # guess: it resolves the directive through the envelope's own structure, and
-    # ``_marker_bearing_text`` refuses any envelope whose marker-bearing strings
-    # actually differ. A backend that copies the result text into two fields
-    # therefore raises the whole-text sentinel count to 2 while naming exactly
-    # one payload -- and refusing that as "ambiguous" is what dropped every
-    # directive on KAS (a ``monitor_start`` acknowledged to the model, with no
-    # loop armed and nothing to inspect).
-    try:
-        outer = json.loads(text)
-    except (ValueError, TypeError, RecursionError):
-        # RecursionError is listed because the C scanner raises it on text nested
-        # past the interpreter's limit, and it is a RuntimeError -- so the two
-        # ValueError-family names alone let it escape and abort the turn.
-        outer = None
-    if isinstance(outer, str):
-        # One sentinel only, the same bar ``_marker_bearing_text`` holds the dict
-        # branch to. ``peek`` reads the FIRST marker line, so a dumped string
-        # carrying two DIFFERENT directives would resolve to whichever came
-        # first -- and the whole-text refusal that used to cover this branch now
-        # runs after it, guarding recovery (2) alone.
-        if (
-            outer.count(session_directive.SENTINEL) == 1
-            and session_directive.peek(outer) is not None
-        ):
-            return outer
-    elif isinstance(outer, (dict, list)):
-        inner = _marker_bearing_text(outer if isinstance(outer, dict) else {"_": outer})
-        if inner is not None and session_directive.peek(inner) is not None:
-            # Siblings FIRST, marker LAST. Both placements keep peek working, but
-            # only this one survives display: session_directive.strip_marker cuts
-            # from the sentinel to the END of the string, so anything after the
-            # marker is dropped from the transcript the user actually reads.
-            # A None here means the encoder could not represent the siblings at
-            # all, so the directive goes out alone rather than not at all.
-            siblings = _dumps_elided_siblings(outer, inner)
-            return inner if siblings is None else siblings + "\n" + inner
-
-    if text.count(session_directive.SENTINEL) > 1:
-        # Ambiguous for the LINE-BASED recovery only: (2) below reads the FIRST
-        # marker line, which would be a GUESS about which directive the frame
-        # meant. Applying the wrong directive is worse than applying none, and a
-        # real frame carries one marker (a second directive arrives under its own
-        # toolCallId), so refuse rather than pick. Recovery (1) above is exempt
-        # because it makes no such choice -- see its comment.
-        return None
-
-    # (2) The escaped dump is only PART of the text -- another output part, or a
-    # line of prose, sits beside it -- so (1) cannot parse the whole thing. Undo
-    # the escaping on the marker's own line by decoding it AS the JSON string it
-    # came from: prepend the opening quote the dump's own key/colon consumed and
-    # raw_decode, which stops at that string's real closing quote and therefore
-    # ignores whatever the envelope glued onto the tail.
-    #
-    # A plain str.replace of \\" -> " CANNOT do this: a quote that was already
-    # escaped inside the directive (a message quoting a word) arrives as \\\\"
-    # and collapses to a dangling \\" that terminates the JSON string early, so
-    # every directive whose text contains a quote failed to recover.
-    idx = text.find(session_directive.SENTINEL)
-    if idx < 0:
-        return None
-    head = text[:idx]
-    rest = text[idx + len(session_directive.SENTINEL) :]
-    line, newline, following = rest.partition("\n")
-    try:
-        unescaped, _end = json.JSONDecoder().raw_decode('"' + line)
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(unescaped, str):
-        return None
-    # Whatever the envelope glued on after the marker's own string (its closing
-    # `"}`, or real trailing text) is preserved BEFORE the marker, not after it.
-    # Two constraints pin that position: peek parses the marker's line as one
-    # JSON value, so the bytes cannot stay on that line; and strip_marker cuts
-    # from the sentinel to the END of the string, so a later line would be
-    # dropped from the transcript. Ahead of the marker satisfies both.
-    # `_end` indexes the quote-prefixed copy, so one char of it is our prefix.
-    suffix = line[_end - 1 :]
-    preserved = head + "".join(
-        part + "\n" for part in (suffix, following if newline else "") if part
-    )
-    candidate = preserved + session_directive.SENTINEL + unescaped
-    return candidate if session_directive.peek(candidate) is not None else None
 
 
 # ACP tool-call ``content`` entry types this parser understands: ``content``
@@ -1890,39 +1622,7 @@ def _build_tool_result_event(update: dict[str, Any], cache_scope: str = "") -> A
                             output_parts.append(str(j["stdout"]))
                         else:
                             _mcp_text = _mcp_content_text(j)
-                            # Track provenance explicitly. Re-deriving it by
-                            # object identity (`_mcp_text is _mcp_content_text(j)`)
-                            # is wrong: a recognised text envelope with >=2 blocks
-                            # returns a FRESH join each call, so the identity test
-                            # reports "marker-bearing" for an ordinary result and
-                            # emits its whole envelope a second time.
-                            _marker_envelope = False
-                            if _mcp_text is None:
-                                # Not a recognised text envelope. Before dumping
-                                # it -- which would escape every quote and
-                                # destroy an embedded directive payload -- check
-                                # whether one of its strings IS the directive.
-                                _mcp_text = _marker_bearing_text(j)
-                                if _mcp_text is not None:
-                                    _marker_envelope = True
-                                    logger.warning(
-                                        "tool-result envelope is not a text envelope but "
-                                        "carries a session-directive marker; using that "
-                                        "string verbatim instead of json.dumps, which "
-                                        "would escape its payload. Envelope keys: %s",
-                                        sorted(j.keys()),
-                                    )
                             if _mcp_text is not None:
-                                if _marker_envelope:
-                                    # The envelope's other fields are real output.
-                                    # They go BEFORE the marker: strip_marker cuts
-                                    # from the sentinel to the end of the string,
-                                    # so anything after it is lost from display.
-                                    # A None means the encoder could not represent
-                                    # them; the marker below still goes out.
-                                    _siblings = _dumps_elided_siblings(j, _mcp_text)
-                                    if _siblings is not None:
-                                        output_parts.append(_siblings)
                                 output_parts.append(_mcp_text)
                             else:
                                 output_parts.append(_dumps_degraded(j, default=str))
@@ -1950,33 +1650,6 @@ def _build_tool_result_event(update: dict[str, Any], cache_scope: str = "") -> A
         log_unrenderable_content(logger, tool_use_id, content)
         return None
     joined = "\n".join(output_parts)
-    # Repair a marker that arrived JSON-escaped, BEFORE redaction and the head
-    # cut: the consumer reads its selector out of this exact string, and an
-    # escaped payload names no parked record (see _repair_escaped_marker).
-    _repaired = _repair_escaped_marker(joined)
-    if _repaired is not None:
-        # No payload excerpt: this text is PRE-redaction (redaction runs on the
-        # join below) and these warnings land in the persistent log ring that
-        # /api/logs serves, so an excerpt here would publish credentials that
-        # the transcript itself never shows. Length is the diagnostic.
-        logger.warning(
-            "tool-result text carried a JSON-ESCAPED session-directive marker; "
-            "repaired it so the selector is readable (payload %d chars).",
-            len(joined),
-        )
-        joined = _repaired
-    elif session_directive.has_marker(joined) and session_directive.peek(joined) is None:
-        # The frame names a directive whose selector cannot be read and the
-        # repair could not recover it either. Logged HERE because a silent None
-        # from the repair is indistinguishable downstream from a transport that
-        # never carried a marker at all -- which is what made this class of
-        # failure invisible.
-        logger.warning(
-            "tool-result carries a session-directive marker whose selector is "
-            "UNREADABLE and could not be repaired: %s (payload %d chars).",
-            session_directive.peek_failure_reason(joined),
-            len(joined),
-        )
     _redacted = _redact(joined)
     final_output = _redacted[: session_directive.MAX_TOOL_RESULT_CHARS]
     # Both session-directive sentinels are TAIL-anchored, and this cut runs AFTER
@@ -2212,6 +1885,7 @@ def _build_tool_refinement_event(
     return AcpEvent(
         kind=EVENT_TOOL_CALL_UPDATE,
         title=title_str,
+        wire_title=title if isinstance(title, str) else "",
         tool_kind=kind_str,
         tool_purpose=purpose,
         tool_input=input_str,

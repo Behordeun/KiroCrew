@@ -284,7 +284,6 @@ src/kiro_crew/knowledge/watcher.py
 src/kiro_crew/mcp_apps_render.py
 src/kiro_crew/mcp_caller.py
 src/kiro_crew/mcp_cleanup.py
-src/kiro_crew/mcp_core.py
 src/kiro_crew/mcp_discovery.py
 src/kiro_crew/mcp_gateway/abort.py
 src/kiro_crew/mcp_gateway/app_call.py
@@ -436,7 +435,6 @@ test/test_artifact_source.py
 test/test_artifacts.py
 test/test_artifacts_handlers.py
 test/test_artifacts_handlers_coverage.py
-test/test_ask_question_mcp_tool.py
 test/test_ask_question_roundtrip.py
 test/test_ask_user_question_validation.py
 test/test_auto_approve.py

@@ -11,7 +11,7 @@ from kiro_crew.mcp_tools import control
 
 def test_monitor_watch_is_stateless_and_canonical(gateway_posts):
     with patch("kiro_crew.mcp_core._resolve_session_key_strict", return_value="dashboard:chat-1"):
-        result = control.monitor_watch(
+        result = mcp_core._call_tool(
             "monitor_watch",
             {
                 "kind": "github_pull_request",
@@ -28,7 +28,11 @@ def test_monitor_watch_is_stateless_and_canonical(gateway_posts):
     # BOTH halves of the delivery contract: the marker above, and the
     # out-of-band record parked for a consumer that never sees the marker —
     # carrying the same canonicalized payload the marker carries.
-    assert gateway_posts == [("/api/session-directive", {"kind": "monitor_watch", "args": args})]
+    # The CALL is reported (tool + raw args); the gateway derives the record.
+    assert len(gateway_posts) == 1
+    assert gateway_posts[0][0] == "/api/session-directive"
+    assert gateway_posts[0][1]["tool"] == "monitor_watch"
+    assert gateway_posts[0][1]["raw_args"]["target"] == "https://www.github.com/acme/widgets/pull/7"
 
 
 def test_monitor_watch_rejects_native_subagent_binding(gateway_posts):
@@ -64,7 +68,7 @@ def test_monitor_watch_rejects_webex_while_finite_legacy_loop_remains_available(
                 "objective": "review_ready",
             },
         )
-        legacy = control.monitor_start(
+        legacy = mcp_core._call_tool(
             "monitor_start",
             {
                 "message": "Check the pull request and stop when ready.",
@@ -86,8 +90,8 @@ def test_monitor_watch_rejects_webex_while_finite_legacy_loop_remains_available(
     assert legacy_args["max_cycles"] == 24
     assert legacy_args["max_runtime_secs"] == 14_400
     # Only the accepted legacy loop publishes; the three refusals park nothing.
-    assert gateway_posts == [
-        ("/api/session-directive", {"kind": "monitor_start", "args": legacy_args})
+    assert [(p, b["tool"]) for p, b in gateway_posts] == [
+        ("/api/session-directive", "monitor_start")
     ]
 
 

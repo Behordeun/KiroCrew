@@ -44,7 +44,7 @@ from kiro_crew.autonudge import (
     binding_key_for,
 )
 from kiro_crew.dashboard.session_directive_apply import apply_session_directive
-from kiro_crew.mcp_core import _call_tool_inner
+from kiro_crew.mcp_core import _call_tool, _call_tool_inner
 from kiro_crew.mcp_tools._limits import _MONITOR_DEFAULT_MAX_CYCLES
 from kiro_crew.validation import ValidationError
 
@@ -66,7 +66,7 @@ def default_install(monkeypatch):
 def test_monitor_start_returns_directive_with_validated_payload(default_install, gateway_posts):
     """A valid call returns a directive decoding to the validated payload with
     interval_secs mapped to idle_secs."""
-    result = _call_tool_inner(
+    result = _call_tool(
         "monitor_start",
         {"message": "check PR #1 until green", "interval_secs": 300, "max_cycles": 5},
     )
@@ -83,7 +83,19 @@ def test_monitor_start_returns_directive_with_validated_payload(default_install,
     }
     # BOTH halves of the delivery contract: the marker above, and the
     # out-of-band record parked for a consumer that never sees the marker.
-    assert gateway_posts == [("/api/session-directive", {"kind": "monitor_start", "args": args})]
+    assert gateway_posts == [
+        (
+            "/api/session-directive",
+            {
+                "tool": "monitor_start",
+                "raw_args": {
+                    "message": "check PR #1 until green",
+                    "interval_secs": 300,
+                    "max_cycles": 5,
+                },
+            },
+        )
+    ]
 
 
 def test_monitor_start_runtime_budget_passes_through(default_install):
@@ -211,11 +223,14 @@ def test_monitor_update_short_circuits_for_non_nudgeable_session(monkeypatch, ga
 
 
 def test_autonudge_stop_returns_directive_with_stripped_reason(default_install, gateway_posts):
-    result = _call_tool_inner("autonudge_stop", {"reason": "  PR is green  "})
+    result = _call_tool("autonudge_stop", {"reason": "  PR is green  "})
     assert session_directive.decode(result, "autonudge_stop") == {"reason": "PR is green"}
-    # The published record carries the same stripped reason as the marker.
+    # The CALL is reported raw; the gateway re-runs the tool and strips it again.
     assert gateway_posts == [
-        ("/api/session-directive", {"kind": "autonudge_stop", "args": {"reason": "PR is green"}})
+        (
+            "/api/session-directive",
+            {"tool": "autonudge_stop", "raw_args": {"reason": "  PR is green  "}},
+        )
     ]
 
 

@@ -60,19 +60,19 @@ hook, or subagent from using inherited process identity to arm, rewrite, or
 stop another session's unattended loop; `test_autonudge_stop_auth.py` pins the
 binding-key-only targeting and the non-nudgeable-session refusals.
 
-A directive travels to the consumer as a marker inside the tool's own RESULT
-TEXT, and the marker's payload is the only thing that names the record the MCP
-stub parked out of band. A backend whose tool results arrive already serialised
-as JSON escapes every quote in that payload while leaving the quote-free sentinel
-intact, so the frame still looks like it carries a directive and names nothing:
-the tool answers "requested" and no loop arms. `acp/_dispatch._repair_escaped_marker`
-recovers it at every `EVENT_TOOL_RESULT` builder, `test_session_directive_transport.py`
-pins that recovery and ratchets it over any builder a new provider adds, and
-[agent-host-contract.md](agent-host-contract.md) §9 states the requirement a
-provider must declare. The consumer-side failure paths log at `warning`
-(`session-directive NOT APPLIED`, `SELECTOR UNREADABLE`, `CLAIM MISS`, `DENIED`),
-which is what makes this class of drop visible in `gateway.log` instead of
-silent.
+A directive reaches the consumer two ways. On kiro-cli the marker inside the
+tool's own RESULT TEXT is decoded under the verified `_meta.kiro` identity. On any
+backend that emits no such identity, the MCP stub has already parked the validated
+payload on the gateway keyed by `session_directive.call_input_digest` of the raw
+`tools/call` arguments, and the consumer claims it by the same digest computed
+from the `tool_call` frame's `rawInput` — nothing is read out of the result body,
+so a backend that re-serialises, duplicates, offloads or caps that body cannot lose
+the directive. `test_session_directive_input_digest.py` drives the real consumer
+with every KAS result shape observed so far, and
+[agent-host-contract.md](agent-host-contract.md) §9 states what a provider must
+declare about its `rawInput`. The consumer-side failure paths log at `warning`
+(`session-directive NOT APPLIED`, `NO CALL INPUT`, `CLAIM MISS`, `DENIED`), which
+is what makes this class of drop visible in `gateway.log` instead of silent.
 
 `monitor_start` binds one loop to the calling session. `AutoNudgeService._add_unserialized`
 replaces an existing loop on that binding before it persists and arms the new

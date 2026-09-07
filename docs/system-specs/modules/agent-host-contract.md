@@ -235,12 +235,10 @@ invented one.
 
 | | kiro-cli | KAS | CC | Codex |
 |---|---|---|---|---|
-| How a tool result arrives | `content[].content.text` blocks, or `rawOutput.items[].Text` / `.Json.stdout` | `content[].content.text` blocks, or a **flat `rawOutput` object with no `items`** (measured: `{output, exitCode, message}`, `{response, imageBase64Urls, message}`, `{kind, retracted}`) — and an MCP result can arrive as an **already-serialised** JSON envelope under a key this repository does not recognise | `content[]` text blocks | unmeasured — no codex tool-result shape is recorded. Codex adds no builder of its own and rides the shared `_build_tool_result_event` path, which handles `content[].content.text`, `rawOutput.items[]`, and any other non-empty `rawOutput` object by serialising it (`acp/_dispatch.py`) |
-| Marker survives untouched | yes | **no** — the envelope reaches the consumer through `json.dumps`, which escapes every quote in it | yes | unmeasured, and not asserted either way |
-| Recovery | not needed | `acp/_dispatch._repair_escaped_marker`, run over the joined output before redaction and the head cut | not needed | already unconditional, per builder rather than per backend: `_repair_escaped_marker` runs over the joined output before redaction and the head cut (`acp/_dispatch.py`), so the ratchet below covers a codex builder added later by construction |
-| Same text in several fields | no | **yes** — `{response, …, message}` carries the result TWICE, so one directive raises the frame's marker count to 2 | no | unmeasured — no codex tool-result frame has been recorded (see the row above) |
-
-Duplication is why the recovery deduplicates by VALUE rather than counting sentinels. The refusal to guess between two markers is real — applying the wrong directive is worse than applying none — but it must fire on two DIFFERENT payloads, not on one payload delivered twice. It fired on the duplicate, so `_repair_escaped_marker` returned nothing, `peek` could name no selector, and the gateway-parked record went unclaimed: every `monitor_start` from a KAS-backed session was acknowledged to the model and armed no loop. The envelope branch now takes the single DISTINCT marker-bearing string, and additionally requires that string to hold exactly one sentinel, because the whole-text refusal it runs ahead of is what used to cover the two-directives-in-one-field case.
+| How a tool result arrives | `content[].content.text` blocks, or `rawOutput.items[].Text` / `.Json.stdout` | `content[].content.text` blocks, or a **flat `rawOutput` object with no `items`** (measured: `{output, exitCode, message}`, `{response, imageBase64Urls, message}`, `{kind, retracted}`) — and an MCP result can arrive **already-serialised**, **copied into several fields**, one field **replaced by an offload reference** above a size threshold, and every string **capped at 30k chars** (head 500 + tail 500) | `content[]` text blocks | unmeasured — no codex tool-result shape is recorded. Codex adds no builder of its own and rides the shared `_build_tool_result_event` path, which handles `content[].content.text`, `rawOutput.items[]`, and any other non-empty `rawOutput` object by serialising it (`acp/_dispatch.py`) |
+| Directive marker readable in the result | yes | **no**, and it does not need to be | yes | unmeasured, and it does not need to be |
+| How the tool call's `rawInput` arrives | complete on `tool_call` | complete on `tool_call`, uncapped (`tool-call-emitter.ts` passes it around its wire cap (kiro-agent `tool-call-emitter.ts`)); carries a `_meta` block the MCP server never sees | empty on `tool_call`, complete on `tool_call_update` | unmeasured — rides the shared `_build_tool_call_event` / `_build_tool_refinement_event`, which record `raw_tool_params` from whichever frame carries it |
+| Wire title of an MCP tool call | `_meta.kiro` identity, title not needed | `Running: @<serverName>/<toolName>` (measured; the `Running: ` prefix is the backend's, and `directive_tool_from_call` strips one) | raw Claude tool name `mcp__<server>__<tool>` | unmeasured — a codex MCP call whose title matches neither spelling above resolves to no directive tool and records no digest; declaring the spelling is part of onboarding the backend |
 
 `rawOutput` is unstructured passthrough, so `items[]` is one producer's wrapper
 rather than a contract. `_build_tool_result_event` therefore serialises any other
@@ -248,64 +246,102 @@ non-empty `rawOutput` object instead of reading it as "no output": treating an
 unfamiliar shape as absent discarded the whole `EVENT_TOOL_RESULT`, which is the
 event that writes both `meta["output"]` and `meta["done"]` for the pill — losing
 the Output tab outright, and leaving `done` to `chat_runner`'s post-tool text
-sweep, which only fires when assistant text follows the tool group. That third
-path joins its part into the same string the recovery row above runs over, so it
-needs no separate marker handling.
+sweep, which only fires when assistant text follows the tool group.
 
-Two consumers read a control marker out of the tool-result TEXT rather than out
-of a structured field: a session directive (`session_directive.peek` — how
-`monitor_start` / `monitor_update` / `autonudge_stop` reach the session that owns
-the loop) and an MCP App render marker (`mcp_apps_render.find_marker`). Both
-sentinels are quote-free, so JSON escaping leaves them perfectly intact while
-mangling the payload behind them. The failure that produces is silent and
-expensive: the frame still looks like it carries a directive, the consumer can no
-longer name the record the MCP stub parked, the tool answers "requested", and no
-loop arms. It cost several gateway restarts to find on KAS precisely because
-every layer looked healthy.
+**A session directive is never selected from the result body.** One consumer
+still reads a control marker out of the tool-result TEXT: the MCP App render
+marker (`mcp_apps_render.find_marker`), and it is re-attached under the result cut
+for that reason. The session-directive marker is display-only. On kiro-cli the
+directive is applied from the marker under the verified `_meta.kiro` identity,
+exactly as before. On a backend that emits no `_meta.kiro`, the tool has already
+reported its CALL to the gateway out of band — its own name and the raw `tools/call`
+arguments, never the payload. The gateway re-runs that tool on those arguments
+(`mcp_core.derive_directive`, with `_emit_directive` in capture mode) to derive the
+record's payload itself and computes the claim key
+`session_directive.call_input_digest(tool, raw_args)` itself, so a caller who can
+reach the route controls only what the named session's own call would produce and
+cannot pair a chosen payload with the key of some other call. The derivation runs
+AS the request's kernel-verified `X-Session-Key`, installed as the call's
+`CallerContext` (the identity gatewayd injects for a pooled backend), so the tools
+that refuse without a strict identity — `monitor_watch`, `monitor_stop`,
+`monitor_update` — and the tools that refuse a non-nudgeable session — a `cron:`
+key — behave exactly as they would in the stub. The consumer computes the same
+digest from the `tool_call` frame (a `tool_call_update` carrying `rawInput` or the real title refreshes it)
+and claims the record by that key during the same turn. The name half comes
+from `session_directive.directive_tool_from_call`: the trusted `_meta.kiro`
+identity where a backend emits one, else the wire title: `@kirocrew-core/<tool>`
+as kiro-agent's MCP wrapper stamps it, behind the backend's own `Running: `
+prefix (KAS; a recorded frame read `Running: @kirocrew-core/ask_question`), or Claude's raw tool name
+`mcp__kirocrew-core__<tool>` as claude-agent-acp passes it through (CC, whose
+`toolInfoFromToolUse` has no MCP case). Both the shared `_dispatch` builders and
+the legacy `AcpClient` builders that serve CC set `AcpEvent.wire_title` from the
+backend's own field; the display `title`, which `select_tool_title` fills from a
+shell call's model-authored `rawInput.description`, is never read for this. A call that resolves to
+no directive tool records no digest. The name is in the key because every
+no-argument tool hashes `{}` alike: an args-only key let a planted
+`reset_conversation({})` be claimed by the victim's `resource_status({})` frame. Neither side reads the result, so a backend may
+re-serialise, duplicate, offload or cap the result body and the directive still
+lands. The claim is attempted whenever the frame carries a marker OR a record is
+parked for the session and the frame's call has a digest, so a result whose
+marker was capped off entirely still arms. Display is separate: `strip_marker`
+cuts a tail-anchored marker to the end of the text as before, but a marker embedded
+inside a serialised envelope is replaced in place so the envelope stays valid JSON
+in the transcript instead of being truncated mid-string. Two edges are pinned by
+`test_session_directive_input_digest.py`: an explicit empty `rawInput`
+(`reset_conversation({})`) is an argument set and produces a digest, so the
+parser reads the first PRESENT input key rather than the first truthy one, while
+the permission event's trusted-params cache stays truthy-gated; and when a native
+sub-agent call in the same turn shares the parent frame's digest (two no-argument
+tools both hash `{}`), the parent frame refuses to claim rather than guess whose
+record it is, leaving the child's own frame to retire it on the isolation path.
 
-The recovery is keyed on the sentinel, not on any envelope field name, because
-the field differs per backend; and acceptance is the test — a candidate is used
-only when `peek` actually reads a selector from it, so a wrong guess degrades to
-the original text instead of substituting something worse. A frame carrying two
-DIFFERENT markers is refused rather than resolved to the first, since applying
-the wrong directive is worse than applying none.
+This replaces two generations of result-body repair (#8182 for the escaped
+envelope, #8841 for the duplicated field) that lived in the ACP parser shared by
+every backend, each one a branch a backend could invalidate with its next
+release. It cost several gateway restarts to find on KAS precisely because every
+layer looked healthy: the frame still looked like it carried a directive, the
+tool answered "requested", and no loop armed.
 
-**Nesting depth is chosen by the tool, so the recovery degrades rather than
-raises.** The envelope's non-marker fields are copied by an ITERATIVE walk
-(`_elide_marker_value`, an explicit heap stack) because a recursive one raises
-`RecursionError` — a `RuntimeError`, outside the `(ValueError, TypeError)`
-handlers on this path, so it escapes `parse_session_update` and aborts the whole
-turn. `json.dumps` of that copy is a second, independent ceiling: it recurses in C
-against the process stack, so the depth it refuses at is a platform property (a
-branch that encodes on Linux raises on Windows). When it refuses, the copy
-degrades PER FIELD — every top-level field that encodes is kept and only the
-offending ones become `UNSERIALISABLE_SIBLING_VALUE` — because the two losses are
-not symmetric: a dropped directive silently unarms a loop the model was told was
-armed, while dropped sibling detail costs transcript content the user can see is
-missing. The directive is emitted even when no sibling copy survives at all.
+**Why the input digest is not weaker than the marker selector it replaces.** Both
+are model-controlled content bound to the session by arriving on that session's
+own event stream in the call the tool served. A caller who can park a record for
+another session still needs THAT session's model to make a call with identical
+arguments in the same turn — the bar the marker set. The applied payload is
+always the record's; the digest only picks which record.
 
-**The refusal posture covers every encode on the dispatch path, not just the
-marker branch.** The permission event's cache-miss input fallback, the initial
-`tool_call` input, the two non-marker tool-result branches and the refinement
-input all serialise backend-shaped payloads through a refusal-guarded encode
-(`_dumps_degraded`): an encoder refusal degrades that one frame to readable
-text — `str(payload)` for a `(TypeError, ValueError)` refusal, the
-`UNSERIALISABLE_SIBLING_VALUE` placeholder for a `RecursionError` — instead of
-propagating and aborting the turn. A payload that encodes today keeps its exact
-rendering; only the frames that previously killed the turn change.
+**The refusal posture covers every encode on the dispatch path.** The permission
+event's cache-miss input fallback, the initial `tool_call` input, the tool-result
+branches and the refinement input all serialise backend-shaped payloads through a
+refusal-guarded encode (`_dumps_degraded`): an encoder refusal degrades that one
+frame to readable text — `str(payload)` for a `(TypeError, ValueError)` refusal,
+the `UNSERIALISABLE_SIBLING_VALUE` placeholder for a `RecursionError` — instead of
+propagating and aborting the turn.
 
-**A provider must declare:** whether its tool-result text arrives verbatim or
-pre-serialised, and — if any builder it adds can emit an `EVENT_TOOL_RESULT` —
-that the builder runs the repair. This is the one bucket in this document with a
-ratchet instead of a checklist line: `test_session_directive_transport.py` walks
-every `AcpEvent(kind=EVENT_TOOL_RESULT)` construction under `acp/` and fails when
-one of them does not call `_repair_escaped_marker`, because a provider author is
-exactly the person who will not know this constraint exists.
+**A directive tool's handler must be pure up to its directive.** Gateway-side
+derivation re-runs the handler in the gateway process on every directive, so any
+side effect other than the directive it publishes — a notification, a file
+write, a counter, an audit row — happens twice: once in the stub for the model's
+call and once in the gateway for the derivation. The derivation path already
+bypasses the shared SEL invocation logging (`_call_tool_body` in capture mode
+runs validation and the handler directly rather than through
+`call_tool_with_logging`, and `test_gateway_derivation_writes_no_audit_row`
+pins that the replay adds no row to the stub's one). Adding a tool to
+`DIRECTIVE_TOOLS` therefore means: the handler validates, encodes and returns —
+`_emit_directive` is its only write. A handler that needs another effect must
+perform it from the CONSUMER when the directive is applied, not from the tool.
 
-It is no longer the only ratchet in this document, but it remains the only one
-that enforces a *behaviour*. The column gate added with the Codex column enforces
-only that a column exists — see the checklist below for what that does and does
-not buy.
+**A provider must declare:** on which frame (`tool_call` or `tool_call_update`)
+its complete `rawInput` arrives, and whether it is capped. A backend whose
+`rawInput` never arrives cannot carry the out-of-band control plane; the consumer
+logs `session-directive NO CALL INPUT` for it. `test_session_directive_input_digest.py`
+drives the real consumer with every KAS result shape observed so far and requires
+each to arm with the marker unreadable.
+
+That test enforces a *behaviour*; the column gate added with the Codex column
+enforces only that a column exists — see the checklist below for what that does
+and does not buy. A new backend also declares the wire-title spelling of its MCP
+tool calls (the last row of the table), since `directive_tool_from_call` resolves
+only the spellings it knows and an unknown one records no digest.
 
 ## The KAS backend, Crew side
 

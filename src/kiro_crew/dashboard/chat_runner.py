@@ -6145,6 +6145,19 @@ async def _run_chat(
     # (event.tool_name + event.mcp_server_name), never from the title. This is
     # the ONLY map the session-directive gate below trusts.
     _pending_dir_tool: dict[str, str] = {}
+    # tool_call_id -> digest of the RAW arguments the model called the tool
+    # with (``session_directive.call_input_digest`` over ``raw_tool_params``).
+    # The out-of-band claim key: the directive tool parked its validated payload
+    # under the same digest of the same arguments, so the record is found
+    # without reading anything out of the tool RESULT. Recorded for every call
+    # that resolves to a directive tool (cheap; no identity needed) and
+    # refreshed by a refinement frame carrying
+    # rawInput, because some backends stream an empty input on the initial
+    # tool_call and the real arguments only on the update.
+    _pending_input_digest: dict[str, str] = {}
+    # tool_call_id -> the directive tool that call resolved to (see
+    # session_directive.directive_tool_from_call); half of the digest above.
+    _pending_dir_for_digest: dict[str, str] = {}
     # Identity OBSERVED on each tool_call frame, for the NOT-APPLIED
     # diagnostic only. It cannot be read off the result frame: the
     # tool_call_update path builds its event with no identity fields, so
@@ -7728,6 +7741,24 @@ async def _run_chat(
                     _raw = _raw[9:]
                 if event.tool_call_id:
                     _pending_tools[event.tool_call_id] = _raw
+                    # The claim key binds the TOOL to its arguments, so only a call
+                    # that resolves to a directive tool records one: trusted
+                    # _meta.kiro identity first, else kiro-agent's own
+                    # ``@kirocrew-core/<tool>`` WIRE title -- never event.title,
+                    # which select_tool_title fills from a shell call's
+                    # model-authored rawInput.description. A shell call, or any
+                    # other tool, records nothing and can claim nothing.
+                    _dir_for_digest = session_directive.directive_tool_from_call(
+                        event.mcp_server_name or "", event.tool_name or "", event.wire_title or ""
+                    )
+                    if _dir_for_digest:
+                        _pending_dir_for_digest[event.tool_call_id] = _dir_for_digest
+                        if event.raw_tool_params is not None:
+                            _pending_input_digest[event.tool_call_id] = (
+                                session_directive.call_input_digest(
+                                    _dir_for_digest, event.raw_tool_params
+                                )
+                            )
                     # Forgery gate: record the directive-tool name ONLY
                     # from the trusted _meta.kiro identity — never the title.
                     # The single shared predicate (also used by the messaging
@@ -7801,6 +7832,22 @@ async def _run_chat(
                 # user sees the actual command rather than the stub.
                 if not event.tool_call_id:
                     continue
+                _dir_refresh = _pending_dir_for_digest.get(event.tool_call_id, "")
+                if not _dir_refresh:
+                    # claude-agent-acp's initial tool_call carries a generic title
+                    # and the refinement carries the real one, so the tool may only
+                    # resolve here. The gate is the same resolver either way.
+                    _dir_refresh = session_directive.directive_tool_from_call(
+                        event.mcp_server_name or "", event.tool_name or "", event.wire_title or ""
+                    )
+                    if _dir_refresh:
+                        _pending_dir_for_digest[event.tool_call_id] = _dir_refresh
+                if _dir_refresh and event.raw_tool_params is not None:
+                    # The refinement carries the COMPLETE params; the initial
+                    # tool_call may have streamed none. Same digest the tool took.
+                    _pending_input_digest[event.tool_call_id] = session_directive.call_input_digest(
+                        _dir_refresh, event.raw_tool_params
+                    )
                 try:
                     _tcid_upd = _redact_tool_field(event.tool_call_id)
                     _title_upd = ""
@@ -7982,13 +8029,28 @@ async def _run_chat(
                 # no ``_meta.kiro`` produces for a genuine directive tool — and
                 # the gate returns "" with no log, so the two were indistinguish-
                 # able and the second looked like nothing happening at all. Log
-                # the recorded identity so an operator can tell them apart. Fires
-                # only when a marker is actually present, so a normal tool result
-                # stays silent.
+                # the recorded identity so an operator can tell them apart.
+                #
+                # Entered on a marker OR on a parked record for this session whose
+                # call this frame could be: the record is claimed by the call's
+                # input digest, and the result body is not consulted -- a backend
+                # that caps or offloads the result loses the marker entirely, and
+                # the directive must still land. The depth probe keeps an ordinary
+                # tool result (nothing parked) out of this branch at dict-lookup
+                # cost, so the diagnostics below only ever run for a frame that
+                # is directive-shaped on at least one channel.
+                _in_digest_probe = _pending_input_digest.get(event.tool_call_id, "")
                 if (
                     not _dir_tool
                     and event.tool_call_id not in _dir_consumed_out
-                    and session_directive.has_marker(_out)
+                    and (
+                        session_directive.has_marker(_out)
+                        or (
+                            event.tool_final
+                            and _in_digest_probe
+                            and directive_queue.depth(session_key) > 0
+                        )
+                    )
                 ):
                     # The identity gate found nothing to trust. Before treating
                     # that as a lost directive, look for the OUT-OF-BAND record:
@@ -7996,15 +8058,20 @@ async def _run_chat(
                     # gateway, so on a backend that emits no ``_meta.kiro`` this is
                     # the delivery path that still works.
                     #
-                    # The marker SELECTS the record; it never supplies one. `peek`
-                    # reads the (kind, args) this frame names and `claim` returns
-                    # only a record parked with that same payload, during THIS
-                    # turn — then the RECORD's payload is what gets applied. So the
-                    # two channels must agree: a record aimed at another session
-                    # (the header is not kernel-attested over TCP, and Windows has
-                    # no AF_UNIX at all) waits for a marker that session's model
-                    # never emits, and a forged marker looks up a record no tool
-                    # ever validated. See directive_queue's module docstring.
+                    # The CALL INPUT selects the record; the marker never does.
+                    # ``_pending_input_digest`` holds the digest of the raw
+                    # arguments this frame's tool_call carried, the tool parked
+                    # its validated payload under the same digest of the same
+                    # arguments, and ``claim`` returns only a record parked under
+                    # it during THIS turn — then the RECORD's payload is what gets
+                    # applied. So the two channels must agree: a record aimed at
+                    # another session (the header is not kernel-attested over TCP,
+                    # and Windows has no AF_UNIX at all) waits for a call that
+                    # session's model never makes, and a call no tool validated
+                    # looks up a record that was never parked. Nothing here reads
+                    # the result body, so a backend that re-serialises, copies,
+                    # offloads or caps that body cannot lose the directive. See
+                    # directive_queue's module docstring.
                     #
                     # ISOLATION FIRST, though: a NATIVE sub-agent's tool calls
                     # surface as flat events on this parent stream (tagged in
@@ -8018,36 +8085,7 @@ async def _run_chat(
                     # the claim: a claim is destructive (it removes the record), so
                     # ordering the check first also keeps a legitimate parent
                     # directive from being consumed by a child's frame.
-                    #
-                    # Read the selector ONCE, HERE, from the RAW provider text —
-                    # not from ``_out`` — and note both halves of that, because
-                    # each is load-bearing:
-                    #
-                    # * ONCE, before either branch: every path below rewrites
-                    #   ``_out`` through ``strip_marker``, which removes the very
-                    #   marker ``peek`` reads, so a call placed after that rewrite
-                    #   returns None forever. One pre-mutation read serves both
-                    #   branches and makes that ordering mistake unavailable.
-                    # * RAW, because ``_out`` is ``_redact_tool_field``'d at the
-                    #   top of this handler, and that runs the exfil-URL and
-                    #   credential scrubbers (and a 1 MB truncation) over the whole
-                    #   string INCLUDING the marker's JSON. The record was parked
-                    #   with the args the tool validated, unredacted, so peeking at
-                    #   the redacted copy compares a scrubbed payload against a raw
-                    #   one: a directive whose args merely CONTAIN something
-                    #   token-shaped — or one long enough to be truncated — would
-                    #   match no record and be dropped as "nothing was parked",
-                    #   audited as a denial, on exactly the backends this path
-                    #   exists to serve. Reproduced with a token-shaped
-                    #   ``monitor_start`` message before this line was changed.
-                    #
-                    # Reading raw here widens nothing: the marker is untrusted on
-                    # both paths and is only ever a SELECTOR, so a forged raw
-                    # marker still finds no parked record, and the payload that
-                    # gets APPLIED is still the record's. Redaction protects the
-                    # transcript and the WS broadcast, which still receive the
-                    # redacted ``_out`` — it was never a filter on the lookup.
-                    _sel_pair = session_directive.peek(event.tool_output)
+                    _in_digest = _pending_input_digest.get(event.tool_call_id, "")
                     if event.tool_call_id in _native_tc_card:
                         sel().log_tool_invocation(
                             session_key=session_key,
@@ -8066,27 +8104,46 @@ async def _run_chat(
                         # Refusing to APPLY is not enough on its own: the record
                         # the child's tool parked is keyed by the PARENT, so
                         # leaving it queued would only defer the mutation to the
-                        # next frame naming that payload. Retire it — but retire
-                        # exactly it, by the same (kind, args) correlation the
+                        # next frame carrying that input. Retire it — but retire
+                        # exactly it, by the same input-digest correlation the
                         # normal path claims on, so a directive the parent
                         # legitimately parked in this same turn survives.
-                        if _sel_pair:
-                            directive_queue.claim(
-                                session_key,
-                                _sel_pair[0],
-                                _sel_pair[1],
-                                not_before=_turn_started,
-                            )
+                        if _in_digest:
+                            directive_queue.claim(session_key, _in_digest, not_before=_turn_started)
+                        _oob = None
+                    elif _in_digest and any(
+                        _pending_input_digest.get(_ntc) == _in_digest
+                        for _ntc in _native_tc_card
+                        if _ntc != event.tool_call_id
+                    ):
+                        # PROVENANCE AMBIGUOUS: a native sub-agent call in this
+                        # same turn carries the SAME input digest as this parent
+                        # frame (the same tool called with identical arguments,
+                        # e.g. two ``resource_status({})`` calls). The
+                        # record under that digest may be the child's, and the
+                        # child's own frame will retire it above -- so claiming
+                        # here could apply a sub-agent's directive to the parent.
+                        # Refuse rather than guess; the record stays parked for
+                        # the child frame's isolation path to retire.
+                        sel().log_tool_invocation(
+                            session_key=session_key,
+                            source="mcp-directive",
+                            tool_name=_seen_tool_identity.get(event.tool_call_id, ("", ""))[1],
+                            outcome="denied",
+                        )
+                        logger.warning(
+                            "session-directive NOT CLAIMED for %s (tool_call_id=%s): a "
+                            "native sub-agent call in this turn shares this frame's input "
+                            "digest, so the parked record's provenance is ambiguous and "
+                            "the parent must not claim it.",
+                            session_key,
+                            event.tool_call_id,
+                        )
                         _oob = None
                     else:
                         _oob = (
-                            directive_queue.claim(
-                                session_key,
-                                _sel_pair[0],
-                                _sel_pair[1],
-                                not_before=_turn_started,
-                            )
-                            if _sel_pair
+                            directive_queue.claim(session_key, _in_digest, not_before=_turn_started)
+                            if _in_digest
                             else None
                         )
                     if _oob:
@@ -8102,8 +8159,8 @@ async def _run_chat(
                             "session-directive applied OUT OF BAND for %s "
                             "(tool_call_id=%s, kind=%s): this backend emits no "
                             "_meta.kiro identity, so the marker could not be "
-                            "trusted and the marker-selected, gateway-parked "
-                            "payload was used.",
+                            "trusted and the gateway-parked payload selected by "
+                            "the call's input digest was used.",
                             session_key,
                             event.tool_call_id,
                             _oob.get("kind"),
@@ -8116,7 +8173,12 @@ async def _run_chat(
                             session_directive.strip_marker(_out) + "\n\n" + _applied_one
                         )
                         _dir_consumed_out[event.tool_call_id] = _out
-                    elif event.tool_call_id not in _dir_consumed_out:
+                        _pending_input_digest.pop(event.tool_call_id, None)
+                        _pending_dir_for_digest.pop(event.tool_call_id, None)
+                    elif (
+                        event.tool_call_id not in _dir_consumed_out
+                        and session_directive.has_marker(_out)
+                    ):
                         # A refusal, so audit it like one. This branch is where a
                         # FORGED marker lands — the identity gate recorded nothing
                         # and no record was parked — and the sibling refusals
@@ -8139,10 +8201,10 @@ async def _run_chat(
                             "expected mcp_server_name=%r). Either a forged marker, "
                             "or this ACP backend emits no _meta.kiro identity AND "
                             "could not reach the gateway to park the payload. "
-                            "CLAIM was attempted for session_key=%r selector=%r; "
+                            "CLAIM was attempted for session_key=%r input_digest=%s; "
                             "that session's queue currently holds %d parked "
                             "record(s) — a non-zero depth here means a record WAS "
-                            "parked but did not match this frame's (kind, args) or "
+                            "parked but did not match this frame's call input or "
                             "fell outside this turn, while zero means nothing ever "
                             "reached /api/session-directive for this key.",
                             event.tool_call_id,
@@ -8150,17 +8212,18 @@ async def _run_chat(
                             _seen_tool_identity.get(event.tool_call_id, ("", ""))[1],
                             session_directive.CORE_MCP_SERVER,
                             session_key,
-                            (_sel_pair[0] if _sel_pair else None),
+                            _in_digest[:12] or "none",
                             directive_queue.depth(session_key),
                         )
-                        if _sel_pair is None:
+                        if not _in_digest:
                             logger.warning(
-                                "session-directive SELECTOR UNREADABLE for %s: the "
-                                "frame carries the marker sentinel but peek() could "
-                                "not turn it into a (kind, args) selector, so no "
-                                "parked record can be named. Reason: %s",
+                                "session-directive NO CALL INPUT for %s: the frame "
+                                "carries the marker sentinel but no tool_call / "
+                                "tool_call_update for tool_call_id=%s carried "
+                                "rawInput, so no input digest exists to claim on. "
+                                "This backend is not emitting the call's arguments.",
                                 session_key,
-                                session_directive.peek_failure_reason(event.tool_output),
+                                event.tool_call_id,
                             )
                 if not _dir_tool and event.tool_call_id in _dir_consumed_out:
                     # A LATER frame for a directive we already consumed: replay

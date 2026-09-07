@@ -1356,6 +1356,7 @@ class AcpProvider(LLMProvider):
             text=e.text,
             tool_call_id=e.tool_call_id,
             title=e.title,
+            wire_title=e.wire_title,
             tool_kind=e.tool_kind,
             tool_purpose=e.tool_purpose,
             context_usage_pct=e.context_usage_pct,

@@ -495,6 +495,15 @@ class AcpEvent:
     text: str = ""
     tool_call_id: str = ""
     title: str = ""
+    #: The backend's OWN ``title`` for a tool_call / tool_call_update frame,
+    #: untouched. ``title`` above is the DISPLAY label ``select_tool_title``
+    #: picks, which prefers a shell call's model-authored ``rawInput.description``
+    #: -- so it is model-controlled and must never feed a security decision.
+    #: This field is what kiro-agent's MCP wrapper stamps as
+    #: ``@<serverName>/<toolName>`` from its own tool config, and it is the only
+    #: title the out-of-band directive claim (``directive_tool_from_call``) reads.
+    #: Empty when the frame carried none.
+    wire_title: str = ""
     tool_kind: str = ""
     tool_purpose: str = ""
     context_usage_pct: float = 0.0
@@ -518,18 +527,13 @@ class AcpEvent:
     #: the original bytes never ride this display event.  Approval surfaces use
     #: it to refuse a durable command grant for a value the user could not see.
     tool_input_redacted: bool = False
-    #: The tool's result text, VERBATIM enough that a control marker embedded in
-    #: it still parses. Two consumers read markers out of this string rather than
-    #: out of a structured field: a session directive (``session_directive.peek``,
-    #: which arms/stops a monitor loop) and an MCP App render marker
-    #: (``mcp_apps_render.find_marker``). A builder that serialises an
-    #: unrecognised result envelope with ``json.dumps`` escapes every quote in it,
-    #: which leaves both sentinels intact while destroying the payload behind
-    #: them -- so the frame still looks like it carries a directive and names
-    #: nothing. EVERY builder must therefore run
-    #: ``acp/_dispatch._repair_escaped_marker`` over its joined output before
-    #: redaction and the head cut; a new provider's builder is pinned to that by
-    #: ``test_session_directive_transport.py``. See
+    #: The tool's result text. One consumer reads a control marker out of this
+    #: string rather than out of a structured field: the MCP App render marker
+    #: (``mcp_apps_render.find_marker``). A session directive is NOT selected
+    #: from here: its marker is display-only and the parked record is claimed by
+    #: the tool CALL's input digest (``session_directive.call_input_digest``),
+    #: so a backend that re-serialises, duplicates or caps the result body
+    #: cannot lose the directive. See
     #: docs/system-specs/modules/agent-host-contract.md §9.
     tool_output: str = ""
     tool_final: bool = False  # True when this tool_result is the final (status=completed) update

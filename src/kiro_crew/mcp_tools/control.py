@@ -942,8 +942,13 @@ def _emit_directive(kind: str, args: dict[str, Any], human: str) -> str:
     * The out-of-band POST is the provider-neutral path. ``_post`` already carries
       ``X-Session-Key`` (and the gateway kernel-verifies that claim on the unix
       socket), so the gateway parks the payload for the RIGHT session without the
-      model's tool result being trusted for anything. A backend that emits no
-      ``_meta.kiro`` identity has no other way to reach its own control plane.
+      model's tool result being trusted for anything. What travels is the CALL
+      (tool name + raw arguments), never the payload: the gateway re-runs this
+      tool on those arguments to derive the payload and computes the claim key
+      itself, and the consumer recomputes that key from the ``tool_call``
+      frame — so neither the result body's shape nor a caller-authored payload
+      decides what lands. A backend that emits no ``_meta.kiro`` identity has
+      no other way to reach its own control plane.
 
     Order matters: encode FIRST. ``encode`` refuses an oversized payload by
     returning a marker-less error string, and a refused directive must NOT be
@@ -961,8 +966,29 @@ def _emit_directive(kind: str, args: dict[str, Any], human: str) -> str:
     out = session_directive.encode(kind, args, human)
     if session_directive.is_refusal(out):
         return out
+    # Gateway-side derivation (mcp_core.derive_directive) re-runs this very
+    # handler and wants the validated payload, not a POST.
+    if mcp_core.capture_directive(kind, args):
+        return out
+    _tool = mcp_core.current_call_name()
+    if not _tool:
+        # Not inside a ``_call_tool`` dispatch (a direct handler call, e.g. from a
+        # test): there is no call to report, and an empty one would only be
+        # refused by the gateway as not derivable.
+        return out
     try:
-        mcp_core._post("/api/session-directive", {"kind": kind, "args": args})
+        # The gateway is sent the CALL, not the payload: the tool's name and the
+        # raw arguments it was invoked with (recorded in _call_tool before
+        # validation). The gateway re-derives the payload by re-running the tool
+        # and computes the claim digest itself, so a caller who can reach the
+        # route controls only what the victim's own call would produce.
+        mcp_core._post(
+            "/api/session-directive",
+            {
+                "tool": _tool,
+                "raw_args": mcp_core.current_call_raw_args(),
+            },
+        )
     except Exception:
         pass
     return out
