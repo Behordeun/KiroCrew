@@ -42,6 +42,17 @@ class WakaTimeAuthError(Exception):
     """
 
 
+class WakaTimeUnavailableError(Exception):
+    """Raised by the ``*_strict`` read verbs when the upstream call fails.
+
+    The plain read verbs (:meth:`get_summaries`, :meth:`get_stats`) swallow every
+    ``_api`` failure into an empty result so an agent turn degrades quietly. A
+    caller that must tell "the request failed" apart from "there is no data" — a
+    billing export, where an empty result is a real figure — uses the strict verb
+    instead and gets this exception on failure rather than a silent ``[]``.
+    """
+
+
 class WakaTimeClient:
     """Sends heartbeats and reads summaries/stats/durations from WakaTime."""
 
@@ -201,6 +212,32 @@ class WakaTimeClient:
             if isinstance(data, list):
                 return [d for d in data if isinstance(d, dict)]
         return []
+
+    async def fetch_summaries(
+        self, start: str, end: str, *, project: str | None = None
+    ) -> list[dict]:
+        """Like :meth:`get_summaries`, but RAISE on an upstream failure.
+
+        ``_api`` returns ``None`` on any failure (non-2xx, transport error,
+        timeout, exhausted 429) and a dict on success (``{}`` for an empty 2xx).
+        This verb turns that ``None`` into :class:`WakaTimeUnavailableError` so a
+        caller can tell "the summaries request failed" apart from "the range has
+        no activity" — the two are indistinguishable through :meth:`get_summaries`,
+        which is what makes a silent empty billing export possible. A successful
+        summaries response always carries a ``data`` list (empty for a range with
+        no activity), so anything without one — ``None`` from ``_api``, or the
+        ``{}`` ``_api`` returns for a non-JSON 200 body (plausible from a
+        self-hosted backend behind a proxy) — is treated as a failure and raises,
+        never as a false-empty export.
+        """
+        params = {"start": start, "end": end}
+        if project:
+            params["project"] = project
+        result = await self._api("GET", "/users/current/summaries", params=params)
+        data = result.get("data") if isinstance(result, dict) else None
+        if not isinstance(data, list):
+            raise WakaTimeUnavailableError("WakaTime summaries request failed or returned no data")
+        return [d for d in data if isinstance(d, dict)]
 
     async def get_stats(self, wakatime_range: str = "last_7_days") -> dict[str, Any]:
         """GET aggregate stats for a named range (e.g. ``last_7_days``).

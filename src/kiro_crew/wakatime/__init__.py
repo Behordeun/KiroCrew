@@ -8,6 +8,10 @@ URL) live in ``config.wakatime``.
 
 from __future__ import annotations
 
-from kiro_crew.wakatime.client import WakaTimeAuthError, WakaTimeClient
+from kiro_crew.wakatime.client import (
+    WakaTimeAuthError,
+    WakaTimeClient,
+    WakaTimeUnavailableError,
+)
 
-__all__ = ["WakaTimeClient", "WakaTimeAuthError"]
+__all__ = ["WakaTimeClient", "WakaTimeAuthError", "WakaTimeUnavailableError"]
