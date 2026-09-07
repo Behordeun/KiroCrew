@@ -67,6 +67,7 @@ def register(app: web.Application) -> None:
     app.router.add_get("/api/telemetry/startup", handlers.api_telemetry_startup)
     app.router.add_get("/api/telemetry/context-trace", handlers.api_context_trace)
     app.router.add_get("/api/usage/turns", handlers.api_usage_turns)
+    app.router.add_get("/api/wakatime/stats", handlers.api_wakatime_stats)
     app.router.add_get("/api/wakatime/export", handlers.api_wakatime_export)
     app.router.add_get("/api/telemetry/beacon", handlers.api_beacon_status)
     app.router.add_get("/api/telemetry/collection", handlers.api_collection_status)

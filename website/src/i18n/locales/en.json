@@ -7445,6 +7445,30 @@
         "value": "Value",
         "vector_memory": "Vector Memory",
         "vector_memory_is_initializing_the_embedding_mode": "Vector memory is initializing. The embedding model (~610MB) downloads automatically in the background, and legacy memory migrates on its own — no action needed."
+      },
+      "wakatimeTab": {
+        "active_projects": "Projects you worked on",
+        "coding_time": "Coding time",
+        "connect_body": "WakaTime is a free tool that tracks the time you spend coding in your editor.",
+        "connect_hint": "Add a secret named WAKATIME_API_KEY in Settings and set wakatime.enabled to true in your config. Get a key at wakatime.com/settings/account.",
+        "connect_title": "Connect WakaTime",
+        "daily_average": "Average per day",
+        "export_csv": "Export hours (CSV)",
+        "export_failed_title": "Export failed",
+        "export_json": "Export hours (JSON)",
+        "languages": "Languages",
+        "no_activity_body": "You have no recorded coding time for the dates you picked. Try a wider span.",
+        "no_activity_title": "No activity for these dates",
+        "projects": "Projects",
+        "range_label": "Date range",
+        "range_last30": "Last 30 days",
+        "range_last6mo": "Last 6 months",
+        "range_last7": "Last 7 days",
+        "range_today": "Today",
+        "subtitle": "Your coding activity, measured by WakaTime from your code editor.",
+        "this_range": "Total for these dates",
+        "unreachable_body": "The service or your API key could not be reached. Your data was not lost, try again shortly.",
+        "unreachable_title": "WakaTime is unreachable"
       }
     },
     "overviewPage": {
@@ -7465,7 +7489,10 @@
       "usage": "Usage",
       "usage_tracking_is_not_available_for": "Usage tracking is not available for",
       "v": "· v",
-      "view_details": "View details"
+      "view_details": "View details",
+      "wakatime": "WakaTime",
+      "wakatime_last_7_days": "Last 7 days",
+      "wakatime_not_connected": "Not connected"
     },
     "performanceTab": {
       "builder_mcp_procs": "Builder MCP",

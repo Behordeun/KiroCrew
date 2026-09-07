@@ -11445,6 +11445,30 @@
         "vector_memory": "벡터 메모리",
         "vector_memory_is_initializing_the_embedding_mode": "벡터 메모리를 초기화하는 중입니다. 임베딩 모델 (약 610MB)은 백그라운드에서 자동으로 다운로드되고 기존 메모리는 스스로 이전되므로, 따로 할 일은 없습니다.",
         "verifying_model_integrity": "모델 무결성을 확인하는 중…"
+      },
+      "wakatimeTab": {
+        "active_projects": "작업한 프로젝트",
+        "coding_time": "코딩 시간",
+        "connect_body": "WakaTime은 편집기에서 코딩에 쓴 시간을 기록하는 무료 도구입니다.",
+        "connect_hint": "설정에서 WAKATIME_API_KEY 시크릿을 추가하고 구성에서 wakatime.enabled를 true로 설정하세요. 키는 wakatime.com/settings/account에서 받을 수 있습니다.",
+        "connect_title": "WakaTime 연결",
+        "daily_average": "하루 평균",
+        "export_csv": "시간 내보내기(CSV)",
+        "export_failed_title": "내보내기 실패",
+        "export_json": "시간 내보내기(JSON)",
+        "languages": "언어",
+        "no_activity_body": "선택한 날짜에 기록된 코딩 시간이 없습니다. 더 넓은 기간을 시도해 보세요.",
+        "no_activity_title": "해당 날짜에 활동 없음",
+        "projects": "프로젝트",
+        "range_label": "기간",
+        "range_last30": "최근 30일",
+        "range_last6mo": "최근 6개월",
+        "range_last7": "최근 7일",
+        "range_today": "오늘",
+        "subtitle": "코드 편집기에서 WakaTime이 측정한 코딩 활동입니다.",
+        "this_range": "해당 날짜 합계",
+        "unreachable_body": "서비스 또는 API 키에 연결할 수 없습니다. 데이터는 손실되지 않았습니다. 잠시 후 다시 시도하세요.",
+        "unreachable_title": "WakaTime에 연결할 수 없음"
       }
     },
     "overviewPage": {
@@ -11474,7 +11498,10 @@
       "usage": "사용량",
       "usage_tracking_is_not_available_for": "다음에서는 사용량 추적을 사용할 수 없습니다:",
       "v": "· v",
-      "view_details": "자세히 보기"
+      "view_details": "자세히 보기",
+      "wakatime": "WakaTime",
+      "wakatime_last_7_days": "최근 7일",
+      "wakatime_not_connected": "연결 안 됨"
     },
     "performanceTab": {
       "builder_mcp_procs": "Builder MCP",

@@ -577,6 +577,15 @@ describe('session-expired banner', () => {
 /* ──────────────────── 2. URL and body construction ──────────────────── */
 
 describe('query-string builders', () => {
+  it('wakatimeExportUrl builds the export href with encoded dates and the format', () => {
+    expect(api.wakatimeExportUrl('2026-09-01', '2026-09-07', 'csv')).toBe(
+      '/api/wakatime/export?start=2026-09-01&end=2026-09-07&format=csv',
+    )
+    expect(api.wakatimeExportUrl('2026-09-01', '2026-09-07', 'json')).toBe(
+      '/api/wakatime/export?start=2026-09-01&end=2026-09-07&format=json',
+    )
+  })
+
   it('kiroPrerequisite distinguishes latched read, coalesced poll and explicit probe', async () => {
     await api.kiroPrerequisite()
     expect(call().url).toBe('/api/kiro-prerequisite')
@@ -1435,7 +1444,10 @@ describe('every api method issues one well-formed /api request', () => {
   // Covered exhaustively by `appSessionStatus.test.ts` — both prefixes, app-name
   // encoding, the statusPath guard, and the junk-leak assertions this table
   // would otherwise apply.
-  const HAND_TESTED = new Set(['sttTranscribe', 'uploadFiles', 'uploadCrewAvatar', 'installFromRegistryStream', 'exportPlanYaml', 'skills', 'slashCommands', 'appSessionStatus'])
+  // `wakatimeExportUrl` is a pure URL builder: it RETURNS the string the export
+  // anchor navigates to and issues no fetch, so the one-request probe below
+  // cannot apply. Covered by a direct URL assertion in `query-string builders`.
+  const HAND_TESTED = new Set(['sttTranscribe', 'uploadFiles', 'uploadCrewAvatar', 'installFromRegistryStream', 'exportPlanYaml', 'skills', 'slashCommands', 'appSessionStatus', 'wakatimeExportUrl'])
 
   type AnyFn = (...args: unknown[]) => unknown
   const methods = Object.entries(api as unknown as Record<string, AnyFn>)
