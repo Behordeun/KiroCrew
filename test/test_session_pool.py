@@ -886,8 +886,8 @@ class TestPoolHealthLoop:
 
     @pytest.mark.asyncio
     async def test_keeps_healthy_provider(self):
-        """Healthy provider survives health sweep."""
-        mgr, _ = _make_manager(pool_agent="kirocrew")
+        """Healthy provider at target survives health sweep with no churn."""
+        mgr, _ = _make_manager(pool_size=1, pool_agent="kirocrew")
         healthy = _make_provider()
         mgr._warm_pool.put_nowait((healthy, time.monotonic()))
         mgr._schedule_replenish = MagicMock()
@@ -909,8 +909,8 @@ class TestPoolHealthLoop:
         mgr._schedule_replenish.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_skips_when_pool_empty(self):
-        """No crash when pool is empty during sweep."""
+    async def test_empty_pool_schedules_replenish(self):
+        """Empty pool self-heals: sweep schedules a refill instead of skipping."""
         mgr, _ = _make_manager(pool_agent="kirocrew")
         mgr._schedule_replenish = MagicMock()
 
@@ -925,6 +925,43 @@ class TestPoolHealthLoop:
         with patch("asyncio.sleep", side_effect=_sleep_once):
             with pytest.raises(asyncio.CancelledError):
                 await mgr._pool_health_loop()
+
+        mgr._schedule_replenish.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_under_target_pool_schedules_replenish(self):
+        """A short-but-healthy pool is a deficit: sweep schedules a refill."""
+        mgr, _ = _make_manager(pool_size=3, pool_agent="kirocrew")
+        healthy = _make_provider()
+        mgr._warm_pool.put_nowait((healthy, time.monotonic()))
+        mgr._schedule_replenish = MagicMock()
+
+        await mgr._sweep_warm_pool_once()
+
+        assert mgr._warm_pool.qsize() == 1
+        healthy.shutdown.assert_not_awaited()
+        mgr._schedule_replenish.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_at_target_pool_does_not_replenish(self):
+        """A full healthy pool has no deficit: sweep schedules nothing."""
+        mgr, _ = _make_manager(pool_size=2, pool_agent="kirocrew")
+        for _ in range(2):
+            mgr._warm_pool.put_nowait((_make_provider(), time.monotonic()))
+        mgr._schedule_replenish = MagicMock()
+
+        await mgr._sweep_warm_pool_once()
+
+        assert mgr._warm_pool.qsize() == 2
+        mgr._schedule_replenish.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_disabled_pool_sweep_is_noop(self):
+        """pool_size=0 keeps the sweep a no-op: no refill for a disabled pool."""
+        mgr, _ = _make_manager(pool_size=0)
+        mgr._schedule_replenish = MagicMock()
+
+        await mgr._sweep_warm_pool_once()
 
         mgr._schedule_replenish.assert_not_called()
 
