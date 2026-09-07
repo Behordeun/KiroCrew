@@ -2956,6 +2956,98 @@ class TestSharedConnectionLockDiscipline:
         assert entry is not None
         assert entry["value_json"] == '"emacs"'
 
+    def test_retire_search_skips_mmr_rerank(self, tmp_path: Path) -> None:
+        """``_retire_stale_episodic``'s internal lookup passes ``mmr=False`` (#8902).
+
+        The caller applies its own ``cosine_sim > 0.7`` threshold, so diversity
+        reranking buys nothing there, and the default MMR rerank cost ~71ms per
+        superseding semantic write at 1,000 pooled candidates.
+        """
+        dim = 16
+        store = VectorMemoryStore(db_path=tmp_path / "mem.db", embedding_dim=dim)
+        store.init()
+        embed = self._fake_embed(dim)
+        store.embed_fn = embed
+
+        # Matches the retire query "editor: vim" exactly, so the vector path
+        # clears its cosine threshold regardless of tokenizer details.
+        text = "editor: vim"
+        assert store.write_episodic(text, embedding=embed(text)) is True
+
+        calls: list[dict] = []
+        returned: list[list[dict]] = []
+        real_search = store.search_episodic
+
+        def _spy(*args: object, **kwargs: object) -> list[dict]:
+            calls.append(dict(kwargs))
+            out = real_search(*args, **kwargs)  # type: ignore[arg-type]
+            returned.append(out)
+            return out
+
+        store.search_episodic = _spy  # type: ignore[assignment]
+        assert store.set_semantic("pref.editor", "vim", 0.9, "consolidation") is None
+        # The superseding write triggers _retire_stale_episodic on "vim".
+        assert store.set_semantic("pref.editor", "emacs", 0.9, "consolidation") is None
+
+        retire_calls = [c for c in calls if c.get("query_embedding") is not None]
+        assert retire_calls, "superseding write never reached search_episodic"
+        assert all(
+            c.get("mmr") is False for c in retire_calls
+        ), f"retirement search must skip the MMR rerank: {retire_calls}"
+
+        # The VECTOR branch itself cleared the threshold: without this, the
+        # is_deleted check below would be satisfied by the text-LIKE fallback
+        # alone (the fixture text matches its first pattern verbatim) and a
+        # broken vector path under mmr=False would keep the test green.
+        assert any(
+            r.get("cosine_sim", 0) > 0.7 for out in returned for r in out
+        ), "vector retirement path returned no row above the cosine threshold"
+
+        # The superseded episodic row is still soft-deleted without the rerank.
+        row = store.db.execute(
+            "SELECT is_deleted FROM episodic_memories WHERE text = ?", (text,)
+        ).fetchone()
+        assert row is not None
+        assert row["is_deleted"] == 1
+
+    def test_retire_recall_survives_without_the_mmr_pool(self, tmp_path: Path) -> None:
+        """Retirement recall must not collapse to ten rows when MMR is off (#8902).
+
+        ``mmr`` does not only pick a reranker — it sizes the candidate pool
+        (``_MMR_MAX_POOL`` vs ``limit``), so the retirement lookup keeps a wide
+        ``limit``: the caller's own ``cosine_sim > 0.7`` threshold, not the pool
+        cut, decides what gets retired. The row texts avoid both text-LIKE
+        fallback patterns ("editor: vim" / "editor vim"), so only the vector
+        branch can retire them; with a limit of 10 (or the old MMR top-10) five
+        of the fifteen conflicting rows would escape retirement.
+        """
+        dim = 64
+        store = VectorMemoryStore(db_path=tmp_path / "mem.db", embedding_dim=dim)
+        store.init()
+        embed = self._fake_embed(dim)
+        store.embed_fn = embed
+        store._faiss_index = None  # deterministic: exercise the fallback tier
+
+        fillers = [
+            "alpha", "bravo", "charlie", "delta", "echo",
+            "foxtrot", "golf", "hotel", "india", "juliet",
+            "kilo", "lima", "mike", "november", "oscar",
+        ]
+        # Tokens {vim, editor, <filler>} give cosine ~0.82 against the retire
+        # query "editor: vim" (tokens {editor, vim}) under the bag-of-words
+        # fake embed — above the 0.7 threshold, below the 0.88 dedup gate.
+        texts = [f"vim editor {w}" for w in fillers]
+        for t in texts:
+            assert store.write_episodic(t, embedding=embed(t)) is True
+
+        assert store.set_semantic("pref.editor", "vim", 0.9, "consolidation") is None
+        assert store.set_semantic("pref.editor", "emacs", 0.9, "consolidation") is None
+
+        remaining = store.db.execute(
+            "SELECT COUNT(*) FROM episodic_memories WHERE is_deleted = 0"
+        ).fetchone()[0]
+        assert remaining == 0, f"{remaining} superseded episodic rows escaped retirement"
+
 
 class TestLockedFetchHelpers:
     """The locked fetch helpers (#1947) — the single route for plain SELECTs."""

@@ -1584,7 +1584,15 @@ class VectorMemoryStore:
         emb = self._try_embed(query)
         with self._db_lock:
             if emb is not None:
-                results = self.search_episodic(query_embedding=emb, query_text="", limit=10)
+                # mmr=False: internal write-path caller that applies its own cosine
+                # threshold below, so the MMR diversity rerank buys nothing here and
+                # cost ~71ms per superseding write at 1,000 pooled candidates
+                # (issue #8902). mmr also SIZES the candidate pool
+                # (limit vs _MMR_MAX_POOL), so keep the limit wide: the 0.7
+                # threshold, not the pool cut, decides what gets retired.
+                results = self.search_episodic(
+                    query_embedding=emb, query_text="", limit=50, mmr=False
+                )
                 for r in results:
                     if r.get("cosine_sim", 0) > 0.7 and r["id"] not in seen:
                         seen.add(r["id"])
