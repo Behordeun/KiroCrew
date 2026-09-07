@@ -111,6 +111,7 @@ from kiro_crew.dashboard.state import (
     _ChatSlot,
     _mark_permission_resolved,
     _normalize_slot_key,
+    _slots_serialization_note,
     append_and_surface,
     durable_row_count,
     is_stop_event_row,
@@ -1106,7 +1107,18 @@ async def api_chat_slots(request: web.Request) -> web.Response:
         if urls:
             schedule_visibility_refresh(urls, state.push_slots_update)
             schedule_check_refresh(urls, state.push_slots_update)
-    return web.json_response(payloads)
+    # Same offender diagnostic as the slots broadcast (#8745 class), on the same
+    # projection: ``web.json_response`` would run this exact dump internally and
+    # raise a bare TypeError naming neither slot nor field. Dump here so the
+    # failure carries the note; the exception still propagates unchanged.
+    # ``json_response`` is ``Response(text=dumps(data), content_type=...)``, so
+    # the healthy path is byte-identical.
+    try:
+        body = json.dumps(payloads)
+    except (TypeError, ValueError) as exc:
+        exc.add_note(_slots_serialization_note(payloads, path="GET /api/chat/slots"))
+        raise
+    return web.Response(text=body, content_type="application/json")
 
 
 async def api_chat_slot_source_links(request: web.Request) -> web.Response:

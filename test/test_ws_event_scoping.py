@@ -3318,6 +3318,11 @@ class TestDirectSendGrantsAreAudited:
             async def send_json(self, payload: dict) -> None:
                 self.sent.append(payload)
 
+            async def send_str(self, payload: str) -> None:
+                # Connect snapshot sends a pre-dumped string (offender-note
+                # seam); parse back so assertions keep reading dict frames.
+                self.sent.append(json.loads(payload))
+
             def __aiter__(self):
                 return self
 

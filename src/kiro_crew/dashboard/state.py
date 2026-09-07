@@ -268,36 +268,36 @@ def _safe_folder_tree(folders: object) -> list[dict[str, Any]]:
     return [f for f in folders if isinstance(f, dict) and isinstance(f.get("id"), str)]
 
 
-def _slots_serialization_note(slots_data: object) -> str:
+def _slots_serialization_note(slots_data: object, *, path: str = "slots-broadcast") -> str:
     """Name the slot and field that broke JSON serialization, for a traceback note.
 
     A dump failure on the slots projection means EVERY slots read path is broken
-    (GET ``/api/chat/slots``, the WS snapshot, and this broadcast all serialize
-    the same shape), and the stock message — "Object of type X is not JSON
-    serializable" — names neither the slot nor the field, which is how #6522 was
-    first misread as a broadcast bug (#8745). Values are withheld by design: slot
-    state can carry user text, and the type is enough to find the producer.
+    — the coalesced broadcast, the dashboard-user WS frame (``_slots_ws_frame``),
+    the WS connect snapshot, and ``GET /api/chat/slots`` all serialize the same
+    shape — and the stock message — "Object of type X is not JSON serializable"
+    — names neither the slot nor the field, which is how #6522 was first misread
+    as a broadcast bug (#8745). All four paths now route their dump failure
+    through this note; ``path`` names the one that raised. Values are withheld
+    by design: slot state can carry user text, and the type is enough to find
+    the producer.
 
-    Diagnosis must never make the failure worse, so any surprise in the walk
-    degrades to a generic note instead of raising.
+    Every caller passes ``serialize_slots()`` output (list-of-dicts by
+    construction), so the walk assumes that shape rather than re-checking it.
+    Diagnosis must never make the failure worse, so any surprise in the walk —
+    including a caller breaking that assumption — degrades to the generic
+    note below instead of raising.
     """
     try:
-        if not isinstance(slots_data, list):
-            return (
-                "[slots-broadcast] slot projection is "
-                f"{type(slots_data).__name__}, not a list (value withheld)"
-            )
+        # Narrowing, not validation: every caller passes a list by construction,
+        # and a violation lands in the defensive except below (degrade, never
+        # raise) exactly like any other surprise in the walk.
+        assert isinstance(slots_data, list)
         for i, entry in enumerate(slots_data):
             try:
                 json.dumps(entry)
                 continue
             except (TypeError, ValueError):
                 pass
-            if not isinstance(entry, dict):
-                return (
-                    f"[slots-broadcast] slot entry #{i} is not JSON-serializable: "
-                    f"type {type(entry).__name__} (value withheld)"
-                )
             key = entry.get("key")
             slot_name = key if isinstance(key, str) else f"#{i}"
             for field, value in entry.items():
@@ -305,18 +305,18 @@ def _slots_serialization_note(slots_data: object) -> str:
                     json.dumps(value)
                 except (TypeError, ValueError):
                     return (
-                        f"[slots-broadcast] slot {slot_name!r} field {field!r} is not "
+                        f"[{path}] slot {slot_name!r} field {field!r} is not "
                         f"JSON-serializable: type {type(value).__name__} (value withheld)"
                     )
             # Every field dumps on its own, yet the entry does not: a non-string
             # key is the one shape that gets here.
             return (
-                f"[slots-broadcast] slot {slot_name!r} fails serialization as a whole; "
+                f"[{path}] slot {slot_name!r} fails serialization as a whole; "
                 "no single offending field — check for non-string dict keys (value withheld)"
             )
-        return "[slots-broadcast] slot list fails serialization; no offending entry found"
-    except Exception:  # pragma: no cover - defensive: a diagnostic must not raise
-        return "[slots-broadcast] slot projection is not JSON-serializable (offender walk failed)"
+        return f"[{path}] slot list fails serialization; no offending entry found"
+    except Exception:  # defensive: a diagnostic must not raise
+        return f"[{path}] slot projection is not JSON-serializable (offender walk failed)"
 
 
 def _slots_ws_frame(
@@ -350,24 +350,32 @@ def _slots_ws_frame(
     it through here would widen an app's payload, so it is a third shape by
     design, not a duplicate awaiting cleanup.
     """
-    return json.dumps(
-        {
-            "type": "slots",
-            "data": slots,
-            "yolo": yolo,
-            "channelTrusted": channel_trusted,
-            "gitlabHostsGeneration": gitlab_hosts_gen,
-            "folders": folders,
-            "foldersGeneration": folders_gen,
-            # Which governance ceiling is installed. A centrally pushed policy
-            # (``policy_distribution.apply_ceiling``) swaps the ceiling mid-session
-            # and bumps this counter; the client invalidates its cached
-            # ``dashboardConfig`` on a change, so a governance-derived field there
-            # (``social_share_enabled``) follows the ceiling instead of waiting out
-            # its stale window. Process-local, like the two counters above.
-            "governanceGeneration": governance_gen,
-        }
-    )
+    frame = {
+        "type": "slots",
+        "data": slots,
+        "yolo": yolo,
+        "channelTrusted": channel_trusted,
+        "gitlabHostsGeneration": gitlab_hosts_gen,
+        "folders": folders,
+        "foldersGeneration": folders_gen,
+        # Which governance ceiling is installed. A centrally pushed policy
+        # (``policy_distribution.apply_ceiling``) swaps the ceiling mid-session
+        # and bumps this counter; the client invalidates its cached
+        # ``dashboardConfig`` on a change, so a governance-derived field there
+        # (``social_share_enabled``) follows the ceiling instead of waiting out
+        # its stale window. Process-local, like the two counters above.
+        "governanceGeneration": governance_gen,
+    }
+    # Same offender diagnostic as the coalesced broadcast (#8745 class): the
+    # dashboard-user frame serializes the ENRICHED projection, so a value that
+    # only enrichment adds raises here and nowhere else. Diagnosis only — the
+    # exception propagates unchanged. A clean-slots note ("no offending entry
+    # found") is itself evidence: the offender is in the envelope extras.
+    try:
+        return json.dumps(frame)
+    except (TypeError, ValueError) as exc:
+        exc.add_note(_slots_serialization_note(slots, path="ws-frame"))
+        raise
 
 
 def _split_namespaced_channel_id(channel_id: str | None) -> tuple[str, str] | None:

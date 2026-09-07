@@ -16,7 +16,11 @@ from kiro_crew import shutdown_event
 from kiro_crew.dashboard.chat_utils import effective_session_key, subagent_event_slot
 from kiro_crew.dashboard.handlers.updates import status_update_fields
 from kiro_crew.dashboard.origin import check_origin
-from kiro_crew.dashboard.state import DashboardState, _safe_folder_tree
+from kiro_crew.dashboard.state import (
+    DashboardState,
+    _safe_folder_tree,
+    _slots_serialization_note,
+)
 from kiro_crew.dashboard.ws_event_scope import (
     _audit_allow,
     _audit_deny,
@@ -672,17 +676,30 @@ async def api_ws(request: web.Request) -> web.WebSocketResponse:
             # initial push writes to the socket directly -- so record it here
             # or it goes unrecorded entirely.
             _audit_grant_quietly(ws_app, "slots_yolo")
-        await ws.send_json(
-            {
-                "type": "slots",
-                "data": slots_data,
-                **envelope_extras,
-                # Seed the client's generation baseline so a later change is
-                # detectable as a change rather than as a first sighting.
-                "gitlabHostsGeneration": gitlab_hosts_generation(),
-                "governanceGeneration": initial_answer_generation,
-            }
-        )
+        snapshot_frame = {
+            "type": "slots",
+            "data": slots_data,
+            **envelope_extras,
+            # Seed the client's generation baseline so a later change is
+            # detectable as a change rather than as a first sighting.
+            "gitlabHostsGeneration": gitlab_hosts_generation(),
+            "governanceGeneration": initial_answer_generation,
+        }
+        # Same offender diagnostic as the slots broadcast (#8745 class).
+        # ``send_json`` is ``send_str(dumps(data))``, so dumping here is
+        # byte-identical on the healthy path. This whole connect block sits
+        # under ``except Exception: pass``, so a note alone would vanish with
+        # the swallowed exception — log the failure too: a client whose
+        # snapshot dies here shows an empty sidebar with zero evidence
+        # otherwise. The exception still propagates (and is swallowed)
+        # exactly as before.
+        try:
+            snapshot_payload = json.dumps(snapshot_frame)
+        except (TypeError, ValueError) as exc:
+            exc.add_note(_slots_serialization_note(slots_data, path="ws-connect-snapshot"))
+            logger.warning("slots connect snapshot failed to serialize", exc_info=True)
+            raise
+        await ws.send_str(snapshot_payload)
         if owner_request or is_dashboard_user:
             # Issue links carry no check status — skip them so the scheduler
             # never hands an issue URL to the pull-request-only chip fetch.
