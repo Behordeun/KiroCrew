@@ -731,7 +731,6 @@ test/test_interactions_shortcut.py
 test/test_ios_simulator_preview_skill.py
 test/test_is_interrupted.py
 test/test_issue_radar_crew_github.py
-test/test_issue_radar_crew_mcp_tools.py
 test/test_issue_radar_crew_routes.py
 test/test_issue_radar_crew_runtime.py
 test/test_issue_radar_crew_store.py
