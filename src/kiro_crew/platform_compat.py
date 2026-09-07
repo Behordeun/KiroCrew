@@ -321,6 +321,62 @@ def rename_noreplace(
     raise OSError(error, os.strerror(error), os.fspath(dst))
 
 
+def publish_dir_noreplace(src: str | os.PathLike, dst: str | os.PathLike) -> None:
+    """Atomically rename directory *src* to an ABSENT *dst*, never replacing.
+
+    POSIX ``os.rename`` silently replaces an EMPTY destination directory, so a
+    check-then-rename publish can destroy a racer's just-created directory and
+    its metadata. This wrapper closes that window: on POSIX it uses
+    :func:`rename_noreplace` with both names pinned to their shared parent's
+    directory descriptor; on Windows plain ``os.rename`` already refuses any
+    existing destination. Raises :class:`FileExistsError` when *dst* exists,
+    and :class:`ValueError` when the two paths do not share a parent (the
+    staging-sibling contract every caller follows).
+
+    Hosts without the no-replace primitive (glibc < 2.28, and NFS/SMB/FUSE
+    filesystems that reject RENAME_NOREPLACE with ENOSYS/EINVAL/EOPNOTSUPP)
+    fall back to an atomic-exclusive ``os.mkdir`` CLAIM of the destination
+    followed by a plain rename: the mkdir raises :class:`FileExistsError` when
+    the destination is occupied, and the only directory the rename can then
+    replace is the empty claim this very call created -- the no-replace
+    guarantee for creation races is preserved, and the operation keeps working
+    instead of crashing with ``NotImplementedError``.
+    """
+    if IS_WINDOWS:
+        os.rename(src, dst)
+        return
+    src_abs = os.path.abspath(os.fspath(src))
+    dst_abs = os.path.abspath(os.fspath(dst))
+    parent = os.path.dirname(dst_abs)
+    if os.path.dirname(src_abs) != parent:
+        raise ValueError("publish_dir_noreplace requires sibling src and dst")
+    parent_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        try:
+            rename_noreplace(
+                os.path.basename(src_abs),
+                os.path.basename(dst_abs),
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+            )
+            return
+        except NotImplementedError:
+            pass
+    finally:
+        os.close(parent_fd)
+    os.mkdir(dst_abs)
+    try:
+        os.rename(src_abs, dst_abs)
+    except BaseException:
+        # Drop OUR claim so a retry is not permanently blocked by an orphaned
+        # empty directory. os.rmdir only ever removes an empty directory, so
+        # the worst it can touch is the claim this call just created; its own
+        # failure is suppressed in favour of the original rename error.
+        with contextlib.suppress(OSError):
+            os.rmdir(dst_abs)
+        raise
+
+
 def tcc_protected_dirs_for_walk(root: str | os.PathLike) -> frozenset[str]:
     """Return the TCC-protected dir names to prune when walking *root*.
 
