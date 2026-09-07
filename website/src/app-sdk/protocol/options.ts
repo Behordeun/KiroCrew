@@ -29,9 +29,14 @@ export function parseOptions(content: string): ParsedOptions {
   // the cost is one regex construction, the alternative is a silent parse failure.
   for (const m of content.matchAll(new RegExp(OPTION_MARKER_RE))) last = m
   if (!last || last.index === undefined) return { text: content, options: [], multi: true, isPlan: false }
-  const multi = !!last[1] // [OPTIONS:] is the multi-select syntax; [OPTION:] is single
-  const sep = last[2].includes('|') ? '|' : ','
-  const options = last[2].split(sep).map(o => o.trim()).filter(Boolean)
+  // OPTION_MARKER_RE is a two-branch alternation (line-anchored-with-wrappers
+  // vs mid-line): groups 1/2 belong to the first branch, 3/4 to the second, and
+  // exactly one pair is defined per match. `??` (not `||`) so an empty label
+  // string from the matched branch is kept rather than falling through.
+  const multi = !!(last[1] ?? last[3]) // [OPTIONS:] is the multi-select syntax; [OPTION:] is single
+  const labels = (last[2] ?? last[4]) ?? ''
+  const sep = labels.includes('|') ? '|' : ','
+  const options = labels.split(sep).map(o => o.trim()).filter(Boolean)
   const isPlan = PLAN_HEADER_RE.test(content) && STAGE_RE.test(content)
   // Strip ALL markers from the displayed text (not just the last) so a stray earlier
   // marker can't leak as raw "[OPTION: …]" syntax to the user; options still come from

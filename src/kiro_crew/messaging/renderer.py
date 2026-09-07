@@ -35,7 +35,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from kiro_crew.constants import OPTIONS_RE_TRAILER, strip_control_comments
+from kiro_crew.constants import (
+    OPTIONS_RE_TRAILER,
+    _leading_wrapper_start,
+    strip_control_comments,
+)
 from kiro_crew.messaging.display_safety import redact_for_display
 from kiro_crew.messaging.tables import render_tables, render_tables_with_metadata
 from kiro_crew.messaging.transport import TransportCapabilities
@@ -461,7 +465,7 @@ def split_options_trailer(text: str, *, hide_partial: bool = False) -> tuple[str
     """
     match = OPTIONS_RE_TRAILER.search(text)
     if match:
-        choices = [c.strip() for c in match.group(1).split("|") if c.strip()]
+        choices = [c.strip() for c in match.group("labels").split("|") if c.strip()]
         return text[: match.start()].rstrip(), choices
     if hide_partial:
         idx = text.rfind("[OPTIONS")
@@ -483,7 +487,13 @@ def split_options_trailer(text: str, *, hide_partial: bool = False) -> tuple[str
             # check here beats walking earlier occurrences.
             tail = text[idx + len("[OPTIONS") :]
             if not tail or tail.startswith(":"):
-                return text[:idx].rstrip(), []
+                # A LINE-LEADING Markdown wrapper run abutting the fragment is
+                # part of the marker-to-be (``**[OPTIONS: A``): cutting at the
+                # ``[`` alone publishes a stray ``**`` on this frame. Widen the
+                # cut with the same rule the grammar and
+                # ``split_trailing_protocol_suffix`` apply, so every backend
+                # partial path agrees; a mid-line run is prose and stays.
+                return text[: _leading_wrapper_start(text, idx)].rstrip(), []
     return text, []
 
 

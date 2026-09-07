@@ -3120,10 +3120,10 @@ def _redact(text: str) -> str:
 
 def _parse_options(text: str) -> list[str]:
     """Extract pipe-separated choices from the LAST [OPTIONS: A | B | C] in text."""
-    matches = _OPTIONS_RE.findall(text)
+    matches = list(_OPTIONS_RE.finditer(text))
     if not matches:
         return []
-    parts = [p.strip() for p in matches[-1].split("|")]
+    parts = [p.strip() for p in matches[-1].group("labels").split("|")]
     return [p for p in parts if p]
 
 
