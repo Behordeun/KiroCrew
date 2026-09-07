@@ -5637,6 +5637,7 @@
       "approve_all": "Alle genehmigen",
       "approve_sub_agent": "Subagent genehmigen: {{name}}",
       "attach_files": "Dateien anhängen",
+      "editor_unavailable_standard_input": "Der erweiterte Editor konnte nicht geladen werden, daher ist die Standardeingabe aktiv. Ihr Entwurf bleibt unverändert.",
       "branch": "Branch: {{branch}}",
       "click_again_to_force_stop": "Erneut klicken, um das Stoppen zu erzwingen",
       "command": "Befehl",
@@ -6850,6 +6851,8 @@
     "pastedChip": {
       "collapse_paste": "Einfügung einklappen",
       "expand_paste": "Einfügung aufklappen",
+      "hide_paste_preview": "Einfügungsvorschau ausblenden",
+      "show_paste_preview": "Einfügungsvorschau anzeigen",
       "paste_lines_one": "[ Einfügen #{{seq}} · {{count}} Zeile ]",
       "paste_lines_other": "[ Einfügen #{{seq}} · {{count}} Zeilen ]",
       "preview_more_lines_one": "… {{count}} weitere Zeile",

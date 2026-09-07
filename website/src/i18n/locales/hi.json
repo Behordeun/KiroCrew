@@ -5637,6 +5637,7 @@
       "approve_all": "सभी को मंज़ूरी दें",
       "approve_sub_agent": "सब-एजेंट को मंज़ूरी दो: {{name}}",
       "attach_files": "फ़ाइलें अटैच करें",
+      "editor_unavailable_standard_input": "उन्नत संपादक लोड नहीं हो सका, इसलिए मानक इनपुट सक्रिय है। तुम्हारा ड्राफ़्ट अपरिवर्तित है।",
       "branch": "ब्रांच: {{branch}}",
       "click_again_to_force_stop": "ज़बरदस्ती रोकने के लिए फिर क्लिक करें",
       "command": "कमांड",
@@ -6850,6 +6851,8 @@
     "pastedChip": {
       "collapse_paste": "पेस्ट समेटें",
       "expand_paste": "पेस्ट फैलाएँ",
+      "hide_paste_preview": "पेस्ट का पूर्वावलोकन छिपाओ",
+      "show_paste_preview": "पेस्ट का पूर्वावलोकन दिखाओ",
       "paste_lines_one": "[ पेस्ट #{{seq}} · {{count}} पंक्ति ]",
       "paste_lines_other": "[ पेस्ट #{{seq}} · {{count}} पंक्तियाँ ]",
       "preview_more_lines_one": "… {{count}} और पंक्ति",

@@ -5730,6 +5730,7 @@
       "approve_all": "Approva tutto",
       "approve_sub_agent": "Approva il sotto-agente: {{name}}",
       "attach_files": "Allega file",
+      "editor_unavailable_standard_input": "L'editor avanzato non è stato caricato, quindi è attivo l'input standard. La tua bozza è invariata.",
       "branch": "Ramo: {{branch}}",
       "click_again_to_force_stop": "Clicca di nuovo per forzare l'arresto",
       "command": "Comando",
@@ -6952,6 +6953,8 @@
     "pastedChip": {
       "collapse_paste": "Comprimi il testo incollato",
       "expand_paste": "Espandi il testo incollato",
+      "hide_paste_preview": "Nascondi l'anteprima dell'incollato",
+      "show_paste_preview": "Mostra l'anteprima dell'incollato",
       "paste_lines_many": "[ Incolla #{{seq}} · {{count}} righe ]",
       "paste_lines_one": "[ Incolla #{{seq}} · {{count}} riga ]",
       "paste_lines_other": "[ Incolla #{{seq}} · {{count}} righe ]",

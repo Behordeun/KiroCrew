@@ -5544,6 +5544,7 @@
       "approve_all": "全部批准",
       "approve_sub_agent": "批准子代理：{{name}}",
       "attach_files": "附加文件",
+      "editor_unavailable_standard_input": "增强编辑器无法加载，已启用标准输入。你的草稿保持不变。",
       "branch": "分支：{{branch}}",
       "click_again_to_force_stop": "再次点击强制停止",
       "command": "命令",
@@ -6748,6 +6749,8 @@
     "pastedChip": {
       "collapse_paste": "折叠粘贴内容",
       "expand_paste": "展开粘贴内容",
+      "hide_paste_preview": "隐藏粘贴预览",
+      "show_paste_preview": "显示粘贴预览",
       "paste_lines_other": "[ 粘贴 #{{seq}} · {{count}} 行 ]",
       "preview_more_lines_other": "… 还有 {{count}} 行"
     },

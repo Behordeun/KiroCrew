@@ -5544,6 +5544,7 @@
       "approve_all": "모두 승인",
       "approve_sub_agent": "하위 에이전트 승인: {{name}}",
       "attach_files": "파일 첨부",
+      "editor_unavailable_standard_input": "향상된 편집기를 불러올 수 없어 표준 입력이 활성화되었습니다. 초안은 변경되지 않았습니다.",
       "branch": "브랜치: {{branch}}",
       "click_again_to_force_stop": "강제 중지하려면 다시 클릭하세요",
       "command": "명령",
@@ -6748,6 +6749,8 @@
     "pastedChip": {
       "collapse_paste": "붙여넣기 접기",
       "expand_paste": "붙여넣기 펼치기",
+      "hide_paste_preview": "붙여넣기 미리보기 숨기기",
+      "show_paste_preview": "붙여넣기 미리보기 표시",
       "paste_lines_other": "[ 붙여넣기 #{{seq}} · {{count}}줄 ]",
       "preview_more_lines_other": "… {{count}}줄 더"
     },

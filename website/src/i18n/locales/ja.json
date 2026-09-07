@@ -5544,6 +5544,7 @@
       "approve_all": "すべて承認",
       "approve_sub_agent": "サブエージェントを承認：{{name}}",
       "attach_files": "ファイルを添付",
+      "editor_unavailable_standard_input": "拡張エディターを読み込めなかったため、標準入力が有効になっています。下書きは変更されていません。",
       "branch": "ブランチ：{{branch}}",
       "click_again_to_force_stop": "もう一度クリックして強制停止",
       "command": "コマンド",
@@ -6748,6 +6749,8 @@
     "pastedChip": {
       "collapse_paste": "ペーストを折りたたむ",
       "expand_paste": "ペーストを展開",
+      "hide_paste_preview": "貼り付けのプレビューを非表示",
+      "show_paste_preview": "貼り付けのプレビューを表示",
       "paste_lines_other": "[ ペースト #{{seq}} · {{count}} 行 ]",
       "preview_more_lines_other": "… 他{{count}}行"
     },

@@ -2220,6 +2220,8 @@
     "pastedChip": {
       "collapse_paste": "Collapse paste",
       "expand_paste": "Expand paste",
+      "hide_paste_preview": "Hide paste preview",
+      "show_paste_preview": "Show paste preview",
       "paste_lines_one": "[ Paste #{{seq}} · {{count}} line ]",
       "paste_lines_other": "[ Paste #{{seq}} · {{count}} lines ]",
       "preview_more_lines_one": "… {{count}} more line",

@@ -5730,6 +5730,7 @@
       "approve_all": "Tout approuver",
       "approve_sub_agent": "Approuver le sous-agent : {{name}}",
       "attach_files": "Joindre des fichiers",
+      "editor_unavailable_standard_input": "L'éditeur amélioré n'a pas pu se charger, la saisie standard est donc active. Votre brouillon reste inchangé.",
       "branch": "Branche : {{branch}}",
       "click_again_to_force_stop": "Cliquer à nouveau pour forcer l’arrêt",
       "command": "Commande",
@@ -6952,6 +6953,8 @@
     "pastedChip": {
       "collapse_paste": "Réduire le contenu collé",
       "expand_paste": "Développer le contenu collé",
+      "hide_paste_preview": "Masquer l'aperçu du collage",
+      "show_paste_preview": "Afficher l'aperçu du collage",
       "paste_lines_many": "[ Collage n°{{seq}} · {{count}} lignes ]",
       "paste_lines_one": "[ Collage n°{{seq}} · {{count}} ligne ]",
       "paste_lines_other": "[ Collage n°{{seq}} · {{count}} lignes ]",

@@ -5730,6 +5730,7 @@
       "approve_all": "Aprovar tudo",
       "approve_sub_agent": "Aprovar subagente: {{name}}",
       "attach_files": "Anexar arquivos",
+      "editor_unavailable_standard_input": "O editor aprimorado não pôde ser carregado, então a entrada padrão está ativa. Seu rascunho permanece inalterado.",
       "branch": "Branch: {{branch}}",
       "click_again_to_force_stop": "Clique novamente para forçar a parada",
       "command": "Comando",
@@ -6952,6 +6953,8 @@
     "pastedChip": {
       "collapse_paste": "Recolher texto colado",
       "expand_paste": "Expandir texto colado",
+      "hide_paste_preview": "Ocultar prévia do conteúdo colado",
+      "show_paste_preview": "Mostrar prévia do conteúdo colado",
       "paste_lines_many": "[ Colado #{{seq}} · {{count}} linhas ]",
       "paste_lines_one": "[ Colado #{{seq}} · {{count}} linha ]",
       "paste_lines_other": "[ Colado #{{seq}} · {{count}} linhas ]",

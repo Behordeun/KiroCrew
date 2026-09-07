@@ -5637,6 +5637,7 @@
       "approve_all": "সব অনুমোদন",
       "approve_sub_agent": "সাব-এজেন্ট অনুমোদন করো: {{name}}",
       "attach_files": "ফাইল সংযুক্ত করুন",
+      "editor_unavailable_standard_input": "উন্নত সম্পাদকটি লোড হতে পারেনি, তাই স্ট্যান্ডার্ড ইনপুট সক্রিয় রয়েছে। আপনার খসড়া অপরিবর্তিত আছে।",
       "branch": "ব্রাঞ্চ: {{branch}}",
       "click_again_to_force_stop": "জোর করে থামাতে আবার ক্লিক করুন",
       "command": "কমান্ড",
@@ -6850,6 +6851,8 @@
     "pastedChip": {
       "collapse_paste": "পেস্ট সংকুচিত করো",
       "expand_paste": "পেস্ট প্রসারিত করো",
+      "hide_paste_preview": "পেস্টের প্রিভিউ লুকাও",
+      "show_paste_preview": "পেস্টের প্রিভিউ দেখাও",
       "paste_lines_one": "[ পেস্ট #{{seq}} · {{count}} লাইন ]",
       "paste_lines_other": "[ পেস্ট #{{seq}} · {{count}} লাইন ]",
       "preview_more_lines_one": "… আরও {{count}} লাইন",
