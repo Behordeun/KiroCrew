@@ -846,11 +846,22 @@ register_slash_command("restart", _handle_restart, "restart the gateway (owner-o
 # ---------------------------------------------------------------------------
 
 
-def init_socket_mode(orch: GatewayOrchestrator, seen: SeenCache) -> None:
+async def init_socket_mode(orch: GatewayOrchestrator, seen: SeenCache) -> None:
     """Wire up the Socket Mode client and attach the event listener.
 
     Does nothing when Slack is disabled (missing tokens or no allowed
     users).  Mutates ``orch._socket_client`` in place.
+
+    Awaited on the gateway loop, never offloaded whole: constructing
+    ``WSSocketModeClient`` requires a current event loop in the constructing
+    thread (its ``__init__`` ends in ``asyncio.ensure_future``), so running
+    this function in a worker thread crashes every Slack-enabled boot with
+    ``RuntimeError: There is no current event loop``.  The two blocking calls
+    it contains — the YOLO grant's profiles-dir walk and the enterprise
+    ``auth.test`` network call — are offloaded individually below instead,
+    which keeps the security-relevant early-return ordering (owner check,
+    then YOLO grant, then enterprise validation) intact.
+    ``test_slack_events_coverage.py::TestInitSocketMode`` pins both halves.
     """
     if not orch._slack_enabled:
         return
@@ -870,7 +881,8 @@ def init_socket_mode(orch: GatewayOrchestrator, seen: SeenCache) -> None:
     set_open_channels(orch._open_channels)
     set_owner_id(orch._owner_id)
     if orch._cfg.agent.dangerously_skip_permissions:
-        set_yolo_mode(True)
+        # grant_declared_yolo walks the profiles dir — blocking, so off-loop.
+        await asyncio.to_thread(set_yolo_mode, True)
     set_orch_cfg(orch._cfg)
     if orch.dashboard_state:
         set_dashboard_state(orch.dashboard_state)
@@ -880,8 +892,10 @@ def init_socket_mode(orch: GatewayOrchestrator, seen: SeenCache) -> None:
     extra_ids = orch._cfg.slack_enterprise_ids
     # Route through the active PlatformContext's Slack enterprise gate.  The
     # Default gate is open (opt-in allowlist), identical to today; the Amazon
-    # companion supplies a fail-closed workspace allowlist.
-    if not current_context().slack_gate.validate_enterprise(orch._bot_token, extra_ids=extra_ids):
+    # companion supplies a fail-closed workspace allowlist.  validate_enterprise
+    # does a synchronous auth.test network call — blocking, so off-loop.
+    _validate = current_context().slack_gate.validate_enterprise
+    if not await asyncio.to_thread(_validate, orch._bot_token, extra_ids=extra_ids):
         logger.error("Slack workspace failed enterprise validation — Slack disabled")
         orch._slack_enabled = False
         orch.slack = None
