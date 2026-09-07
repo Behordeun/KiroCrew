@@ -156,6 +156,9 @@ class TestSecretsAreMaskedInEveryMode:
         "kas",
         "mcp-apps",
         "ledger",
+        # Same model as ledger, two parties: the worker agent carries the full file
+        # toolset, so an unmasked work-ledger lets it reach any conductor's records.
+        "work-ledger",
         "backup",
         "browser-cookies.txt",
         "playwright-storage-state.json",

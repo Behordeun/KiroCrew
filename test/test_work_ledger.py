@@ -5,13 +5,15 @@ Phase 1 lists: every enum and cap fails a test if its value changes; two concurr
 writers against one item leave a parseable record and an uninterleaved event log; a
 torn, truncated or oversized file reads as absent; a refused cap leaves the prior
 bytes untouched; ``depth`` at the cap refuses ``create``; consecutive ``progress``
-reports coalesce; a duplicated event line collapses on read; and nothing in
-``src/kiro_crew`` imports the module, so the phase reverts by deleting two files.
+reports coalesce; a duplicated event line collapses on read; and only the Phase 2
+routes module imports the store (an allowlist that was an empty set while Phase 1
+stood alone, so that phase reverted by deleting two files).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1376,19 +1378,74 @@ def test_two_conductors_binding_one_worker_at_once_yield_exactly_one_binding():
 # ── revertability ─────────────────────────────────────────────────────────
 
 
-def test_nothing_in_the_package_imports_the_module_yet():
-    """Phase 1 reverts by deleting one module and one test.
+#: The ONLY modules that may import the store. Phase 1 asserted the set was empty,
+#: which made that phase revertable by deleting two files; Phase 2 adds exactly ONE
+#: importer and the check becomes an allowlist rather than disappearing, because the
+#: intent it enforces outlived the empty set. One entry is the strong form of that
+#: intent: even ``mcp_work.py``, the server whose four tools this store exists for,
+#: does not import it — it reaches the store over the dashboard HTTP API like every
+#: other consumer, which is what keeps identity resolved server-side and lets the
+#: Crew page read the same rows. A second importer is therefore a design change —
+#: some module building paths or resolving identity for itself — and must argue for
+#: itself in review rather than arrive with a passing suite.
+_PERMITTED_STORE_IMPORTERS = frozenset(
+    {
+        # The four tools' HTTP routes, and the ONLY module that touches the store
+        # directly: identity comes from X-Session-Key, never from the body.
+        "dashboard/handlers/work_ledger.py",
+    }
+)
+
+
+#: An import of THE STORE, spelled by its own module path. A bare
+#: ``import work_ledger`` substring is not enough: ``dashboard/handlers/work_ledger.py``
+#: shares the basename, so ``from kiro_crew.dashboard.handlers import work_ledger``
+#: (``server.py``'s deferred route binder) matched and was reported as a store
+#: importer. Anchoring on ``kiro_crew.work_ledger`` / ``from kiro_crew import ...
+#: work_ledger`` tells the two apart, and the guard's intent is unchanged.
+_STORE_IMPORT_RE = re.compile(
+    r"^\s*(?:"
+    r"from\s+kiro_crew\.work_ledger\s+import"
+    r"|import\s+kiro_crew\.work_ledger"
+    r"|from\s+kiro_crew\s+import\s+[^\n]*\bwork_ledger\b"
+    r")",
+    re.MULTILINE,
+)
+
+
+def test_only_the_phase_2_seams_import_the_module():
+    """The store reaches the product through two named modules and no others.
 
     Asserted on IMPORT statements rather than any mention of the name, and the
     candidate set is asserted non-empty so a moved source tree fails this test
-    instead of hollowing it out.
+    instead of hollowing it out. Both directions are checked: an unlisted importer
+    fails, and a listed module that no longer imports the store fails too, so the
+    allowlist is data rather than lore.
     """
     package = Path(__file__).resolve().parents[1] / "src" / "kiro_crew"
-    sources = [path for path in package.rglob("*.py") if path.name != "work_ledger.py"]
+    # Excluded by PATH, not by basename: the routes module is also called
+    # ``work_ledger.py``, and a basename filter skipped it — hiding the very seam
+    # this allowlist exists to name.
+    store = package / "work_ledger.py"
+    sources = [path for path in package.rglob("*.py") if path != store]
     assert len(sources) > 100, f"expected the package tree, found {len(sources)} files"
-    offenders = []
+    assert any(
+        path.relative_to(package).as_posix() == "dashboard/handlers/work_ledger.py"
+        for path in sources
+    ), "the routes module was filtered out of the scan"
+    importers = set()
     for path in sources:
         text = path.read_text(encoding="utf-8", errors="replace")
-        if "import work_ledger" in text or "from kiro_crew.work_ledger" in text:
-            offenders.append(str(path.relative_to(package)))
-    assert offenders == []
+        if _STORE_IMPORT_RE.search(text):
+            importers.add(path.relative_to(package).as_posix())
+    unlisted = importers - _PERMITTED_STORE_IMPORTERS
+    assert not unlisted, (
+        f"module(s) import the work-ledger store directly: {sorted(unlisted)}. "
+        "Reach it through the dashboard API so identity stays server-resolved, or "
+        "argue for a new seam in review and add it to _PERMITTED_STORE_IMPORTERS."
+    )
+    stale = _PERMITTED_STORE_IMPORTERS - importers
+    assert not stale, (
+        f"allowlisted module(s) no longer import the store: {sorted(stale)}. Either a "
+        "seam moved (fix the entry) or it is gone (delete it)."
+    )

@@ -1524,6 +1524,10 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         # egress boundary itself is the transport the result crosses, not this
         # module.
         "mcp_dashboard.py",
+        # Same class again: this stdio server redacts the ledger's own
+        # worker-authored prose before returning it, but the egress boundary is
+        # the transport the result crosses, not this module.
+        "mcp_work.py",
         "mcp_gateway/backend.py",
         # The kirocrew-core tool handlers, moved out of mcp_core.py into their
         # domain modules. Same classification as mcp_core.py above for the same
@@ -1901,6 +1905,7 @@ _SCHEMA_REGISTRY_NAMES: tuple[str, ...] = (
     "MCP_CRON_SCHEMAS",
     "MCP_COMPUTER_SCHEMAS",
     "MCP_DASHBOARD_SCHEMAS",
+    "MCP_WORK_SCHEMAS",
 )
 
 

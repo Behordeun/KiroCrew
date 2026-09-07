@@ -231,6 +231,9 @@ _CREW_HIDDEN_LEAVES: tuple[str, ...] = (
     # enforced by the HTTP routes. Every legitimate reader goes through the gateway, so
     # OS-masking closes the sideways path without touching a live consumer.
     "ledger",
+    # The conductor work ledger: a worker's full file toolset must not reach any
+    # conductor's records except through the routes that check its binding.
+    "work-ledger",
     "cron-history",
     # The cron in-flight markers, masked rather than sealed read-only because
     # nothing in the sandbox reads one: they are written and cleared by the run

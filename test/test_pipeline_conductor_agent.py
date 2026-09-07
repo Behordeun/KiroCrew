@@ -150,11 +150,17 @@ class TestPipelineConductorInstaller:
         assert "@kirocrew-core" in data["tools"]
 
     def test_mcp_servers_are_narrowed(self, tmp_path, monkeypatch):
-        """Only kirocrew-core and the hand-built kirocrew-dashboard entry ship;
+        """Only kirocrew-core and the two hand-built opt-in entries ship;
         inherited third-party servers are dropped from this spec."""
         data = self._install(tmp_path, monkeypatch)
-        assert set(data["mcpServers"]) == {"kirocrew-core", "kirocrew-dashboard"}
+        assert set(data["mcpServers"]) == {
+            "kirocrew-core",
+            "kirocrew-dashboard",
+            "kirocrew-work",
+        }
         assert data["mcpServers"]["kirocrew-dashboard"]["args"] == ["mcp-dashboard"]
+        assert data["mcpServers"]["kirocrew-work"]["args"] == ["mcp-work"]
+        assert "autoApprove" not in data["mcpServers"]["kirocrew-work"]
 
     def test_governed_host_withholds_and_audits(self, tmp_path, monkeypatch):
         """A ceiling that strips a grant must leave an audit record naming THIS

@@ -283,6 +283,14 @@ _CREW_SECRET_LEAVES: list[str] = [
     # backend module, which opens paths directly rather than through this
     # gate, so nothing breaks by fencing the whole subtree.
     "ledger",
+    # The conductor work ledger (work_ledger.py) — same model, two parties: a
+    # worker reaches only the ONE item it is bound to and a conductor only its
+    # own directory, both derived from the vetted caller identity by the HTTP
+    # routes. The worker agent carries the full default file toolset, so without
+    # this entry those auto-approved tools reach every conductor's records
+    # straight off disk, and a corrupted record reads as ABSENT to the store —
+    # silent loss the conductor cannot see. No legitimate file-tool reader.
+    "work-ledger",
     # The optional Playwright extension token. It removes the browser-side approval
     # click for an attach, so a process that could read it could attach to the
     # operator's logged-in browser without them seeing a prompt. The gateway hands

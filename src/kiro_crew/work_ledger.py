@@ -1613,3 +1613,56 @@ def accept_batch(items: list[WorkItem]) -> dict[str, Any]:
             if not item.is_terminal and item.acceptance
         ]
     }
+
+
+def apply_acceptance_update(
+    slot_key: str,
+    item_id: str,
+    *,
+    acceptance: Any,
+) -> dict[str, Any]:
+    """Replace ONE item's ``acceptance``, appending a ``decision`` event.
+
+    This is the write behind the ``accept`` tool action, and it exists as its own
+    function rather than as a seventh :data:`CONDUCTOR_ACTIONS` member on purpose.
+    Its job is the promotion :func:`accept_batch` deliberately refuses to do for
+    the worker: a conductor that has READ a worker's claimed ``pr`` and checked it
+    substitutes the real number into the bar, turning the manual omission the
+    skill performs by hand into one visible write. The bar still only ever moves
+    under the conductor's own key — the worker has no parameter that reaches here.
+
+    The event is kind ``decision`` because promoting a bar IS a conductor
+    decision, and because :data:`EVENT_KINDS` is a closed vocabulary the store's
+    readers (and Phase 3's probe) already dispatch on; a seventh kind would be a
+    schema change for a write that is semantically one of the six.
+    """
+    checked_id = _require_item_id(item_id)
+    if not acceptance:
+        # REFUSED, not coerced. :func:`_require_acceptance` answers ``{}`` for
+        # ``None`` because ``create`` may legitimately open an item whose bar is not
+        # known yet — but a PROMOTION never legitimately clears one. Without this,
+        # an ``accept`` that omitted its argument replaced the real condition with
+        # ``{}``, :func:`accept_batch` then dropped the item for having no
+        # acceptance, ``accept_eval.py`` never evaluated it, and the caller was told
+        # 200. That is conductor-owned state lost silently and unrecoverably, which
+        # is the one outcome a cap-and-refuse store must not produce.
+        raise WorkLedgerError(
+            "accept needs the acceptance object to promote; it cannot clear the bar",
+            code=CODE_INVALID_VALUE,
+            field="acceptance",
+        )
+    checked_acceptance = _require_acceptance(acceptance)
+
+    with item_lock(slot_key, checked_id):
+        item = read_work_item(slot_key, checked_id)
+        if item is None:
+            raise WorkLedgerError(
+                f"unknown item {checked_id!r}", code=CODE_UNKNOWN_ITEM, field="item_id"
+            )
+        if item.is_terminal:
+            raise WorkLedgerError(f"item {checked_id!r} is {item.state}", code=CODE_ITEM_CLOSED)
+        item.acceptance = checked_acceptance
+        event = _commit_item_locked(
+            slot_key, item, "decision", "acceptance promoted by the conductor"
+        )
+        return {"item": item, "event": event}

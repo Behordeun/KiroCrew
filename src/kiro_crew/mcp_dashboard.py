@@ -244,7 +244,13 @@ def _tool_definitions() -> list[dict[str, Any]]:
                     "agent": {
                         "type": "string",
                         "description": (
-                            "Agent to bind the session to. Omit to use the default agent."
+                            "Agent to bind the session to. Omitting it inherits the "
+                            "CALLER'S OWN agent, not a global default: create_session "
+                            "falls back to the calling slot's agent so the child stays in "
+                            "this workspace's memory boundary. A conductor that omits it "
+                            "therefore gets a second conductor, which has no fs_write and "
+                            "cannot do the work. Name the agent the child needs "
+                            "explicitly \u2014 kirocrew-worker for a leaf work item."
                         ),
                     },
                     "folder": {

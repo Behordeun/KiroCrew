@@ -3079,6 +3079,99 @@ MCP_DASHBOARD_SCHEMAS: dict[str, ToolSchema] = {
     "chat_folder_move_session": CHAT_FOLDER_MOVE_SESSION_SCHEMA,
 }
 
+# ── Tool Schemas (MCP Work ledger — server ``kirocrew-work``) ──
+#
+# Its own registry for the same reason the dashboard one is separate: the four
+# work-ledger tools ship on an opt-in server, and a session that is neither a
+# conductor nor a worker must not pay for their schemas. The caps restate the
+# store's own (``work_ledger.MAX_*``) rather than importing them, because
+# ``validation`` is imported by the gateway on every request path and the store is
+# not; ``test_work_ledger_tools.py`` pins the two together so they cannot drift.
+#
+# What is NOT here is the load-bearing part. ``WORK_REPORT_SCHEMA`` has no
+# ``item_id``, no ``session``, no ``acceptance``, no ``verdict`` and no ``state``:
+# a worker cannot write a conductor-owned field because no parameter carries one,
+# which is a stronger guarantee than an allowlist that must be kept correct as
+# fields are added.
+_WORK_STATUSES = frozenset({"progress", "done", "blocked", "question"})
+_WORK_VERDICTS = frozenset({"pass", "fail", "pending", "refused", "error"})
+_WORK_ITEM_STATES = frozenset({"open", "accepted", "rejected", "abandoned"})
+#: A superset of the store's six conductor actions: ``accept`` promotes a worker's
+#: claimed ``pr`` into ``acceptance`` and is served by its own store function.
+_WORK_RECORD_ACTIONS = frozenset({"create", "bind", "decide", "verdict", "close", "goal", "accept"})
+
+WORK_BRIEF_SCHEMA = ToolSchema(tool_name="work_brief")
+
+WORK_REPORT_SCHEMA = ToolSchema(
+    tool_name="work_report",
+    fields=[
+        FieldSpec("status", str, required=True, allowed=_WORK_STATUSES),
+        # NOT ``clamp_to_max``: a truncated summary the worker believes landed
+        # whole is a silent data loss the worker cannot detect, and the conductor
+        # reads this field to decide. Refusing names the cap so the worker retries
+        # with a shorter one.
+        FieldSpec("summary", str, required=True, max_len=500),
+        FieldSpec("artifacts", dict),
+        FieldSpec("pr", int, min_val=1, max_val=1_000_000_000),
+    ],
+    custom_validator=lambda cleaned: _validate_work_artifacts(cleaned.get("artifacts")),
+)
+
+WORK_LEDGER_READ_SCHEMA = ToolSchema(tool_name="work_ledger_read")
+
+WORK_LEDGER_RECORD_SCHEMA = ToolSchema(
+    tool_name="work_ledger_record",
+    fields=[
+        FieldSpec("action", str, required=True, allowed=_WORK_RECORD_ACTIONS),
+        # Server-minted ``it_<8 hex>``, so the pattern is what keeps a
+        # model-supplied string out of a path component even before the store
+        # re-checks it.
+        FieldSpec("item_id", str, max_len=16, pattern=re.compile(r"^it_[0-9a-f]{8}$")),
+        FieldSpec("title", str, max_len=200),
+        FieldSpec("acceptance", dict),
+        FieldSpec("worker_session_key", str, max_len=512),
+        FieldSpec("decision", str, max_len=2000),
+        FieldSpec("verdict", str, allowed=_WORK_VERDICTS),
+        FieldSpec("state", str, allowed=_WORK_ITEM_STATES),
+        FieldSpec("goal", str, max_len=2000),
+        FieldSpec("round", int, min_val=0, max_val=1_000_000),
+        FieldSpec("fails", int, min_val=0, max_val=1_000_000),
+    ],
+)
+
+
+def _validate_work_artifacts(artifacts: object) -> None:
+    """Bound a ``work_report`` artifacts map: 16 keys, key 64, value 512.
+
+    ``FieldSpec`` bounds a list's items but not a dict's, so the map's caps are
+    checked here rather than being left to the store alone. Refusing at the schema
+    keeps the failure a 400 that names the offending key, and the store still
+    enforces the same three numbers — this is the early, specific answer, not the
+    only one.
+    """
+    if artifacts is None:
+        return
+    if not isinstance(artifacts, dict):
+        raise ValidationError("artifacts", "must be a JSON object")
+    if len(artifacts) > 16:
+        raise ValidationError("artifacts", f"exceeds max items 16 (got {len(artifacts)})")
+    for key, value in artifacts.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise ValidationError("artifacts", "must map strings to strings")
+        if len(key) > 64:
+            raise ValidationError("artifacts", f"key {key[:32]!r} exceeds max length 64")
+        if len(value) > 512:
+            raise ValidationError("artifacts", f"value for {key!r} exceeds max length 512")
+
+
+MCP_WORK_SCHEMAS: dict[str, ToolSchema] = {
+    "work_brief": WORK_BRIEF_SCHEMA,
+    "work_report": WORK_REPORT_SCHEMA,
+    "work_ledger_read": WORK_LEDGER_READ_SCHEMA,
+    "work_ledger_record": WORK_LEDGER_RECORD_SCHEMA,
+}
+
+
 MCP_COMPUTER_SCHEMAS: dict[str, ToolSchema] = {
     _cu_types.TOOL_LIST_APPS: ToolSchema(tool_name=_cu_types.TOOL_LIST_APPS, fields=[]),
     _cu_types.TOOL_LAUNCH_APP: ToolSchema(

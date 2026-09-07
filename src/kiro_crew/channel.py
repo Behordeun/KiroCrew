@@ -66,6 +66,16 @@ CHANNEL_AGENT_BLOCKED_TOOLS: tuple[str, ...] = (
     "session_read_message",
     "session_create",
     "session_close",
+    # The four work-ledger tools, blocked for the same containment reason and not
+    # for a new one: a channel agent has no dispatch relationship, so it is
+    # neither a conductor nor a bound worker and has no business holding one.
+    # Reading a brief would pull a private dispatch's acceptance bar into a
+    # channel other humans can see, and a report or a record would write into a
+    # conductor's own decision record from outside it.
+    "work_brief",
+    "work_report",
+    "work_ledger_read",
+    "work_ledger_record",
 )
 
 # Boundary-aware matcher: the tool name must stand alone in the rendered
