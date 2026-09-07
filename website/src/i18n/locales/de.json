@@ -6626,7 +6626,8 @@
       "copy_diagram_source": "Diagrammquelltext kopieren",
       "diagram_source": "Diagrammquelltext",
       "copy_failed": "Kopieren fehlgeschlagen",
-      "mermaid_render_failed": "Dieses Diagramm konnte nicht gerendert werden. Stattdessen wird der Quelltext angezeigt."
+      "mermaid_render_failed": "Dieses Diagramm konnte nicht gerendert werden. Stattdessen wird der Quelltext angezeigt.",
+      "image_position": "{{index}} von {{total}}"
     },
     "markdownToc": {
       "contents": "Inhalt",

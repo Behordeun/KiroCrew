@@ -6524,7 +6524,8 @@
       "copy_diagram_source": "复制图表源代码",
       "diagram_source": "图表源代码",
       "copy_failed": "复制失败",
-      "mermaid_render_failed": "无法渲染此图表。改为显示源代码。"
+      "mermaid_render_failed": "无法渲染此图表。改为显示源代码。",
+      "image_position": "第 {{index}} 张，共 {{total}} 张"
     },
     "markdownToc": {
       "contents": "目录",

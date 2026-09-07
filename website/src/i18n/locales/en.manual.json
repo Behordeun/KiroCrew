@@ -2126,7 +2126,8 @@
       "copy_diagram_source": "Copy diagram source",
       "diagram_source": "Diagram source",
       "copy_failed": "Copy failed",
-      "mermaid_render_failed": "Couldn’t render this diagram. Showing the source instead."
+      "mermaid_render_failed": "Couldn’t render this diagram. Showing the source instead.",
+      "image_position": "{{index}} of {{total}}"
     },
     "mcpAppFrame": {
       "collapse": "Collapse",

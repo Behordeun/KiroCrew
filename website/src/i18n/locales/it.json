@@ -6728,7 +6728,8 @@
       "copy_diagram_source": "Copia il codice sorgente del diagramma",
       "diagram_source": "Codice sorgente del diagramma",
       "copy_failed": "Copia non riuscita",
-      "mermaid_render_failed": "Impossibile visualizzare questo diagramma. Viene mostrato il codice sorgente."
+      "mermaid_render_failed": "Impossibile visualizzare questo diagramma. Viene mostrato il codice sorgente.",
+      "image_position": "{{index}} di {{total}}"
     },
     "markdownToc": {
       "contents": "Contenuto",

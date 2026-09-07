@@ -6728,7 +6728,8 @@
       "copy_diagram_source": "Copiar o código-fonte do diagrama",
       "diagram_source": "Código-fonte do diagrama",
       "copy_failed": "Falha ao copiar",
-      "mermaid_render_failed": "Não foi possível renderizar este diagrama. Exibindo o código-fonte."
+      "mermaid_render_failed": "Não foi possível renderizar este diagrama. Exibindo o código-fonte.",
+      "image_position": "{{index}} de {{total}}"
     },
     "markdownToc": {
       "contents": "Conteúdo",
