@@ -180,6 +180,7 @@
       "pyspy-dump.js",
       "perf-metrics.js",
       "host-config.js",
+      "open-path.js",
       "store-rename.js",
       "remote-token.js",
       "token-acquire.js",

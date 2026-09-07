@@ -1092,6 +1092,7 @@ function startMochiWatcher() {
     const fs = require("fs");
     const path = require("path");
     const { shell } = require("electron");
+    const { openPathHardened } = require("../open-path");
     const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"]);
     try {
       // realpath BEFORE the extension test: a `.png` symlink to a key file must
@@ -1100,7 +1101,7 @@ function startMochiWatcher() {
       if (!IMAGE_EXTS.has(path.extname(real).toLowerCase())) return false;
       if (!fs.statSync(real).isFile()) return false;
       // Non-empty return value means the OS refused to open it.
-      const err = await shell.openPath(real);
+      const err = await openPathHardened(shell, real);
       return err === "";
     } catch (err) {
       glog(`Mochi open-image refused: ${err && err.message}`);

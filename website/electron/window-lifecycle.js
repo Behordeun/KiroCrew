@@ -32,6 +32,7 @@ const { createAgentCommandChannel } = require("./browser-agent-channel");
 const { attachContextMenu } = require("./context-menu");
 const { validateRemoteSettings } = require("./validation");
 const { getRemoteHostConfig, setRemoteHostConfig } = require("./host-config");
+const { openPathHardened } = require("./open-path");
 const { DEFAULT_REMOTE_BIN, DEFAULT_REMOTE_PATH } = require("./remote-token");
 const { identityFamily } = require("./instance-guard");
 const { decideLinuxFrame, applyWindowControl } = require("./linux-frame");
@@ -1100,7 +1101,7 @@ function createWindowLifecycle(options) {
       { type: "separator" },
       { label: "New Connection Window…", click: () => openNewConnectionWindow() },
       { type: "separator" },
-      { label: "Open Config File", click: () => shell.openPath(store.path) },
+      { label: "Open Config File", click: () => openPathHardened(shell, store.path) },
       { type: "separator" },
       { label: "Quit", click: requestQuit },
     ]));
@@ -1656,7 +1657,7 @@ function createWindowLifecycle(options) {
       renameCurrentWindow: () => renameCurrentWindow(),
       promptRemoteHost: () => promptRemoteHost(),
       refreshToken: () => refreshToken(),
-      openConfigFile: () => shell.openPath(store.path),
+      openConfigFile: () => openPathHardened(shell, store.path),
     }));
     Menu.setApplicationMenu(appMenu);
     return appMenu;
