@@ -2307,6 +2307,21 @@ def _memory_cmd(args: argparse.Namespace) -> None:
             else:
                 print("  FAISS accelerator: not installed — stdlib cosine fallback (exact)")
             print(f"  Audit events: {stats['events_count']}")
+            reads = store.read_counters()
+            # This process only: the store was constructed for this command, so
+            # the totals describe the reads this invocation itself performed, not
+            # the store's lifetime. The gateway's own totals are the `reads`
+            # object on GET /api/memory/observability.
+            print(
+                f"  Reads (this process): {reads['rows_read']} rows over "
+                f"{reads['statements_executed']} statements"
+            )
+            print(
+                f"    population scans: semantic {reads['semantic_full_scans']}"
+                f" ({reads['semantic_rows_read']} rows),"
+                f" episodic {reads['episodic_full_scans']}"
+                f" ({reads['episodic_rows_read']} rows)"
+            )
 
         elif action == "audit":
             findings = scan_memory()

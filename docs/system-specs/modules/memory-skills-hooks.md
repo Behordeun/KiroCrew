@@ -247,6 +247,23 @@ SQLite table `episodic_memories` — conversation fragments with optional embedd
 
 Context injection: `_DEFAULT_EPISODIC_LIMIT` = 8 results in an `[Episodic Memory]` block, each fragment sliced to 1,500 chars, total bounded by `min(_EPISODIC_INJECT_CAP, caps.episodic)` where `_EPISODIC_INJECT_CAP` = 3,000. Injected on the first message of new sessions through the single `memory.get_context()` call in `build_session_context()`, which passes the user's message as the query; episodic is query-gated inside `get_context`, so callers without a message (eval runner) inject none, and follow-up turns never re-inject (ACP native history provides in-thread context).
 
+### Read-volume counters (`_ReadCounters`, `read_counters()`)
+
+Six monotonic per-store-instance integer totals recording how much the store READ. They exist because a whole-population scan is otherwise **unobservable from outside the process**: a SELECT moves neither `PRAGMA data_version` nor the WAL, so a second process cannot tell one materialized row from a thousand, and wall-clock timing is not admissible evidence of a read-volume claim. Counting is unconditional (a method call and a few integer adds per SELECT) — only the EXPOSURE is a surface decision.
+
+| Counter | Counts |
+|---|---|
+| `statements_executed` | SELECTs routed through `_fetch_all_locked` / `_fetch_one_locked`, all tables |
+| `rows_read` | rows those SELECTs materialized, all tables |
+| `semantic_rows_read` | rows materialized by whole-population **semantic retrieval** scans |
+| `semantic_full_scans` | how many such semantic scans ran |
+| `episodic_rows_read` | rows materialized by whole-population **episodic retrieval** scans |
+| `episodic_full_scans` | how many such episodic scans ran |
+
+The four marked scan sites (`_fetch_all_locked(..., scan=...)`, plus one direct `record()` inside `_build_episodic_scoring_set`'s own locked block) are exactly the whole-population reads #8971 names: `get_semantic_context`'s query branch, `get_lessons()` unbounded (what the `_stored_similarity_scorer` callers score over), `_sqlite_vector_search`'s per-call read, and the resident scoring-set build. A bounded read — `get_semantic_context` with no query, `get_lessons(limit=N)`, any keyed lookup — contributes to the all-tables totals only, so a rising `*_full_scans` always means a population was re-read. On the episodic side both rungs land on the same counter, so `episodic_full_scans` rising with WRITES rather than with searches is what the resident set (#8956) looks like from outside; the semantic surface has no such set yet, which is #8971.
+
+Semantics that matter to a caller: per instance and per process (two processes over one file report their own reads independently, never a shared total), never persisted, never reset, and no timing metric is recorded or derived. Every increment happens under `_db_lock`, so `read_counters()` — which takes the same lock — returns an untorn snapshot and no count is lost to a concurrent reader. Two identical `GET /api/memory/observability?q=…` calls with no write in between, compared field by field, are the intended probe.
+
 ### Fading: three independent decay mechanisms
 
 Three unrelated mechanisms keep stale memory out of the context budget. They do
@@ -386,12 +403,14 @@ Model: `Qwen/Qwen3-Embedding-0.6B` Q8_0 GGUF (610MB). Apache-2.0 licensed. Serve
 | POST | `/api/memory/migrate` | Migrate markdown → structured memory |
 | POST | `/api/memory/import` | Import from JSON export |
 | GET | `/api/memory/context-preview?q=` | Preview injected semantic + episodic context |
+| GET | `/api/memory/observability?q=` | `stats` + `rejections` + `context_preview`, plus `reads` — the read-volume counters (see above). `reads` is resolved LAST, so it INCLUDES the reads this request itself performed; that is what lets a caller issue the same `q` twice and compare the two objects |
 
 ### CLI
 
 `kirocrew memory {list,search,show,stats,audit,export,migrate,import}` — manage memory from the command line:
 - `show [preferences|projects|history]` — read the markdown layer through `MemoryStore` (all three targets when none given); `--format md|json` (json entries carry `path`, `updated_at` mtime in UTC ISO-8601, `content`), `--since YYYY-MM-DD` filters history days. Missing/empty files print as empty rather than erroring
 - `search <query>` — searches BOTH memories and labels each section: the vector store's episodic recall, then keyword hits from the markdown layer's FTS5 index (`MemoryStore.search`, over `preferences.md` / `projects.md` / every `history/*.md`). `--layer vector|history|all` (default `all`); `--layer vector` reproduces the previous vector-only output exactly, and `--layer history` skips constructing the vector store entirely, the same way `show` does. The two indexes answer different questions — "where did I write this word" versus "what does this mean like" — so they are reported separately rather than merged into one ranking
+- `stats` — counts, embedded coverage, FAISS accelerator status, audit event count, and a **`Reads (this process)`** block from `read_counters()` (rows + statements, then the semantic/episodic population-scan tallies). Labelled per-process because the CLI constructs its own store, so the totals describe only what this invocation read; the gateway's totals are the `reads` object on `GET /api/memory/observability`
 - `export` — vector-store collections; `--include-markdown` opts in a `markdown` collection (`preferences`/`projects` entries + per-day `history` list from `MemoryStore.markdown_snapshot()`) without changing the default payload shape
 - `migrate` — one-time markdown → structured migration (preferences.md → semantic, history/*.md → episodic)
 - `import <file>` — restore from JSON export with full validation

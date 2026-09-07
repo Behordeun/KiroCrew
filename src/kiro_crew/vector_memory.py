@@ -22,12 +22,12 @@ import struct
 import threading
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 from uuid import uuid4
 
 from snowballstemmer import stemmer as _snowball_stemmer
@@ -830,6 +830,59 @@ def _is_selective_keyword(word: str) -> bool:
 # ── Store ──
 
 
+# A whole-population retrieval scan, as opposed to a bounded or single-row read.
+# Only the two surfaces #8971 is about are attributed; everything else lands in
+# the all-tables totals.
+_ScanSurface = Literal["semantic", "episodic"]
+
+
+@dataclass
+class _ReadCounters:
+    """How much this store READ, as monotonic per-instance totals.
+
+    A whole-population scan is invisible from outside the process: a SELECT
+    moves neither ``PRAGMA data_version`` nor the WAL, so a second process
+    cannot tell one materialized row from a thousand, and wall-clock timing is
+    not admissible evidence. These counters are the in-band signal instead, so a
+    caller can assert that a second identical search did not re-read the
+    population (#8971) the way ``_EpisodicScoringSet`` already avoids on the
+    episodic side (#8956).
+
+    Cost is a method call and a few integer adds per SELECT, so counting is
+    always on; only the EXPOSURE is a surface decision. Every increment happens
+    under ``_db_lock`` (the fetch helpers hold it, and the one direct caller
+    increments inside its own locked block), so a snapshot taken under the same
+    lock is never torn and no count is lost to a concurrent reader.
+    """
+
+    statements_executed: int = 0
+    rows_read: int = 0
+    semantic_rows_read: int = 0
+    semantic_full_scans: int = 0
+    episodic_rows_read: int = 0
+    episodic_full_scans: int = 0
+
+    def record(self, rows: int, scan: _ScanSurface | None = None) -> None:
+        """Credit one materialized SELECT of *rows* rows.
+
+        *scan* marks the read as a whole-population retrieval scan of that
+        surface; leaving it None still credits the all-tables totals, which is
+        the right answer for a bounded or keyed read.
+        """
+        self.statements_executed += 1
+        self.rows_read += rows
+        if scan == "semantic":
+            self.semantic_rows_read += rows
+            self.semantic_full_scans += 1
+        elif scan == "episodic":
+            self.episodic_rows_read += rows
+            self.episodic_full_scans += 1
+
+    def snapshot(self) -> dict[str, int]:
+        """Return the totals as a plain JSON-serializable dict."""
+        return asdict(self)
+
+
 @dataclass(frozen=True)
 class _EpisodicScoringSet:
     """The episodic columns a vector search needs to SCORE, held in memory.
@@ -908,6 +961,10 @@ class VectorMemoryStore:
         # NOTE: never hold this across a blocking embed call — embeds happen
         # before the locked region so the lock only guards local db/FAISS work.
         self._db_lock = threading.RLock()
+        # Read-volume totals. Guarded by _db_lock (see _ReadCounters) rather than
+        # a lock of their own: every increment already sits inside a locked fetch,
+        # so the counting adds no synchronization to the read path.
+        self._reads = _ReadCounters()
         # FAISS state
         self._faiss_index: object | None = None  # faiss.IndexFlatIP (untyped)
         self._faiss_id_map: list[str] = []
@@ -1145,15 +1202,42 @@ class VectorMemoryStore:
     # so callers never iterate a live cursor unlocked — and per the lock's
     # contract, never call a blocking embed while holding it.
 
-    def _fetch_all_locked(self, sql: str, params: Sequence[object] = ()) -> list[sqlite3.Row]:
-        """Run a SELECT serialized on ``_db_lock``; return materialized rows."""
+    def _fetch_all_locked(
+        self,
+        sql: str,
+        params: Sequence[object] = (),
+        *,
+        scan: _ScanSurface | None = None,
+    ) -> list[sqlite3.Row]:
+        """Run a SELECT serialized on ``_db_lock``; return materialized rows.
+
+        Pass *scan* at the few call sites that read a whole population, so the
+        read-volume counters can attribute it to that surface (see
+        :class:`_ReadCounters`). The default leaves the read in the all-tables
+        totals only, which is correct for a bounded or keyed fetch.
+        """
         with self._db_lock:
-            return self.db.execute(sql, params).fetchall()
+            rows = self.db.execute(sql, params).fetchall()
+            self._reads.record(len(rows), scan)
+            return rows
 
     def _fetch_one_locked(self, sql: str, params: Sequence[object] = ()) -> sqlite3.Row | None:
         """Run a SELECT serialized on ``_db_lock``; return the first row or None."""
         with self._db_lock:
-            return self.db.execute(sql, params).fetchone()
+            row = self.db.execute(sql, params).fetchone()
+            self._reads.record(1 if row is not None else 0)
+            return row
+
+    def read_counters(self) -> dict[str, int]:
+        """Return this store's monotonic read-volume totals.
+
+        Per store INSTANCE and per process: the counts start at zero on
+        construction, only ever rise, and are not persisted, so two processes
+        over one database file report their own reads independently. See
+        :class:`_ReadCounters` for what each key counts.
+        """
+        with self._db_lock:
+            return self._reads.snapshot()
 
     # ── Key Validation ──
 
@@ -1669,7 +1753,8 @@ class VectorMemoryStore:
             # contract). The helper materializes the rows.
             all_rows = self._fetch_all_locked(
                 "SELECT key, value_json, updated_at, embedding FROM semantic_memory "
-                "WHERE is_deleted = 0 AND key NOT LIKE 'lesson.%'"
+                "WHERE is_deleted = 0 AND key NOT LIKE 'lesson.%'",
+                scan="semantic",
             )
 
             # Stored write-time vectors only — one embed per request (the query),
@@ -2358,7 +2443,8 @@ class VectorMemoryStore:
         rows = self._fetch_all_locked(
             "SELECT id, conversation_id, text, tags, importance, created_at, "
             "last_accessed_at, embedding FROM episodic_memories "
-            "WHERE is_deleted = 0 AND embedding IS NOT NULL"
+            "WHERE is_deleted = 0 AND embedding IS NOT NULL",
+            scan="episodic",
         )
 
         logger.debug(
@@ -2517,6 +2603,11 @@ class VectorMemoryStore:
                 "COALESCE(LENGTH(text), 0) AS text_len, embedding "
                 "FROM episodic_memories WHERE is_deleted = 0 AND embedding IS NOT NULL"
             ).fetchall()
+            # This is the population read the resident set exists to pay ONCE per
+            # invalidation instead of once per search, so it is credited like the
+            # per-call scan it replaces — a store on this tier shows
+            # episodic_full_scans rising with writes, not with searches.
+            self._reads.record(len(rows), "episodic")
 
         ids: list[str] = []
         blobs: list[bytes] = []
@@ -3565,7 +3656,12 @@ class VectorMemoryStore:
             sql += " LIMIT ?"
             rows = self._fetch_all_locked(sql, (limit,))
         else:
-            rows = self._fetch_all_locked(sql)
+            # Unbounded: the whole lesson population, which is what the
+            # _stored_similarity_scorer callers (_rank_lessons,
+            # find_contradiction_candidates) score over — the other half of
+            # #8971's read-volume shape. The LIMIT branch above is bounded and
+            # so is not a population scan.
+            rows = self._fetch_all_locked(sql, scan="semantic")
         return [dict(r) for r in rows]
 
     def count_lessons(self) -> int:

@@ -113,6 +113,7 @@ def _store(**attrs: Any) -> Any:
     store.memory_stats.return_value = {"semantic_count": 0}
     store.get_rejection_stats.return_value = {}
     store.get_context_preview.return_value = {"semantic": ""}
+    store.read_counters.return_value = {"rows_read": 0}
     store.get_semantic_context.return_value = ""
     store.get_episodic_context.return_value = ""
     store.import_memory.return_value = {"semantic": 0, "episodic": 0}
@@ -1077,13 +1078,32 @@ class TestContextPreviewAndObservability:
         store.memory_stats.return_value = {"semantic_count": 1}
         store.get_rejection_stats.return_value = {"allowlist_reject": 2}
         store.get_context_preview.return_value = {"semantic": "s"}
+        store.read_counters.return_value = {"semantic_full_scans": 3}
         state = _make_state(vector_store=store)
         req = _make_request(state, query={"q": "q" * 900})
         body = _body(await mem_mod.api_memory_observability(req))
         assert body["stats"] == {"semantic_count": 1}
         assert body["rejections"] == {"allowlist_reject": 2}
         assert body["context_preview"] == {"semantic": "s"}
+        assert body["reads"] == {"semantic_full_scans": 3}
         assert len(store.get_context_preview.call_args.kwargs["query_text"]) == 500
+
+    @pytest.mark.asyncio
+    async def test_observability_reads_the_counters_after_the_preview(self) -> None:
+        """Ordering is the contract: `reads` must include THIS request's scans.
+
+        The preview is what reaches the full-read branch, so counters resolved
+        before it would under-report by exactly the scan the caller is probing
+        for (#8971). Own-suite coverage of the real numbers lives in
+        ``test_memory_read_counters.py``; here only the order is pinned.
+        """
+        calls: list[str] = []
+        store = _store()
+        store.get_context_preview.side_effect = lambda **_: calls.append("preview") or {}
+        store.read_counters.side_effect = lambda: calls.append("reads") or {}
+        state = _make_state(vector_store=store)
+        await mem_mod.api_memory_observability(_make_request(state, query={"q": "tea"}))
+        assert calls == ["preview", "reads"]
 
 
 class TestPromote:

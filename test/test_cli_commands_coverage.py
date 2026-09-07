@@ -1679,6 +1679,34 @@ class TestMemoryCli:
         assert "Embedded: 7/7" in out
         assert "FAISS accelerator: 10 vectors indexed" in out
 
+    def test_stats_reports_read_volume_labelled_as_this_process(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The CLI builds its own store, so the totals must not read as lifetime."""
+        with _MemHarness() as h:
+            h.store.memory_stats.return_value = {
+                "semantic_active": 3,
+                "semantic_deleted": 0,
+                "episodic_active": 7,
+                "episodic_deleted": 0,
+                "faiss_index_size": 0,
+                "events_count": 4,
+                "embedded_count": 7,
+                "faiss_available": False,
+            }
+            h.store.read_counters.return_value = {
+                "statements_executed": 9,
+                "rows_read": 40,
+                "semantic_rows_read": 12,
+                "semantic_full_scans": 2,
+                "episodic_rows_read": 21,
+                "episodic_full_scans": 3,
+            }
+            cc._memory_cmd(_ns(mem_action="stats"))
+        out = capsys.readouterr().out
+        assert "Reads (this process): 40 rows over 9 statements" in out
+        assert "population scans: semantic 2 (12 rows), episodic 3 (21 rows)" in out
+
     def test_stats_without_faiss_reports_fallback_not_zero_vectors(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:

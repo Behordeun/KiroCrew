@@ -1422,11 +1422,17 @@ async def api_memory_observability(request: web.Request) -> web.Response:
     # semantic row (blocking urllib per row) — the worst on-loop amplification
     # in the store; offload so it can't stall the gateway event loop.
     preview = await run_in_embed_pool(store.get_context_preview, query_text=query)
+    # Read LAST, deliberately: the counters then include the reads this very
+    # request performed, so a caller can issue ?q=... twice and compare the two
+    # `reads` objects to see whether the second identical search re-read the
+    # population (#8971). Offloaded like the others — it takes _db_lock.
+    reads = await asyncio.to_thread(store.read_counters)
     return web.json_response(
         {
             "stats": stats,
             "rejections": rejections,
             "context_preview": preview,
+            "reads": reads,
         }
     )
 
