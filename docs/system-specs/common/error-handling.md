@@ -70,3 +70,30 @@ never drift. Notable terminal (non-retryable) classes:
   prompt-busy branch, which for the same reason now names no command at all.
 - **Usage limit** and **model not entitled**: allowance spent, or the plan lacks
   the model; also terminal, with guidance to switch model or tier.
+
+## Model-Side Refusals
+
+A refusal is a turn the model DECLINED, not a turn that failed: the request
+reached the model and the answer is "no". It is deterministic — the same prompt
+hits the same filter — so it is never retried, and the useful thing to show is
+the reason. Harnesses report that reason unevenly, so `acp/types.RefusalInfo`
+is the one shape every harness is folded onto (`category`,
+`explanation`, `recommended_model`), each field left EMPTY when the provider
+did not say — never guessed.
+
+- **Kiro (kiro-cli, KAS)** — the service's content filter emits a
+  `_kiro.dev/metadata` frame with `stopReason: CONTENT_FILTERED` and a `refusal`
+  object, streams the canned explanation ("The selected model cannot continue
+  this conversation…") as ordinary assistant text, then ends the turn with a
+  plain `end_turn` (or a bare `-32603`). `acp/_dispatch.parse_refusal` reads the
+  frame (members of `ACP_BACKENDS_STRUCTURED_REFUSAL` only) onto
+  `AcpPromptStats.refusal`; `AcpPromptStats.terminal_refusal` rewrites the
+  terminal's stop reason to `STOP_REASON_REFUSAL` and attaches the payload as
+  `AcpEvent.refusal`. The explanation is redacted at the parser.
+- **claude-agent-acp, codex-acp** — only Anthropic's bare `stopReason: "refusal"`
+  reaches the client; `terminal_refusal` passes it through with no payload, and
+  the dashboard's refusal branch (keyed on the stop reason) renders the bare card.
+- **Dashboard** — `chat_runner.refusal_card_text` renders one card from
+  `RefusalInfo`: the lead line, then one line per non-empty field. Because the
+  Kiro explanation streams as text, the card is emitted from BOTH the answered
+  and the text-less branch of the turn epilogue.

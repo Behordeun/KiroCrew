@@ -31,8 +31,10 @@ from kiro_crew.acp import kas_wire
 from kiro_crew.acp._dispatch import (
     build_permission_event,
     classify_notification,
+    error_is_refusal_terminal,
     parse_metadata,
     parse_prompt_token_usage,
+    parse_refusal,
     parse_session_update,
     parse_text_chunk,
     parse_usage_cost,
@@ -2411,6 +2413,21 @@ class AcpSessionHandle:
                 # Turn-complete response
                 if msg.is_response_for(req_id):
                     if msg.error:
+                        if error_is_refusal_terminal(msg.error, self.last_prompt_stats.refusal):
+                            # A content-filter refusal whose terminal is the
+                            # bare ``-32603 Internal error``: the reason already
+                            # arrived on metadata, so this is the refusal's own
+                            # terminal, not a backend fault. Raising would lose
+                            # the reason to the unknown-shape formatter and hand
+                            # a deterministic decline to the retry ladder.
+                            reason, _refusal = self.last_prompt_stats.terminal_refusal("")
+                            self._last_stop_reason = reason
+                            self._tool_dispatched = False
+                            self._turn_done.set()
+                            yield AcpEvent(kind=EVENT_COMPLETE, stop_reason=reason,
+                                           refusal=_refusal,
+                                           usage=self.last_prompt_stats.to_turn_usage())
+                            return
                         # Same as _wait_for_response: route through the shared
                         # raise helper so a mid-turn failure surfaces actionable
                         # prose instead of the raw JSON-RPC dict, keeps its
@@ -2467,10 +2484,12 @@ class AcpSessionHandle:
                                     yield AcpEvent(
                                         kind=EVENT_AGENT_SWITCHED, text=name
                                     )
+                    reason, _refusal = self.last_prompt_stats.terminal_refusal(reason)
                     self._last_stop_reason = reason
                     self._tool_dispatched = False
                     self._turn_done.set()
                     yield AcpEvent(kind=EVENT_COMPLETE, stop_reason=reason,
+                                   refusal=_refusal,
                                    usage=self.last_prompt_stats.to_turn_usage())
                     return
                 if msg.method is None and msg.id is not None:
@@ -2973,6 +2992,14 @@ class AcpSessionHandle:
             self.last_prompt_stats.note_pct_reported()
             self._backfill_context_window(pct_f)
         self.last_prompt_stats.credits += credits
+        # Every handle on the shared runtime is kiro-cli or KAS -- both members
+        # of ACP_BACKENDS_STRUCTURED_REFUSAL (ACP_BACKENDS_ACP_RUNTIME is a
+        # subset of it, pinned by test_harness_parity) -- so the refusal
+        # envelope is read unconditionally here. Folded onto the terminal by
+        # ``terminal_refusal``; a frame without the envelope leaves it alone.
+        _refusal = parse_refusal(params)
+        if _refusal is not None:
+            self.last_prompt_stats.refusal = _refusal
 
     def _backfill_context_window(self, pct: float) -> None:
         """Derive window/used tokens from a percentage-only reading.

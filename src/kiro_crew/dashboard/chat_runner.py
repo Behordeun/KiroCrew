@@ -38,6 +38,7 @@ from kiro_crew.acp.types import (
     STOP_REASON_REFUSAL,
     STOP_REASON_STALE_RECOVER,
     STOP_REASON_TOOL_STALL,
+    RefusalInfo,
 )
 from kiro_crew.acp_backends import ACP_BACKENDS_COMPACT
 from kiro_crew.agent_discovery import warm_project_agent_names
@@ -547,6 +548,41 @@ def _redacted_hook_block(event: Any, pre_hook_results: Any) -> tuple[str, str]:
         _redact_display_text(event.title),
         _redact_display_text(_pre_tool_block_reason(pre_hook_results)),
     )
+
+
+_REFUSAL_CARD_LEAD = "Response declined by the model."
+
+
+def refusal_card_text(refusal: "RefusalInfo | None", *, streamed_text: str = "") -> str:
+    """The one refusal card, rendered from whatever the harness reported.
+
+    Every harness lands on the same ``RefusalInfo``; this renders one line per
+    field that carries a value and NOTHING for a field the provider left
+    empty -- an absent category is silence, not "category: unknown". The Kiro
+    service fills category + explanation (+ sometimes a model that would take
+    the request); Anthropic's adapter fills nothing, so its card is the bare
+    lead plus the rephrase hint. Retry is never offered: a refusal is
+    deterministic.
+
+    *streamed_text* is what the turn already showed as assistant text. The Kiro
+    service streams its canned explanation before the terminal, so when that
+    text already carries the explanation the card does not repeat it -- the
+    user reads it once, and the card adds only what the text could not say
+    (the category, the hint).
+    """
+    lines = [_REFUSAL_CARD_LEAD]
+    if refusal is not None and refusal.category:
+        lines.append(f"Content filter: {refusal.category.lower()}.")
+    if refusal is not None and refusal.explanation and refusal.explanation not in streamed_text:
+        lines.append(refusal.explanation)
+    if refusal is not None and refusal.recommended_model:
+        lines.append(f"The provider suggests model '{refusal.recommended_model}' for this request.")
+    else:
+        lines.append(
+            "Try rephrasing your request, or start a new conversation without the "
+            "content that tripped the filter."
+        )
+    return " ".join(lines)
 
 
 def _answer_text_only(segment_text: str, notice_chunks: list[str]) -> str:
@@ -7420,6 +7456,10 @@ async def _run_chat(
         _stall_tool_title = ""
         _stall_command = ""
         _stall_evidence = ""
+        # Structured refusal forwarded on the terminal (``AcpEvent.refusal``).
+        # ``None`` unless the turn ended in a model-side refusal; read by the
+        # refusal card below, which renders the same shape for every harness.
+        _turn_refusal: RefusalInfo | None = None
         # ── Per-turn stats (elapsed / credits) ──
         # Wall-clock start of the turn. kiro (acp) leaves TurnUsage.duration_ms
         # at 0, so elapsed is measured here; claude_code's API-reported
@@ -10051,6 +10091,7 @@ async def _run_chat(
                         },
                     )
                 _stop_reason = event.stop_reason
+                _turn_refusal = event.refusal
                 # Recorded on the slot so post-turn consumers reached later
                 # (which do not receive the event) can tell a turn that really
                 # finished from one cut short by a timeout, cancel or stall.
@@ -10489,9 +10530,30 @@ async def _run_chat(
                     )
             _flush_text_stream()
             _flush_segment(state, slot, assistant_text, broadcast=False)
+            if _stop_reason == STOP_REASON_REFUSAL:
+                # The Kiro service's content filter STREAMS its canned
+                # explanation as assistant text and then ends the turn, so the
+                # refusal reaches this (answered) branch rather than the
+                # text-less one below. The text is kept -- it is what the
+                # provider said -- and the structured card follows it so the
+                # user sees the category and knows a retry will not help.
+                logger.warning(
+                    "Model refusal for slot %s (category=%s) after "
+                    "streamed explanation — not retrying",
+                    slot.key,
+                    (_turn_refusal.category or "-") if _turn_refusal else "-",
+                )
+                slot.append(
+                    "error",
+                    refusal_card_text(_turn_refusal, streamed_text=assistant_text),
+                    "msg msg-err",
+                )
         elif _stop_reason == STOP_REASON_REFUSAL:
-            # Model-side content refusal (kiro-cli passes Anthropic's `refusal`
-            # stop reason through verbatim) with no accompanying text. This is
+            # Model-side content refusal with no accompanying text: Anthropic's
+            # bare `refusal` stop reason (passed through by every harness), or
+            # the Kiro service's filter when kiro-cli surfaced only the
+            # `_kiro.dev/metadata` envelope. The ACP layer folds both onto
+            # STOP_REASON_REFUSAL + `AcpEvent.refusal`. This is
             # DETERMINISTIC — a blind retry just re-hits the same refusal and
             # burns credits — so surface a distinct, non-retried card. A refusal
             # on turn 1 with zero tool calls and no visible output usually points
@@ -10499,10 +10561,11 @@ async def _run_chat(
             # user's text; log the redacted prompt head + turn shape at WARNING.
             _refusal_head = redact_and_truncate(full_message, 600)
             logger.warning(
-                "Model refusal for slot %s — not retrying "
+                "Model refusal for slot %s (category=%s) — not retrying "
                 "[is_new=%s resumed=%s tool_calls=%d visible_output=%s "
                 "prompt_bytes=%d prompt_head=%r]",
                 slot.key,
+                (_turn_refusal.category or "-") if _turn_refusal else "-",
                 is_new,
                 resumed,
                 _turn_tool_calls,
@@ -10512,7 +10575,7 @@ async def _run_chat(
             )
             slot.append(
                 "error",
-                "Response declined by the model. Try rephrasing your request.",
+                refusal_card_text(_turn_refusal),
                 "msg msg-err",
             )
         elif not _armed_final and should_continue_after_compaction(

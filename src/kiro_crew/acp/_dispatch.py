@@ -46,6 +46,7 @@ from kiro_crew.acp.types import (
     METHOD_SUBAGENT_LIST_UPDATE,
     OPTION_ALLOW_ALWAYS,
     OPTION_ALLOW_ONCE,
+    STOP_REASON_CONTENT_FILTERED_WIRE,
     TODO_TASKS_MAX,
     TODO_TEXT_MAX,
     TOOL_PURPOSE_KEYS,
@@ -55,6 +56,7 @@ from kiro_crew.acp.types import (
     UPDATE_TOOL_CALL_UPDATE,
     AcpEvent,
     JsonRpcMessage,
+    RefusalInfo,
 )
 from kiro_crew.metrics.tool_calls import note_tool_call_started, record_tool_call_finished
 from kiro_crew.security import redact_credentials, redact_exfiltration_urls
@@ -185,7 +187,20 @@ def set_model_params(session_id: str, model_id: str) -> dict[str, Any]:
 #: right per-session queue — so reporting it would mislabel a load-bearing routing
 #: field as an unhandled discovery on the first frame of every shared-runtime
 #: session.
-_KNOWN_METADATA_KEYS = frozenset({"contextUsagePercentage", "meteringUsage", "sessionId"})
+#:
+#: ``stopReason`` and ``refusal`` are the content-filter envelope read by
+#: :func:`parse_refusal` (``ACP_BACKENDS_STRUCTURED_REFUSAL``).
+_KNOWN_METADATA_KEYS = frozenset(
+    {"contextUsagePercentage", "meteringUsage", "sessionId", "stopReason", "refusal"}
+)
+
+#: Keys of the ``refusal`` object :func:`parse_refusal` consumes. Anything else
+#: the service adds is reported once like any other unconsumed field.
+_KNOWN_REFUSAL_KEYS = frozenset({"category", "explanation", "recommendedModel"})
+
+#: Longest ``explanation`` carried onto the dashboard. The canned text is ~250
+#: chars; the cap is a guard against a provider echoing the prompt back.
+_REFUSAL_EXPLANATION_MAX = 600
 
 #: ``meteringUsage`` entry keys this parser knows, and the one ``unit`` value the
 #: credit sum reads. An entry with any other unit contributes nothing.
@@ -240,8 +255,118 @@ def _log_unrecognized_metadata_fields(params: dict[str, Any]) -> None:
                     _reported_metadata_fields.add(name)
                     novel.append(name)
 
+    refusal = params.get("refusal")
+    if isinstance(refusal, dict):
+        for key, value in refusal.items():
+            name = f"refusal.{key}:{type(value).__name__}"
+            if key in _KNOWN_REFUSAL_KEYS or name in _reported_metadata_fields:
+                continue
+            _reported_metadata_fields.add(name)
+            novel.append(name)
+
     if novel:
         logger.debug("acp metadata: unconsumed field(s) %s", ", ".join(sorted(novel)))
+
+
+def _refusal_str(value: object, limit: int) -> str:
+    """A provider string bound for the dashboard: str-typed, scrubbed, capped.
+
+    EVERY field of the refusal object goes through this, not just the prose
+    one: ``category`` and ``recommendedModel`` are provider-echoed text
+    reaching the same log line and the same card as ``explanation``, and the
+    service's vocabulary being closed is an upstream assumption this side
+    cannot verify. Redaction runs over the FULL value, and only then the cap:
+    any cut before the redactors -- the cap itself, or a "generous" pre-slice --
+    can split a secret so its prefix no longer matches a pattern and reaches
+    the surface raw. A refusal object is a few hundred bytes, so scanning it
+    whole costs nothing.
+    """
+    if not isinstance(value, str):
+        return ""
+    text, _ = redact_exfiltration_urls(value.strip())
+    text, _ = redact_credentials(text)
+    return text[:limit]
+
+
+#: The one JSON-RPC error the Kiro service is observed to send as a content-filter
+#: refusal's terminal: a bare ``-32603 Internal error`` with no ``data``.
+_REFUSAL_TERMINAL_CODE = -32603
+
+
+def error_is_refusal_terminal(error: object, refusal: RefusalInfo | None) -> bool:
+    """True iff *error* is the terminal frame OF a refusal already recorded.
+
+    Two conditions, both required. A refusal must have arrived on metadata this
+    turn -- with none recorded, every error is an ordinary error. And the frame
+    must be the bare ``-32603`` the service sends for that case: code alone,
+    ``data`` empty or absent. Anything else -- a prompt-busy echo, a model
+    rejection, a throttle, any frame carrying provider ``data`` -- keeps its own
+    classification even when it happens to land after a refusal frame, so the
+    retry ladder, the substitute-model path and the prompt-busy reset all still
+    see the failure they exist for. Scoping here rather than at each of the four
+    prompt-terminal readers is what keeps them from drifting apart.
+
+    Logs at WARNING when it answers True: the frame is about to be consumed
+    without reaching ``_raise_acp_error``, and that must be visible in the log
+    even though it is the intended outcome.
+    """
+    if refusal is None or not isinstance(error, dict):
+        return False
+    try:
+        code = int(error.get("code"))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+    if code != _REFUSAL_TERMINAL_CODE:
+        return False
+    data = error.get("data")
+    if data not in (None, "", {}, []):
+        return False
+    logger.warning(
+        "acp: -32603 error frame consumed as the terminal of a content-filter "
+        "refusal (category=%s); not raised, not retried",
+        refusal.category or "-",
+    )
+    return True
+
+
+def parse_refusal(params: dict[str, Any]) -> RefusalInfo | None:
+    """Read a content-filter refusal off a ``_kiro.dev/metadata`` notification.
+
+    The Kiro service reports a declined turn as ``stopReason: CONTENT_FILTERED``
+    with a ``refusal`` object beside it, on the metadata channel rather than on
+    the terminal. Returns a :class:`RefusalInfo` when EITHER signal is present
+    -- the stop reason alone (an object-less refusal still is one), or a
+    ``refusal`` object alone (a future stop-reason spelling must not hide the
+    reason the service did send) -- and ``None`` for the ordinary per-turn
+    usage frame that carries neither.
+
+    ``explanation`` is provider text that reaches the dashboard, so it passes
+    the same two-pass scrub every other backend-echoed string does. Field values
+    are never logged here: the caller logs only that a refusal was seen.
+    """
+    stop_reason = params.get("stopReason")
+    refusal = params.get("refusal")
+    filtered = isinstance(stop_reason, str) and (
+        stop_reason.strip().upper() == STOP_REASON_CONTENT_FILTERED_WIRE
+    )
+    if not filtered and not isinstance(refusal, dict):
+        return None
+    if not isinstance(refusal, dict):
+        refusal = {}
+    info = RefusalInfo(
+        category=_refusal_str(refusal.get("category"), 64),
+        explanation=_refusal_str(refusal.get("explanation"), _REFUSAL_EXPLANATION_MAX),
+        recommended_model=_refusal_str(refusal.get("recommendedModel"), 128),
+    )
+    # A log line naming the (scrubbed) category is how an operator learns WHICH
+    # filter a fleet keeps tripping, without carrying the explanation (prose)
+    # or the prompt.
+    logger.info(
+        "acp metadata: content-filter refusal (category=%s, recommended_model=%s)",
+        info.category or "-",
+        info.recommended_model or "-",
+    )
+    return info
 
 
 def parse_metadata(params: dict[str, Any]) -> tuple[float | None, float]:

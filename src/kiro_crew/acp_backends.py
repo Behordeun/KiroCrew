@@ -494,6 +494,26 @@ ACP_BACKENDS_KIRO_SLASH_COMMANDS = frozenset({ACP_BACKEND_KIRO, ACP_BACKEND_KAS}
 # has not demonstrated the capability — neither inherits it.
 ACP_BACKENDS_MCP_CONFIG_HOT_RELOAD = frozenset({ACP_BACKEND_KIRO})
 
+# Backends whose model-side REFUSAL arrives with a structured reason, not just a
+# stop reason. When the Kiro service's content filter declines a turn, kiro-cli
+# (and KAS, its relay) emit a ``_kiro.dev/metadata`` notification carrying
+# ``stopReason: CONTENT_FILTERED`` plus a ``refusal`` object -- ``category``
+# (``CYBER``, ...), the service's canned ``explanation``, and an optional
+# ``recommendedModel`` -- milliseconds BEFORE the turn's terminal frame. Nothing
+# in the terminal itself says why the turn stopped: the canned explanation is
+# streamed as ordinary assistant text, and the ``session/prompt`` result may
+# read ``end_turn`` or come back as a bare ``-32603 Internal error``.
+#
+# Membership decides whether :func:`kiro_crew.acp._dispatch.parse_refusal` is
+# consulted on that notification. Every harness still lands on the SAME
+# :class:`kiro_crew.acp.types.RefusalInfo` -- claude-agent-acp only reports
+# Anthropic's ``stopReason: "refusal"`` with no reason attached, codex-acp
+# likewise -- so a non-member is not "unsupported": its refusal card simply has
+# no category line. The set exists so a future harness that carries its own
+# reason payload is added HERE with a parser, rather than by widening the
+# metadata reader to guess at every notification's shape.
+ACP_BACKENDS_STRUCTURED_REFUSAL = frozenset({ACP_BACKEND_KIRO, ACP_BACKEND_KAS})
+
 
 # ── How a harness is made to ask ──
 # Kiro Crew's PreToolUse gate -- the bundled denied-command rules, the

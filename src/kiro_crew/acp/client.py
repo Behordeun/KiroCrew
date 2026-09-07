@@ -55,11 +55,13 @@ from kiro_crew.acp._dispatch import (
     agent_version_from_init,
     build_permission_event,
     derive_edit_diff,
+    error_is_refusal_terminal,
     extract_tool_purpose,
     log_unrenderable_content,
     make_unified_diff,
     parse_claude_compaction_notice,
     parse_prompt_token_usage,
+    parse_refusal,
     parse_session_modes,
     parse_usage_cost,
     parse_usage_update,
@@ -87,6 +89,7 @@ from kiro_crew.acp.types import (
     ACP_BACKENDS_SEED_LOCAL_SETTINGS,
     ACP_BACKENDS_SESSION_MCP_ARRAY,
     ACP_BACKENDS_STEER,
+    ACP_BACKENDS_STRUCTURED_REFUSAL,
     ACP_CLIENT_CAPABILITIES,
     EVENT_AGENT_SWITCHED,
     EVENT_CLEAR_STATUS,
@@ -6581,10 +6584,20 @@ class AcpClient:
                     # event is discarded — this API yields str — but the context
                     # counts it drops are what the meter reads next turn.
                     self._settle_claude_compaction(reason)
+                    reason, _ = self.last_prompt_stats.terminal_refusal(reason)
                     self._last_stop_reason = reason
                     self._turn_done.set()
                     return
                 if action == "error":
+                    if error_is_refusal_terminal(msg.error, self.last_prompt_stats.refusal):
+                        # The refusal's own -32603 terminal (see
+                        # _dispatch_events). This API yields str, so the fold
+                        # lands on _last_stop_reason and the turn ends cleanly
+                        # rather than raising a deterministic decline.
+                        reason, _ = self.last_prompt_stats.terminal_refusal("")
+                        self._last_stop_reason = reason
+                        self._turn_done.set()
+                        return
                     _raise_acp_error(msg.error, self._advertised_model_ids())
                 if action == "permission":
                     await self._handle_permission(msg)
@@ -6709,6 +6722,7 @@ class AcpClient:
                 _compaction_settle = self._settle_claude_compaction(reason)
                 if _compaction_settle is not None:
                     yield _compaction_settle
+                reason, _refusal = self.last_prompt_stats.terminal_refusal(reason)
                 # Turn is over — disarm the stall watchdog.
                 self._tool_dispatched = False
                 self._last_stop_reason = reason
@@ -6716,10 +6730,33 @@ class AcpClient:
                 yield AcpEvent(
                     kind=EVENT_COMPLETE,
                     stop_reason=reason,
+                    refusal=_refusal,
                     usage=self.last_prompt_stats.to_turn_usage(),
                 )
                 return
             if action == "error":
+                if error_is_refusal_terminal(msg.error, self.last_prompt_stats.refusal):
+                    # See AcpSessionHandle: a content-filter refusal can
+                    # terminate as a bare -32603. The reason is already on the
+                    # stats; surface it as the refusal terminal, never raise.
+                    #
+                    # Flush pending tool results first, exactly as the
+                    # `complete` branch does: a tool that finished just before
+                    # the filtered inference would otherwise have its result
+                    # dropped, or emitted into the NEXT turn.
+                    reason, _refusal = self.last_prompt_stats.terminal_refusal("")
+                    for tr_event in await asyncio.to_thread(self._read_new_tool_results_sync):
+                        yield tr_event
+                    self._tool_dispatched = False
+                    self._last_stop_reason = reason
+                    self._turn_done.set()
+                    yield AcpEvent(
+                        kind=EVENT_COMPLETE,
+                        stop_reason=reason,
+                        refusal=_refusal,
+                        usage=self.last_prompt_stats.to_turn_usage(),
+                    )
+                    return
                 _raise_acp_error(msg.error, self._advertised_model_ids())
             if action == "permission":
                 yield self._build_permission_event(msg)
@@ -7274,10 +7311,25 @@ class AcpClient:
                 # See send_message_stream: settle for the context counts, drop
                 # the event this API cannot yield.
                 self._settle_claude_compaction(reason)
+                # Fold a metadata refusal onto the terminal, as the streaming
+                # paths do, so a caller reading ``last_stop_reason`` sees the
+                # refusal and does not retry a deterministic decline.
+                reason, _ = self.last_prompt_stats.terminal_refusal(reason)
                 self._last_stop_reason = reason
                 self._turn_done.set()
                 return "".join(output)
             if action == "error":
+                if error_is_refusal_terminal(msg.error, self.last_prompt_stats.refusal):
+                    # A content-filter refusal terminating as a bare -32603 (see
+                    # _dispatch_events). This API returns the turn's text, so
+                    # return what streamed (the canned explanation) under the
+                    # refusal stop reason rather than raising: an AcpError here
+                    # would discard the reason, feed the retry ladder a
+                    # deterministic decline, and retire a healthy worker.
+                    reason, _ = self.last_prompt_stats.terminal_refusal("")
+                    self._last_stop_reason = reason
+                    self._turn_done.set()
+                    return "".join(output)
                 _raise_acp_error(msg.error, self._advertised_model_ids())
             if action == "permission":
                 await self._handle_permission(msg)
@@ -8215,6 +8267,13 @@ class AcpClient:
 
     def _track_metadata(self, msg: JsonRpcMessage) -> None:
         params = msg.params or {}
+        # Content-filter refusal envelope. Opt-in by membership (H6): a harness
+        # that has not demonstrated the payload does not have its metadata
+        # frames guessed at. Folded onto the terminal by ``terminal_refusal``.
+        if self.backend in ACP_BACKENDS_STRUCTURED_REFUSAL:
+            _refusal = parse_refusal(params)
+            if _refusal is not None:
+                self.last_prompt_stats.refusal = _refusal
         # A real usage_update is authoritative for both the token counts AND the
         # pct derived from them. kiro's metadata percentage can measure a
         # different window, so applying it here would desync the headline % from

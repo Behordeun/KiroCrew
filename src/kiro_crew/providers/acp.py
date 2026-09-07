@@ -1360,6 +1360,7 @@ class AcpProvider(LLMProvider):
             tool_purpose=e.tool_purpose,
             context_usage_pct=e.context_usage_pct,
             stop_reason=e.stop_reason,
+            refusal=e.refusal,
             synthetic_completion=e.synthetic_completion,
             request_id=e.request_id,
             options=e.options,
