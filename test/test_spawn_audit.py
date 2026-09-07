@@ -1308,6 +1308,24 @@ BENIGN_SPAWNS: frozenset[str] = frozenset(
         # interpreter + stdin-only data + killed on timeout ⇒ benign, not routed.
         "validation.py::_bounded_pattern_search",
         "voice_reply.py::stitch_mp3s",
+        # Enumerating the host speech engine's voices. The whole argv is fixed
+        # by this module: the binary comes from ``trusted_system_bin`` (a system
+        # directory, resolved WITHOUT consulting PATH, so a shim in an
+        # agent-writable directory cannot be reached), and the arguments are
+        # module constants — ``-v ?`` for ``say``, ``--voices`` for
+        # ``espeak-ng``, or a constant base64 ``-EncodedCommand`` for Windows
+        # PowerShell. Nothing from the agent, the model, or user config enters
+        # the command, no stdin is written, and the output is only parsed.
+        # It stands on those properties ALONE, and deliberately not by analogy to
+        # the synthesis path: that path always goes through
+        # ``sandboxed_spawn_argv_async``, claiming the first-party carve-out only
+        # on the SAPI branch, so citing it here would teach the next reader an
+        # invariant the tree does not have. What makes this probe benign is that
+        # it parses no attacker-supplied text — synthesis parses a reply the model
+        # wrote, which is exactly why synthesis is confined and this is not.
+        # Fixed argv + trusted-directory binary + read-only output ⇒ benign, not
+        # routed.
+        "voice_reply.py::list_system_voices",
     }
 )
 
@@ -1333,6 +1351,26 @@ FIRST_PARTY_SPAWNS: frozenset[str] = frozenset(
         # managed command/args/env compare unequal, pass False, and keep the
         # full fail-close + opt-in behavior.
         "mcp_discovery.py::probe_server",
+        # The built-in SAPI synthesizer. The flag value is COMPUTED
+        # (``engine == SYSTEM_ENGINE_SAPI``), so only the Windows branch claims
+        # it: that argv is a System32 ``powershell.exe`` resolved by
+        # ``trusted_system_bin`` (never PATH), four module-constant flags, and a
+        # base64 ``-EncodedCommand`` whose script interpolates ONLY
+        # internally-derived ``mkstemp`` paths plus an integer from
+        # ``_validate_rate``. The two values a user or a model supplies — the
+        # reply text and ``system_voice`` — are spilled to files the script
+        # reads at runtime, so neither reaches argv. The ``say``/``espeak-ng``
+        # branches DO carry the configured voice on argv and evaluate False,
+        # which costs nothing: both platforms have a backend, where the
+        # carve-out is inert anyway.
+        "voice_reply.py::_synthesize_system",
+        # The shared local-TTS runner. It DECIDES nothing: it forwards its own
+        # parameter to the chokepoint, and its only caller passing a non-default
+        # value is the reviewed ``_synthesize_system`` entry above (piper's call
+        # omits it and takes the False default). Listed rather than excluded
+        # because the scan is deliberately value-blind, so a future caller
+        # passing True here would still have to be reviewed as its own entry.
+        "voice_reply.py::_run_tts_subprocess",
     }
 )
 

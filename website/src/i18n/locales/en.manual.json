@@ -5393,16 +5393,24 @@
         "where_to_find_the_client_secret": "Where to find the client secret"
       },
       "voicePanel": {
-        "failed_to_save_voice_config": "Failed to save voice config",
         "amazon_polly_cloud": "Amazon Polly (cloud)",
+        "could_not_read_the_hosts_voice_list_only_the_operat": "Could not read the host's voice list. Only the operating system default is offered.",
+        "failed_to_save_voice_config": "Failed to save voice config",
         "faster": "Faster",
         "fastest": "Fastest",
         "normal": "Normal",
+        "os_default_voice": "Operating system default",
         "piper_local_offline": "Piper (local, offline)",
         "slow": "Slow",
         "slower": "Slower",
         "slowest": "Slowest",
-        "voice_catalogue_unavailable": "Could not load the Polly voice list. The picker shows a built-in fallback list."
+        "system_built_in": "System (built-in)",
+        "the_built_in_engine_needs_no_setup_piper_is_offlin": "The built-in engine needs no setup; Piper is offline with better quality; Amazon Polly uses AWS credentials + network",
+        "this_host_has_no_built_in_speech_engine_install_es": "This host has no built-in speech engine. Install espeak-ng (for example: sudo apt install espeak-ng), or pick another provider.",
+        "voice_catalogue_unavailable": "Could not load the Polly voice list. The picker shows a built-in fallback list.",
+        "voice_from_the_hosts_built_in_speech_engine": "Voice from the host's built-in speech engine",
+        "speech_rate_for_spoken_replies_built_in": "Speech rate for spoken replies (built-in engine)",
+        "speech_rate_for_spoken_replies_polly": "Speech rate for spoken replies (Amazon Polly)"
       },
       "iMessagePanel": {
         "access": "Access",
