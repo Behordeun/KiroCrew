@@ -4960,10 +4960,13 @@ function ChatSidebar({
   // cannot resurrect a stale notice (and a stale success cannot clear a newer
   // failure's notice).
   const folderCreateAttemptRef = useRef(0)
+  type CreateChatInFolderVars = { folderId: string; columnId?: string; focus?: boolean; attempt: number; memoryMode?: 'incognito' | 'temporary' }
   const createChatInFolderMutation = useMutation({
-    mutationFn: ({ folderId }: { folderId: string; columnId?: string; focus?: boolean; attempt: number }) => {
+    mutationFn: ({ folderId, memoryMode }: CreateChatInFolderVars) => {
       const agent = resolveFolderAgent(folders, folderId, defaultAgent)
-      const effectiveMode = loadChatConfig().defaultAutopilot ? 'orchestrator' : (mode || '')
+      // A mode-specific create pins plain mode, not the defaultAutopilot preference.
+      const ephemeral = !!memoryMode
+      const effectiveMode = (!ephemeral && loadChatConfig().defaultAutopilot) ? 'orchestrator' : (mode || '')
       // Carry folder membership in the create payload so createSlot publishes
       // the new slot to Redux in its final location. Assigning it after create
       // lets the sidebar render one frame at root before moving it.
@@ -4973,9 +4976,9 @@ function ChatSidebar({
       // project — createSlot applies it before the slot activates, so the
       // first message can't race a late project switch.
       const project = resolveFolderProjectDir(folders, folderId)
-      return dispatch(createSlot({ agent, mode: effectiveMode, folder_id: folderId, project })).unwrap()
+      return dispatch(createSlot({ agent, mode: effectiveMode, folder_id: folderId, project, ...(memoryMode ? { memory_mode: memoryMode } : {}) })).unwrap()
     },
-    onSuccess: (slot: Slot, { folderId, columnId, focus, attempt }: { folderId: string; columnId?: string; focus?: boolean; attempt: number }) => {
+    onSuccess: (slot: Slot, { folderId, columnId, focus, attempt }: CreateChatInFolderVars) => {
       // A create that went through supersedes an earlier failure notice for
       // the same folder (e.g. the user fixed the folder's project directory
       // and retried); notices for OTHER folders stay put, and a stale success
@@ -4995,7 +4998,7 @@ function ChatSidebar({
         dropSlotMutation.mutate({ slot: slot.key, columnId })
       }
     },
-    onError: (err: unknown, { folderId, columnId, attempt }: { folderId: string; columnId?: string; focus?: boolean; attempt: number }) => {
+    onError: (err: unknown, { folderId, columnId, attempt }: CreateChatInFolderVars) => {
       // eslint-disable-next-line no-console -- surface chat-creation failures for diagnostics
       console.error('Failed to create chat in folder:', err)
       if (attempt !== folderCreateAttemptRef.current) return
@@ -5031,7 +5034,7 @@ function ChatSidebar({
       setFolderCreateError({ folderId, columnId, message, title, report, offerSettings: isStaleProjectDir })
     },
   })
-  const createChatInFolder = useCallback((folderId: string, opts?: { columnId?: string; focus?: boolean }) => {
+  const createChatInFolder = useCallback((folderId: string, opts?: { columnId?: string; focus?: boolean; memoryMode?: 'incognito' | 'temporary' }) => {
     // A nested folder selected from the create menu may be hidden behind one
     // or more collapsed ancestors. Expand the complete path optimistically so
     // the destination and its new session are visible as creation begins.
@@ -5049,7 +5052,7 @@ function ChatSidebar({
       persistClearFolderOverrides(folder.id)
       currentId = folder.parent_id || undefined
     }
-    createChatInFolderMutation.mutate({ folderId, columnId: opts?.columnId, focus: opts?.focus, attempt: ++folderCreateAttemptRef.current })
+    createChatInFolderMutation.mutate({ folderId, columnId: opts?.columnId, focus: opts?.focus, attempt: ++folderCreateAttemptRef.current, memoryMode: opts?.memoryMode })
   }, [createChatInFolderMutation, folders, updateFolderMutation])
 
   // Create autopilot session mutation (consistent with useMutation pattern)
@@ -5300,6 +5303,33 @@ function ChatSidebar({
               <DropdownMenuContent align="start" className="min-w-[180px]" onClick={e => e.stopPropagation()} onCloseAutoFocus={onMenuCloseAutoFocus}>
                 <DropdownMenuItem onClick={() => { suppressMenuRestoreRef.current = true; setEditingId(folder.id); setEditScope(columnId); setEditName(folder.name) }}><Pencil size={13} /> {i18nT('pages.chatSidebar.rename')}</DropdownMenuItem>
                 <DropdownMenuItem data-testid={`col-${columnId}-folder-${folder.id}-new-sub`} onClick={() => { setFolderModal({ mode: 'create', parentId: folder.id }) }}><FolderPlus size={13} /> {i18nT('pages.chatSidebar.new_subfolder')}</DropdownMenuItem>
+                {(() => {
+                  const rows = (
+                    <>
+                      <DropdownMenuItem data-testid={`col-${columnId}-folder-${folder.id}-new-incognito`} onClick={() => { createChatInFolder(folder.id, { columnId, memoryMode: 'incognito' }) }}><EyeOff size={13} className="text-warn" /> {i18nT('components.welcomeView.incognito')}</DropdownMenuItem>
+                      <DropdownMenuItem data-testid={`col-${columnId}-folder-${folder.id}-new-temporary`} onClick={() => { createChatInFolder(folder.id, { columnId, memoryMode: 'temporary' }) }}><VenetianMask size={13} className="text-aim" /> {i18nT('components.welcomeView.temporary')}</DropdownMenuItem>
+                    </>
+                  )
+                  // A flyout has nowhere to open at phone width, so inline the rows
+                  // under a caption there instead (parity with the + New menu).
+                  if (isMobile) {
+                    return (
+                      <>
+                        <DropdownMenuLabel className="text-[11px] uppercase tracking-[.04em] flex items-center gap-2"><Ghost size={13} className="text-muted" /> {i18nT('pages.chatSidebar.new_ephemeral_chat')}</DropdownMenuLabel>
+                        {rows}
+                      </>
+                    )
+                  }
+                  return (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger data-testid={`col-${columnId}-folder-${folder.id}-new-ephemeral`}>
+                        <Ghost size={13} className="text-muted" /> {i18nT('pages.chatSidebar.new_ephemeral_chat')}
+                        <ChevronRight size={13} className="ml-auto text-muted" />
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>{rows}</DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )
+                })()}
                 {/* Re-parent: board-view parity with the list-view folder menu. */}
                 <FolderMoveSubmenu variant="dropdown" label={i18nT('pages.chatSidebar.move_folder_to')}
                   folders={reparentTargets}
@@ -5633,6 +5663,33 @@ function ChatSidebar({
             <DropdownMenuContent align="start" className="min-w-[180px]" onClick={e => e.stopPropagation()} onCloseAutoFocus={onMenuCloseAutoFocus}>
               <DropdownMenuItem data-testid={`folder-rename-${folder.id}`} onClick={() => { suppressMenuRestoreRef.current = true; setEditingId(folder.id); setEditScope('list'); setEditName(folder.name) }}><Pencil size={13} /> {i18nT('pages.chatSidebar.rename')}</DropdownMenuItem>
               <DropdownMenuItem onClick={() => { setFolderModal({ mode: 'create', parentId: folder.id }) }}><FolderPlus size={13} /> {i18nT('pages.chatSidebar.new_subfolder')}</DropdownMenuItem>
+              {(() => {
+                const rows = (
+                  <>
+                    <DropdownMenuItem data-testid={`folder-new-incognito-${folder.id}`} onClick={() => { createChatInFolder(folder.id, { memoryMode: 'incognito' }) }}><EyeOff size={13} className="text-warn" /> {i18nT('components.welcomeView.incognito')}</DropdownMenuItem>
+                    <DropdownMenuItem data-testid={`folder-new-temporary-${folder.id}`} onClick={() => { createChatInFolder(folder.id, { memoryMode: 'temporary' }) }}><VenetianMask size={13} className="text-aim" /> {i18nT('components.welcomeView.temporary')}</DropdownMenuItem>
+                  </>
+                )
+                // A flyout has nowhere to open at phone width, so inline the rows
+                // under a caption there instead (parity with the + New menu).
+                if (isMobile) {
+                  return (
+                    <>
+                      <DropdownMenuLabel className="text-[11px] uppercase tracking-[.04em] flex items-center gap-2"><Ghost size={13} className="text-muted" /> {i18nT('pages.chatSidebar.new_ephemeral_chat')}</DropdownMenuLabel>
+                      {rows}
+                    </>
+                  )
+                }
+                return (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger data-testid={`folder-new-ephemeral-${folder.id}`}>
+                      <Ghost size={13} className="text-muted" /> {i18nT('pages.chatSidebar.new_ephemeral_chat')}
+                      <ChevronRight size={13} className="ml-auto text-muted" />
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>{rows}</DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )
+              })()}
               {/* Re-parent: move this folder under another folder or back to the
                *  top level. Self + descendants are excluded (cycle guard). */}
               <FolderMoveSubmenu variant="dropdown" label={i18nT('pages.chatSidebar.move_folder_to')}
