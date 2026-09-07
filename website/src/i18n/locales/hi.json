@@ -9960,6 +9960,7 @@
       "connecting": "कनेक्ट हो रहा है…",
       "connection_healthy": "कनेक्शन ठीक काम कर रहा है।",
       "connection_invalid": "{{provider}} के अनुसार यह कनेक्शन अब मान्य नहीं है।",
+      "connection_unreachable": "इस कनेक्शन की जाँच के लिए {{provider}} से संपर्क नहीं हो सका।",
       "connection_views": "कनेक्शन दृश्य",
       "connections": "कनेक्शन",
       "could_not_load_status": "कनेक्शन की स्थिति लोड नहीं हो सकी। कार्ड पुराने हो सकते हैं।",

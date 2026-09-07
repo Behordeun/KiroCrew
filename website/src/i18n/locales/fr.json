@@ -10109,6 +10109,7 @@
       "connecting": "Connexion…",
       "connection_healthy": "La connexion fonctionne correctement.",
       "connection_invalid": "{{provider}} indique que cette connexion n’est plus valide.",
+      "connection_unreachable": "Impossible de joindre {{provider}} pour vérifier cette connexion.",
       "connection_views": "Vues des connexions",
       "connections": "Connexions",
       "could_not_load_status": "Impossible de charger l’état des connexions. Les cartes peuvent être obsolètes.",

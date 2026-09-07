@@ -9960,6 +9960,7 @@
       "connecting": "Verbindung wird hergestellt…",
       "connection_healthy": "Die Verbindung funktioniert.",
       "connection_invalid": "{{provider}} meldet, dass diese Verbindung nicht mehr gültig ist.",
+      "connection_unreachable": "{{provider}} konnte zur Prüfung dieser Verbindung nicht erreicht werden.",
       "connection_views": "Verbindungsansichten",
       "connections": "Verbindungen",
       "could_not_load_status": "Der Verbindungsstatus konnte nicht geladen werden. Die Karten sind möglicherweise veraltet.",

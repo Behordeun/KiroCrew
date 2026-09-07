@@ -291,6 +291,38 @@ export function confirmedGrantPresent(status: ConnectionStatus | undefined): boo
   return status && !status.grantIndeterminate ? status.grantPresent : undefined
 }
 
+/**
+ * Whether an error detail is EVIDENCE of the provider rejecting the authorization.
+ *
+ * The needs-attention banner's strongest copy asserts a provider VERDICT —
+ * "{{provider}} says this connection is no longer valid" — so it may only render
+ * over auth-shaped evidence (an OAuth error code, a 401/403, a revocation, a
+ * refused consent). Everything else a probe can surface (timeouts, DNS failures,
+ * connection resets) is transport noise the provider never spoke through, and
+ * claiming a verdict over it sends the user to revoke/reauthorize flows for a
+ * network blip. Default false: asserting a verdict needs positive evidence, an
+ * unknown error does not earn it.
+ *
+ * Exported for test.
+ */
+export function errorIndicatesProviderRejection(detail: string | undefined): boolean {
+  if (!detail) return false
+  const normalized = detail.toLowerCase()
+  // OAuth error codes and rejection words are matched as whole tokens: a bare
+  // substring test read "certificate has expired" (a TLS transport failure) as
+  // a provider rejection, re-creating the exact misattribution this classifier
+  // exists to prevent. "expired" only counts beside a credential noun, and the
+  // bare status digits only as standalone tokens (not inside a port or an id).
+  if (/\b(invalid_grant|invalid_token|invalid_client|unauthorized|forbidden|revoked)\b/.test(normalized)) {
+    return true
+  }
+  if (/\b(?:token|grant|authorization|credential|session)\b[^.]*\bexpired\b|\bexpired\b[^.]*\b(?:token|grant|authorization|credential|session)\b/.test(normalized)) {
+    return true
+  }
+  if (/\b(denied|consent)\b/.test(normalized)) return true
+  return /(?:^|[^\d.])(401|403)(?:[^\d.]|$)/.test(normalized)
+}
+
 export function connectionStateFor(
   server: McpServer | undefined,
   oauth: OAuthState | undefined,
@@ -981,13 +1013,24 @@ function ConnectionCard({
 
         {state === 'needs-attention' && (
           <div className="space-y-3">
-            <div className="flex items-start gap-2 rounded-md bg-danger-subtle p-2.5 text-[12px] text-danger">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span>
-                {t('pages.connectionsPage.connection_invalid', { provider: provider.name })}
-                {(oauth?.error || server?.error) && <span className="mt-1 block text-[11px] text-muted">{oauth?.error || server?.error}</span>}
-              </span>
-            </div>
+            {/* The headline is copy selected by evidence (verdict vs could-not-reach);
+                the raw detail stays the ErrorNotice `message` so the journal lookup
+                key keeps its structured context. Detail absent: the headline itself
+                is the message so the notice still renders. askAgent is ON: a status
+                card holds no unsaved draft, so the hand-off can destroy nothing. */}
+            <ErrorNotice
+              title={(oauth?.error || server?.error) ? t(
+                errorIndicatesProviderRejection(oauth?.error || server?.error)
+                  ? 'pages.connectionsPage.connection_invalid'
+                  : 'pages.connectionsPage.connection_unreachable',
+                { provider: provider.name },
+              ) : undefined}
+              message={oauth?.error || server?.error || t(
+                'pages.connectionsPage.connection_unreachable',
+                { provider: provider.name },
+              )}
+              askAgent
+            />
             <div className="flex items-center justify-end gap-2">
               {prerequisiteTip}
               <Btn primary onClick={() => void startMint(onReconnect)} disabled={!!busy}>

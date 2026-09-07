@@ -9811,6 +9811,7 @@
       "connecting": "接続中…",
       "connection_healthy": "接続は正常です。",
       "connection_invalid": "{{provider}}このコネクションはもう有効ではないと言っています。",
+      "connection_unreachable": "{{provider}}に接続を確認するためのアクセスができませんでした。",
       "connection_views": "コネクションビュー",
       "connections": "コネクション",
       "could_not_load_status": "コネクションステータスを読み込めませんでした。カードが古い可能性があります。",

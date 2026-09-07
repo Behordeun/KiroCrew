@@ -9960,6 +9960,7 @@
       "connecting": "সংযুক্ত হচ্ছে…",
       "connection_healthy": "সংযোগটি সচল আছে।",
       "connection_invalid": "{{provider}} জানিয়েছে যে এই সংযোগটি আর বৈধ নয়।",
+      "connection_unreachable": "এই সংযোগ যাচাই করতে {{provider}}-এর সাথে যোগাযোগ করা যায়নি।",
       "connection_views": "সংযোগ ভিউ",
       "connections": "সংযোগ",
       "could_not_load_status": "সংযোগের স্থিতি লোড করা যায়নি। কার্ডের তথ্য পুরোনো হতে পারে।",

@@ -81,7 +81,7 @@ vi.mock('../pages/overview/McpTab', () => ({
   ),
 }))
 
-import ConnectionsPage from '../pages/connections/ConnectionsPage'
+import ConnectionsPage, { errorIndicatesProviderRejection } from '../pages/connections/ConnectionsPage'
 import { CONNECTION_PROVIDERS } from '../pages/connections/registry'
 import ProviderLogo, { PROVIDER_LOGO_SLUGS } from '../pages/connections/ProviderLogo'
 import { i18next } from '../i18n'
@@ -1028,6 +1028,40 @@ describe('a provider that needs attention', () => {
     expect(within(notion).getByText('Notion says this connection is no longer valid.')).toBeInTheDocument()
     expect(within(notion).getByText('invalid_grant')).toBeInTheDocument()
     expect(within(notion).getByRole('button', { name: /Reconnect/ })).toBeEnabled()
+  })
+
+  it('does not put a provider verdict on a transport timeout', async () => {
+    // A probe timeout is transport noise, not a provider statement — the banner
+    // must not claim "Notion says…" over it (the copy the user reported seeing
+    // beside a literal "timeout" detail). The verdict copy needs auth-shaped
+    // evidence; everything else gets the honest could-not-reach framing with the
+    // same Reconnect affordance.
+    mcpServers.mockResolvedValue([server({ status: 'error', error: 'timeout' })])
+    mount()
+
+    const notion = await waitFor(() => {
+      const el = card('notion')
+      expect(el).toHaveAttribute('data-state', 'needs-attention')
+      return el
+    })
+    expect(within(notion).getByText('Notion could not be reached to check this connection.')).toBeInTheDocument()
+    expect(within(notion).queryByText('Notion says this connection is no longer valid.')).not.toBeInTheDocument()
+    expect(within(notion).getByText('timeout')).toBeInTheDocument()
+    expect(within(notion).getByRole('button', { name: /Reconnect/ })).toBeEnabled()
+  })
+
+  it('classifies error details: provider verdicts need auth-shaped evidence', () => {
+    // Rejections the provider actually expressed.
+    for (const detail of ['invalid_grant', 'HTTP 401 Unauthorized', 'token revoked', 'user denied consent', 'access forbidden (403)', 'token expired', 'authorization has expired']) {
+      expect(errorIndicatesProviderRejection(detail)).toBe(true)
+    }
+    // Transport noise and unknowns: no verdict without evidence. The TLS row is
+    // the Opus counterexample: "expired" as a bare substring would have matched
+    // a certificate error and re-created the exact misattribution this fix
+    // removes; likewise bare 401/403 digits inside ports or ids.
+    for (const detail of ['timeout', 'ECONNRESET', 'getaddrinfo ENOTFOUND gitlab.com', 'server returned 502', 'certificate verify failed: certificate has expired', 'connect to host port 4013 failed', '', undefined]) {
+      expect(errorIndicatesProviderRejection(detail)).toBe(false)
+    }
   })
 
   it('prefers the OAuth banner error over the stale server error', async () => {

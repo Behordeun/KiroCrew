@@ -10109,6 +10109,7 @@
       "connecting": "Conectando…",
       "connection_healthy": "A conexão está funcionando.",
       "connection_invalid": "O {{provider}} informa que esta conexão não é mais válida.",
+      "connection_unreachable": "Não foi possível contactar {{provider}} para verificar esta conexão.",
       "connection_views": "Visualizações de conexões",
       "connections": "Conexões",
       "could_not_load_status": "Não foi possível carregar o status das conexões. Os cartões podem estar desatualizados.",

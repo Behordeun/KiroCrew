@@ -3780,6 +3780,7 @@
       "connecting": "Connecting…",
       "connection_healthy": "Connection is healthy.",
       "connection_invalid": "{{provider}} says this connection is no longer valid.",
+      "connection_unreachable": "{{provider}} could not be reached to check this connection.",
       "connection_views": "Connection views",
       "connections": "Connections",
       "could_not_load_status": "Connection status could not be loaded. Cards may be out of date.",

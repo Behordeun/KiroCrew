@@ -10109,6 +10109,7 @@
       "connecting": "Connessione…",
       "connection_healthy": "La connessione funziona correttamente.",
       "connection_invalid": "{{provider}} segnala che questa connessione non è più valida.",
+      "connection_unreachable": "Impossibile raggiungere {{provider}} per verificare questa connessione.",
       "connection_views": "Viste delle connessioni",
       "connections": "Connessioni",
       "could_not_load_status": "Impossibile caricare lo stato delle connessioni. Le schede potrebbero non essere aggiornate.",

@@ -9811,6 +9811,7 @@
       "connecting": "연결 중…",
       "connection_healthy": "연결이 정상입니다.",
       "connection_invalid": "{{provider}}에서 이 연결이 더 이상 유효하지 않다고 알려왔습니다.",
+      "connection_unreachable": "{{provider}}에 연결 상태를 확인하기 위해 접근할 수 없었습니다.",
       "connection_views": "연결 보기",
       "connections": "연결",
       "could_not_load_status": "연결 상태를 불러올 수 없습니다. 카드가 최신 정보가 아닐 수 있습니다.",

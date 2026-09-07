@@ -9811,6 +9811,7 @@
       "connecting": "正在连接…",
       "connection_healthy": "连接正常。",
       "connection_invalid": "{{provider}} 表示此连接已失效。",
+      "connection_unreachable": "无法访问 {{provider}} 以检查此连接。",
       "connection_views": "连接视图",
       "connections": "连接",
       "could_not_load_status": "无法加载连接状态。卡片信息可能已过期。",
