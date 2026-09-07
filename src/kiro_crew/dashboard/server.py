@@ -1484,6 +1484,7 @@ def _register_mcp_routes(app: web.Application) -> None:
     # Auto-nudge (feature-flagged — returns 503 when KIROCREW_AUTONUDGE unset)
     from kiro_crew.dashboard.handlers.autonudge import (
         api_autonudge_delete,
+        api_autonudge_fire,
         api_autonudge_get,
         api_autonudge_list,
         api_autonudge_start,
@@ -1503,6 +1504,7 @@ def _register_mcp_routes(app: web.Application) -> None:
     app.router.add_get("/api/autonudge/slot/{slot_key}", api_autonudge_get)
     app.router.add_patch("/api/autonudge/{loop_id}", api_autonudge_update)
     app.router.add_delete("/api/autonudge/{loop_id}", api_autonudge_delete)
+    app.router.add_post("/api/autonudge/{loop_id}/fire", api_autonudge_fire)
     app.router.add_get("/api/monitors", api_monitors_list)
     app.router.add_post("/api/monitors", api_monitor_create)
     app.router.add_get("/api/monitors/slot/{slot_key}", api_monitor_slot_get)

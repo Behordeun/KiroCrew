@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { useState } from 'react'
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AutoNudgePopover, { type AutoNudgeLoop } from '../components/AutoNudgePopover'
 import { __resetForTests, loadGoalDraft, saveGoalDraft } from '../utils/goalDrafts'
@@ -509,5 +510,200 @@ describe('AutoNudgePopover cycle cap readout', () => {
     act(() => { vi.advanceTimersByTime(3_000) })
     expect(trigger.getAttribute('aria-label')).toBe('Goal active (cycle 3/24)')
     expect(trigger.getAttribute('aria-label')).not.toMatch(/Next cycle/i)
+  })
+})
+
+describe('AutoNudgePopover Trigger nudge (#8212)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    __resetForTests()
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ loop: null }) })) as unknown as typeof fetch)
+  })
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+
+  /** Local render helper: the shared one hardcodes no-op callbacks, and these
+   *  tests are about what the press DOES to them.
+   *
+   *  `open` is CONTROLLED here, mirroring the real parent (ChatInput owns the
+   *  flag and feeds it back). A fixed `open={true}` would make the harness pin
+   *  the popover's presence, so "the edit survives" could not fail even if the
+   *  code closed it -- the assertion would be about the fixture rather than the
+   *  component. */
+  const renderWith = (loop: AutoNudgeLoop | null, onChange = vi.fn()) => {
+    const onOpenChange = vi.fn()
+    const Harness = () => {
+      const [open, setOpen] = useState(true)
+      return (
+        <AutoNudgePopover
+          slotKey={SLOT}
+          loop={loop}
+          open={open}
+          onOpenChange={v => { onOpenChange(v); setOpen(v) }}
+          onChange={onChange}
+        />
+      )
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <Harness />
+      </QueryClientProvider>,
+    )
+    return { onChange, onOpenChange }
+  }
+
+  const triggerButton = () => screen.queryByRole('button', { name: 'Trigger nudge' })
+
+  it('offers the button while a loop is active', () => {
+    renderWith(makeLoop())
+    expect(triggerButton()).toBeTruthy()
+  })
+
+  it('offers it NOWHERE when no loop is running, so the affordance never appears without a subject', () => {
+    renderWith(null)
+    // Complement assertion rather than a bare negative on one node: a stale
+    // render could leave the button somewhere else in the tree, and "the
+    // button I looked for is absent" would still pass.
+    expect(triggerButton()).toBeNull()
+    expect(screen.queryAllByRole('button', { name: /Trigger/i })).toHaveLength(0)
+  })
+
+  it('offers it NOWHERE for a paused loop, because the server refuses to fire one', () => {
+    // Gated on `active`, not on `loop`: every terminal bound leaves the loop
+    // inactive, so a button here could only ever produce a 409.
+    renderWith(makeLoop({ active: false }))
+    expect(triggerButton()).toBeNull()
+    expect(screen.queryAllByRole('button', { name: /Trigger/i })).toHaveLength(0)
+  })
+
+  it('disables itself once a cycle is due, so a press visibly acknowledges itself', () => {
+    // The press used to leave the button re-enabled and unchanged, so a reader
+    // could not tell whether pressing again would double the nudge. It would not:
+    // the cycle is already armed. Both directions asserted -- a loop that is NOT
+    // due must stay pressable, or this would disable the feature it guards.
+    renderWith(makeLoop({ next_due_ts: 1_700_000_000 }))
+    expect(triggerButton()).toBeTruthy()
+    expect((triggerButton() as HTMLButtonElement).disabled).toBe(true)
+    cleanup()
+    renderWith(makeLoop({ next_due_ts: Math.floor(Date.now() / 1000) + 300 }))
+    expect((triggerButton() as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('names the way OUT of a paused loop instead of leaving Save to do it silently', () => {
+    // The primary button PATCHes `active: true`, so on a paused loop it is the
+    // resume control -- and it used to read "Save", which said nothing. A blind
+    // reader found no resume path at all and called "Stop loop" risky as a
+    // result. Both directions asserted: an active loop must still read Save, or
+    // this would just move the confusion.
+    renderWith(makeLoop({ active: false }))
+    expect(screen.getByRole('button', { name: 'Start loop' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    cleanup()
+    renderWith(makeLoop({ active: true }))
+    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Start loop' })).toBeNull()
+  })
+
+  it('says the loop is paused where the button would be, so the absence has a reason', () => {
+    // Absence alone is ambiguous: an inactive loop looked identical to an active
+    // one whose button failed to render, and a usability reader could not tell
+    // the paused screenshot was even the same loop. The state is the reason for
+    // the absence, so it occupies the space the absence leaves.
+    renderWith(makeLoop({ active: false }))
+    expect(screen.getByTestId('auto-nudge-loop-paused')).toBeTruthy()
+    // And it is genuinely conditional, not always-on decoration.
+    cleanup()
+    renderWith(makeLoop({ active: true }))
+    expect(screen.queryByTestId('auto-nudge-loop-paused')).toBeNull()
+    expect(triggerButton()).toBeTruthy()
+  })
+
+  it('posts to the loop-scoped fire route with NO body, so the ARMED message is what fires', async () => {
+    const fired = makeLoop({ next_due_ts: 1_700_000_000 })
+    vi.stubGlobal('fetch', vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(String(url).endsWith('/fire') ? { ok: true, loop: fired } : { loop: null }),
+      }),
+    ) as unknown as typeof fetch)
+    const { onChange, onOpenChange } = renderWith(makeLoop())
+
+    await act(async () => { fireEvent.click(triggerButton()!) })
+
+    // Selected by URL, not by index: opening the popover also reads /api/crons.
+    const calls = (fetch as unknown as { mock: { calls: [string, { method?: string, body?: string }?][] } }).mock.calls
+    const fire = calls.find(c => String(c[0]) === '/api/autonudge/l1/fire')
+    expect(fire, 'no POST to the fire route was issued').toBeTruthy()
+    expect(fire![1]?.method).toBe('POST')
+    // Load-bearing: a body would let a stale popover field become the prompt.
+    // The nudge fired must be whatever the loop currently holds, read server-side.
+    expect(fire![1]?.body).toBeUndefined()
+    // The server no longer moves the deadline, so the component supplies the
+    // armed one. Asserted field-wise rather than by identity: the loop's own
+    // data must be passed through untouched, and only `next_due_ts` replaced.
+    const passed = onChange.mock.calls.at(-1)?.[0]
+    expect(passed).toMatchObject({ ...fired, next_due_ts: expect.any(Number) })
+    expect(passed.next_due_ts).toBeGreaterThan(Date.now() / 1000 - 5)
+    // And it must NOT close: closing would drop an unsaved edit in the textarea
+    // 40px above, with no dirty guard, so a press after an edit would cost the
+    // user their text on top of spending a turn on the old prompt.
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('keeps a typed-but-unsaved goal edit after a successful press', async () => {
+    // The complement of the assertion above, stated as the user-visible fact
+    // rather than as a callback that was not invoked: a press must never be a
+    // silent way to lose work.
+    vi.stubGlobal('fetch', vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(String(url).endsWith('/fire') ? { ok: true, loop: makeLoop() } : { loop: null }),
+      }),
+    ) as unknown as typeof fetch)
+    renderWith(makeLoop())
+    const box = screen.getByLabelText('Goal description') as HTMLTextAreaElement
+    fireEvent.change(box, { target: { value: 'edited but not saved' } })
+
+    await act(async () => { fireEvent.click(triggerButton()!) })
+
+    expect((screen.getByLabelText('Goal description') as HTMLTextAreaElement).value)
+      .toBe('edited but not saved')
+  })
+
+  it('surfaces a refusal inline and keeps the popover open, because it holds unsaved fields', async () => {
+    // The refusal names the outcome and the next step, not just the condition:
+    // a reader must be able to tell a refusal from a delay, and the press was
+    // refused rather than queued.
+    const REFUSAL = 'nudge not sent: the agent is still working, so try again when it finishes'
+    vi.stubGlobal('fetch', vi.fn((url: string) =>
+      String(url).endsWith('/fire')
+        ? Promise.resolve({ ok: false, status: 409, json: () => Promise.resolve({ error: REFUSAL, code: 'session_busy' }) })
+        : Promise.resolve({ ok: true, json: () => Promise.resolve({ loop: null }) }),
+    ) as unknown as typeof fetch)
+    const { onChange, onOpenChange } = renderWith(makeLoop())
+
+    await act(async () => { fireEvent.click(triggerButton()!) })
+
+    expect(screen.getByText(REFUSAL)).toBeTruthy()
+    // A refusal must not report success by tearing the popover down.
+    expect(onChange).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('sits on the schedule line, not in the Stop/Save action row (max-two-buttons-per-row)', async () => {
+    // `website/AUTOSDE.yaml:230` holds a row to two controls and names this
+    // escape itself: the third action "leaves the row". Asserted structurally
+    // rather than by counting the whole popover, because the rule is about
+    // SIBLINGS IN ONE horizontal group.
+    renderWith(makeLoop())
+    const save = screen.getByRole('button', { name: 'Save' })
+    const row = save.parentElement!
+    const rowButtons = Array.from(row.querySelectorAll('button'))
+    expect(rowButtons).toHaveLength(2)
+    expect(rowButtons.map(b => b.textContent)).toEqual(['Stop loop', 'Save'])
+    // And the trigger is a sibling of the schedule text instead.
+    const trigger = triggerButton()!
+    expect(trigger.parentElement).not.toBe(row)
+    expect(trigger.parentElement!.textContent).toMatch(/Last fire:/)
   })
 })

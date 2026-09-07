@@ -690,3 +690,203 @@ async def api_autonudge_delete(request: web.Request) -> web.Response:
         metadata={"loop_id": loop_id, "caller": request.remote or ""},
     )
     return web.json_response({"ok": True})
+
+
+async def api_autonudge_fire(request: web.Request) -> web.Response:
+    """POST /api/autonudge/{loop_id}/fire — run this loop's next cycle now.
+
+    The manual counterpart of the idle timer, for the case the loop's interval
+    cannot serve: the operator already knows the thing being waited on has
+    changed, so the remaining gap buys nothing. Spelled ``fire`` rather than the
+    cron sibling's ``run`` because ``fire`` is this subsystem's own verb
+    (``_on_fire``, ``_run_fire_cycle``, ``last_fire_ts``, the ``fired`` event).
+
+    Thin HTTP mapping, as everywhere else in this file: ``svc.fire_now`` owns the
+    schedule semantics and the not-registered / not-active / mid-fire refusals,
+    and documents why each is load-bearing. Two refusals belong here instead,
+    because they are about the transport's own subject rather than the loop:
+
+    * A **structured monitor** is refused with the same 409 code ``PATCH`` uses.
+      Those records are driven by ``_on_monitor_tick`` and owned by the monitor
+      API; the goal popover never sees one, since ``api_autonudge_get`` filters
+      them out.
+    * A **busy session** is refused rather than queued, and that is not a fresh
+      product decision — the fire path this route arms already made it, with its
+      reason written down at the site: queueing "would stack identical 3KB+
+      nudges and blow up the context window" (``_fire_dashboard_nudge``). The
+      predicate is the repository's canonical one, ``slot.running or
+      slot._in_stage_execution``, read here exactly as the cron-injection
+      handler reads it (``handlers/messaging.py``) — ``slot.running`` alone is
+      False between the stages of a multi-stage plan, so it would let this land
+      a concurrent turn on top of the plan. Note the two consumers of that
+      predicate diverge deliberately: the cron path QUEUES, this one REFUSES,
+      and the nudge path's stated reason is the one that applies here.
+
+      This check is an AFFORDANCE, not a guarantee: a turn that starts between
+      it and the fire is still refused by the fire path, which then re-arms with
+      backoff. Its whole job is to turn that silence into a 409 the popover can
+      show. A loop bound to a channel key has no dashboard slot, so the check
+      is skipped and that transport's own busy guard answers.
+
+    Authentication is the same as its ``POST`` / ``PATCH`` / ``DELETE`` siblings
+    on this path, deliberately: no new trust boundary, and this route is
+    strictly LESS powerful than the ``POST`` beside it, which arms a loop that
+    can spend turns until a bound stops it.
+
+    **Every outcome is audited, and the FIRE is audit-or-deny.** The split is the
+    one this repository already draws, not a new policy:
+
+    * The **fire** is gated on a ``critical=True`` write that lands BEFORE
+      ``fire_now`` arms anything. The default path only ENQUEUES, and on the
+      event loop an enqueue failure drops the event with a warning
+      (``sel.py``), so a best-effort pre-audit would still let a model turn run
+      unrecorded -- the audit would be a hope, not a gate. ``critical`` writes
+      synchronously and re-raises, and the write is awaited through
+      ``asyncio.to_thread`` because a synchronous flush on the loop would freeze
+      every session's turn (``no-blocking-call-on-event-loop``). This is the same
+      shape this subsystem's own ``autonudge_authz`` uses for ``monitor_update``
+      and ``monitor_stop``, and the 503 mirrors ``handlers/cron.py``'s
+      ``audit_unavailable`` refusal for a grant it could not record.
+    * The **refusals** stay best-effort. An earlier revision audited only after
+      ``fire_now`` returned, so the four guards below denied requests and left no
+      SEL event at all -- that was a real hole and is fixed. But making them
+      critical would trade an audit-sink problem for a different failure while
+      preventing nothing: the request is refused either way, so availability must
+      not hinge on SEL disk health. That is the disposition
+      ``messaging/identity`` states for a deny and ``azure_client`` states for a
+      post-action outcome.
+    * The **terminal** event after ``fire_now`` is best-effort for the same
+      reason: by then the timer is armed and the ``invoked`` record has landed,
+      so raising would replace a real result with a logging error.
+
+    Routing every exit through these two helpers is what makes the property
+    structural rather than a habit: a guard added later cannot silently skip the
+    record, because there is no un-audited way out.
+    """
+    # Read before the service check so the audit helpers can name the subject
+    # even on the disabled path. Pure ``match_info`` read; no service needed.
+    loop_id = request.match_info["loop_id"]
+
+    async def _audit(outcome: str, session_key: str, error: str) -> None:
+        """Best-effort record for an outcome that did NOT start a turn.
+
+        OFF THE LOOP and failure-swallowing, both for stated reasons. The default
+        SEL path only enqueues, which is cheap -- but ``sel()`` itself may lazily
+        initialize the log, and on a degraded sink that initialization is
+        filesystem work that would run on the gateway's event loop and stall
+        every session (``no-blocking-call-on-event-loop``). And because this
+        record accompanies a request that is being REFUSED, its own failure must
+        not turn a clean 409 into a 500: the caller already learns the outcome
+        from the status, so the audit is best-effort by contract here, exactly as
+        the post-action outcome events are elsewhere in the codebase. The
+        write-ahead ``invoked`` record is the one that fails closed.
+        """
+        try:
+            await asyncio.to_thread(
+                lambda: sel().log_tool_invocation(
+                    session_key=session_key,
+                    source="dashboard",
+                    tool_name="autonudge_fire",
+                    outcome=outcome,
+                    metadata={
+                        "loop_id": loop_id,
+                        "caller": request.remote or "",
+                        "error": error,
+                    },
+                )
+            )
+        except Exception:
+            logger.warning(
+                "autonudge fire: refusal audit unavailable (outcome=%s)",
+                outcome,
+                exc_info=True,
+            )
+
+    async def _audit_or_deny(session_key: str) -> bool:
+        """Write-ahead audit for the fire. False = do not fire.
+
+        ``sel()`` is resolved INSIDE the worker: on a fresh gateway the lookup
+        lazily initializes the log, which is itself filesystem work that must not
+        run on the event loop.
+        """
+        try:
+            await asyncio.to_thread(
+                lambda: sel().log_tool_invocation(
+                    session_key=session_key,
+                    source="dashboard",
+                    tool_name="autonudge_fire",
+                    outcome="invoked",
+                    critical=True,
+                    metadata={"loop_id": loop_id, "caller": request.remote or ""},
+                )
+            )
+        except Exception:
+            logger.error("autonudge fire denied: SEL audit unavailable", exc_info=True)
+            return False
+        return True
+
+    svc = _autonudge_get()
+    if svc is None:
+        await _audit("denied", "", "autonudge_disabled")
+        return web.json_response(
+            {"error": "auto-nudge disabled", "code": "autonudge_disabled"},
+            status=503,
+        )
+    existing = svc.get_by_id(loop_id)
+    if existing is None:
+        await _audit("denied", "", "autonudge_not_found")
+        return web.json_response(
+            {"error": "loop not found", "code": "autonudge_not_found"}, status=404
+        )
+    if is_structured_monitor_loop(existing):
+        await _audit("denied", existing.slot_key, "structured_monitor_requires_monitor_api")
+        return _monitor_error(
+            "structured monitors must use the monitor update API",
+            "structured_monitor_requires_monitor_api",
+            status=409,
+        )
+    state: DashboardState = request.app["state"]
+    slot = state.get_slot(existing.slot_key)
+    if slot is not None and (slot.running or slot._in_stage_execution):
+        # Names the OUTCOME and the NEXT STEP, not just the condition. "a turn is
+        # in flight" leaves a reader unable to tell a refusal from a delay, and
+        # the distinction is the whole point here: the press was refused, not
+        # queued, so trying again later is the action. "still working" rather
+        # than "mid-turn": a usability reader could only guess at the latter,
+        # which is jargon from this codebase's vocabulary and not the user's.
+        # Lowercase-first because all 13 error messages in this file are, and
+        # this body is rendered verbatim beside them.
+        await _audit("denied", existing.slot_key, "session_busy")
+        return web.json_response(
+            {
+                "error": "nudge not sent: the agent is still working, so try again when it finishes",
+                "code": "session_busy",
+            },
+            status=409,
+        )
+    if not await _audit_or_deny(existing.slot_key):
+        # Fail closed, with nothing armed: the deadline has not moved and no
+        # timer was re-armed, so the loop is exactly as the operator left it.
+        return web.json_response(
+            {
+                "error": "audit log unavailable: the nudge was NOT sent, "
+                "so fix the audit store and press again",
+                "code": "audit_unavailable",
+            },
+            status=503,
+        )
+    loop, error, status = await svc.fire_now(loop_id)
+    await _audit("success" if error == "" else "denied", existing.slot_key, error)
+    if error:
+        # Each arm carries a LITERAL status beside its code, rather than passing
+        # ``status=status`` through. The error-code contract caps dynamic
+        # statuses for a stated reason — computing one is how the coded-response
+        # ratchet gets defeated while looking like ordinary refactoring — so the
+        # pairing is written out where a reader and a static check can both see
+        # it. Both arms are kept even though this route answers ``not found``
+        # itself above: relying on the 404 being unreachable would make a later
+        # edit to that guard silently change this response's status.
+        if status == 404:
+            return web.json_response({"error": error, "code": "autonudge_not_found"}, status=404)
+        return web.json_response({"error": error, "code": "autonudge_not_fired"}, status=409)
+    return web.json_response({"ok": True, "loop": _serialize(loop)})

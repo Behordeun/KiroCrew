@@ -1534,7 +1534,9 @@
       "retry": "Retry",
       "save": "Save",
       "start_loop": "Start loop",
-      "watches_load_failed": "Couldn't load this session's watches."
+      "trigger_nudge": "Trigger nudge",
+      "watches_load_failed": "Couldn't load this session's watches.",
+      "loop_paused": "Paused"
     },
     "bottomTerminalPanel": {
       "close_failed": "Couldn't stop this terminal's shell on the server. It will be cleaned up automatically.",

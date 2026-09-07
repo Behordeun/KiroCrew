@@ -4366,6 +4366,95 @@ class AutoNudgeService:
         if is_channel_key(loop.slot_key) and loop.active and loop.id in self._loops:
             self._arm_from_deadline(loop)
 
+    async def fire_now(self, loop_id: str) -> tuple["NudgeLoop | None", str, int]:
+        """Bring one loop's next cycle forward to now, out of band from its countdown.
+
+        Returns ``(loop, "", 200)`` once the cycle is armed to run, or
+        ``(None, reason, status)`` on refusal — the ``(obj, error, status)``
+        shape the authz chokepoints in :mod:`kiro_crew.autonudge_authz` already
+        use, so the HTTP handler stays a thin mapping.
+
+        WHAT THIS DELIBERATELY DOES NOT DO: it does not deliver the nudge
+        itself. It re-arms through :meth:`_arm_timer`, so the cycle runs inside
+        the ordinary :meth:`_timer` body — the stop sentinel, the cycle cap, the
+        wall-clock budget, the approval-stall stop and the probe gate all apply
+        exactly as they do on a scheduled tick, and the delivery goes through the
+        one ``_on_fire`` path. Calling :meth:`_run_fire_cycle` directly would have
+        needed that whole ladder restated here, and a second copy of a
+        five-condition gate is a divergence waiting to happen.
+
+        ``delay=0.0`` rather than :meth:`_arm_from_deadline`'s
+        ``_OVERDUE_REARM_SECS`` beat. That beat exists so an elapsed deadline
+        does not ambush a user mid-conversation — they keep deferring it simply
+        by typing. A manual trigger IS the user asking, so the condition the beat
+        protects against is not present.
+
+        Three refusals, and each one is load-bearing rather than defensive:
+
+        * **Not registered** -> 404. Nothing to fire. This is also where the stop
+          SENTINEL lands: it goes through ``remove``, so the loop is gone rather
+          than merely inactive.
+        * **Not active** -> 409. The non-removing terminal bounds — the cycle
+          cap, the wall-clock budget and the approval stall — all leave the loop
+          registered but inactive, so this ONE condition covers them without
+          restating the list. A manual press must not buy a turn past a bound the
+          user armed.
+        * **Mid-fire** -> 409. :meth:`_arm_timer` cancels the existing timer
+          task, and during the fire window that task may be parked on
+          ``_persist_locked()`` writing the delivered cycle; cancelling it there
+          loses the ``cycle_count`` bump. This is the same window
+          ``notify_turn_complete``/``notify_user_input`` defer around, and the
+          same answer the sibling immediate-trigger route gives for a run
+          already in flight (``POST /api/crons/{id}/run`` -> 409).
+
+        NO SUSPENSION POINT, and that is the design rather than an omission.
+        ``async def`` for the caller's convenience, but nothing inside awaits, so
+        the guards and the arm are atomic with respect to the event loop: between
+        reading ``loop`` and arming it, no other coroutine can run.
+
+        This shape was arrived at the hard way and the history is worth keeping.
+        An earlier revision wrote ``next_due_ts = time.time()`` and awaited a
+        DURABLE persist before arming, so a restart between the press and the
+        fire would resume overdue. That await was a suspension window, and this
+        module has several writers to ``next_due_ts`` that hold NO lock while
+        writing it — the quiet-tick re-arm on the gated-wake branch is one. Each
+        guard added to close one writer's window exposed the next: a concurrent
+        ``remove`` arming a stale object, a cancelled caller abandoning the write,
+        a countdown entering ``_firing`` mid-persist, a quiet tick overwriting the
+        deadline, then the refused path leaving its own value durably committed.
+        Five rounds, each caused by the fix before it. The window is not closable
+        at this call site, because the racing writers take no lock at all.
+
+        SO THE WRITE IS GONE. ``_arm_timer(delay=0.0)`` is what brings the cycle
+        forward: :meth:`_timer` sleeps the delay it is given and fires WITHOUT
+        consulting ``next_due_ts``. The write was only ever for restart cosmetics,
+        and that is exactly what is given up — a gateway restart between the press
+        and the fire resumes on the loop's own schedule instead of overdue, and
+        the operator presses again. That is the same degradation
+        :meth:`_persist_soon` documents as acceptable for every other deadline
+        assignment in this class ("a lost write degrades to a fresh full countdown
+        after restart, never a premature or dropped fire"), and a far better trade
+        than a sixth guard on an uncloseable window.
+
+        The countdown reset issue #8212 asks for is UNAFFECTED, because it never
+        came from this write: a delivered cycle clears ``next_due_ts`` in
+        :meth:`_run_fire_cycle` and the re-arm then starts a fresh full interval.
+        """
+        loop = self.get_by_id(loop_id)
+        if loop is None:
+            return None, "loop not found", 404
+        if not loop.active:
+            return None, "loop is not active", 409
+        if loop_id in self._firing:
+            return None, "loop is already firing", 409
+        self._arm_timer(loop, delay=0.0)
+        logger.info(
+            "AutoNudge: loop %s brought forward by hand — cycle %d armed to run now",
+            loop.id,
+            loop.cycle_count + 1,
+        )
+        return loop, "", 200
+
 
 class _AutoNudgeMaintenanceView:
     """Store operations that are safe inside ``maintenance_service``'s lock."""

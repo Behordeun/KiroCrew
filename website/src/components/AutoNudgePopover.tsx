@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Goal, X } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover'
 import ErrorNotice from './ErrorNotice'
@@ -10,7 +10,7 @@ import { DRAFT_SAVE_DEBOUNCE_MS } from '../utils/draftConstants'
 
 import { i18nT } from '../i18n/t'
 import { fmtTimeNumeric } from '../i18n/format'
-import { type AutoNudgeLoop, cycleText as loopCycleText, nextCycleText } from './autoNudgeLoop'
+import { type AutoNudgeLoop, cycleText as loopCycleText, nextCycleText, AUTONUDGE_LOOPS_QUERY_KEY } from './autoNudgeLoop'
 export type { AutoNudgeLoop } from './autoNudgeLoop'
 
 interface Props {
@@ -60,6 +60,7 @@ export default function AutoNudgePopover({ slotKey, loop, open, onOpenChange, on
   // lingering until it is reopened -- and the request dedupes with the other
   // consumer of the same key. `enabled: open` keeps a zero-token watch from
   // costing a request on every chat render just to say "still nothing".
+  const queryClient = useQueryClient()
   const { data: cronJobs, isError: watchesFailed, refetch: refetchWatches } = useQuery({
     queryKey: ['cron-jobs'],
     queryFn: () => api.crons().then(r => r.jobs || []),
@@ -208,6 +209,58 @@ export default function AutoNudgePopover({ slotKey, loop, open, onOpenChange, on
     }
   }
 
+  /** Run the loop's next cycle now instead of waiting out the remaining gap.
+   *
+   *  Sends NO body: the nudge fired is whatever the loop currently holds, read
+   *  server-side, so the button stays correct after a `monitor_update` revises
+   *  the instruction and a stale popover field can never be delivered as the
+   *  prompt. The consequence is that a user who edited the message and pressed
+   *  this gets the ARMED message, not the edited one.
+   *
+   *  WHICH IS WHY THIS DOES NOT CLOSE THE POPOVER, unlike `save` and `stop`.
+   *  Closing would drop that unsaved edit with no dirty guard (drafts are not
+   *  persisted while a loop exists), so a press after an edit would cost the
+   *  user their text as well as spending a turn on the old prompt. Leaving the
+   *  popover open keeps the edit, keeps Save reachable, and makes the outcome
+   *  visible in place: the schedule line beside the button flips to "due", and
+   *  the header's cycle readout advances a moment later when the delivered fire
+   *  broadcasts (`autonudge_state`), which is also where the press's cost
+   *  against the cycle cap becomes observable.
+   *
+   *  Refusals (409 for a mid-fire loop or a session with a turn in flight, 404
+   *  for a loop the server no longer holds) land in the same inline
+   *  `ErrorNotice` as `save` and `stop`. */
+  async function triggerNow() {
+    if (!loop) return
+    setSaving(true)
+    setError('')
+    try {
+      const resp = await fetch(`/api/autonudge/${loop.id}/fire`, { method: 'POST' })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`)
+      // The route returns the loop UNCHANGED: the server-side deadline write was
+      // removed because it could not be made durable without a suspension point
+      // that raced several lock-free writers. Rendering the response verbatim
+      // would therefore leave the countdown showing the very cycle this press
+      // superseded -- the one visible confirmation a press has. So the armed
+      // deadline is set here instead. Not a fiction: the cycle IS armed to run
+      // now, and the delivery's `autonudge_state` frame reconciles the shared
+      // cache moments later.
+      onChange({ ...data.loop, next_due_ts: Date.now() / 1000 })
+      // Keep the SHARED registry consistent with the local view. `onChange` only
+      // updates this popover, so a reader of the full registry -- the Crew Members
+      // patrol block -- would otherwise keep its cached copy until the delivery's
+      // `autonudge_state` frame arrives. Nothing about the deadline changes here
+      // any more, so this is about the two views never disagreeing rather than
+      // about a stale countdown.
+      void queryClient.invalidateQueries({ queryKey: AUTONUDGE_LOOPS_QUERY_KEY })
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // ── Countdown to the next trigger (#6482) ──
   // The 1s ticker runs only while the popover is OPEN (review finding: a
   // closed-but-armed loop must not re-render the toolbar button every second
@@ -235,6 +288,11 @@ export default function AutoNudgePopover({ slotKey, loop, open, onOpenChange, on
    *  the existing strings, so no catalogue text changes. Unlike the countdown
    *  this is safe in aria-label: it changes once per cycle, not once per
    *  second. */
+  /** Whether a cycle is ALREADY armed to run. Derived from the same countdown
+   *  the schedule line renders, so the button and the text can never disagree. */
+  const cycleAlreadyDue =
+    countdownText === i18nT('components.autoNudgePopover.next_cycle_due')
+
   const cycleText = loopCycleText(loop)
 
   return (
@@ -259,7 +317,15 @@ export default function AutoNudgePopover({ slotKey, loop, open, onOpenChange, on
           {loop?.active && loop.cycle_count > 0 ? cycleText : null}
         </button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" className="w-[420px] p-4 text-[12px]">
+      <PopoverContent
+        side="top"
+        align="start"
+        /* Viewport-capped rather than a pinned 420px: at the 320px floor a fixed
+           width pushes this panel -- and the right-aligned action below -- past the
+           usable viewport. Written as a max so there is no `md:` counterpart to keep
+           in sync: 420px is simply the ceiling, and a phone gets the width it has. */
+        className="w-[min(420px,calc(100vw_-_1.5rem))] p-4 text-[12px]"
+      >
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2 font-medium text-text">
             <Goal size={14} className={loop?.active ? 'text-accent' : 'text-muted'} />
@@ -351,10 +417,73 @@ export default function AutoNudgePopover({ slotKey, loop, open, onOpenChange, on
           </div>
         </div>
 
+        {/* The trigger sits on the SCHEDULE line, not in the action row below.
+            Two reasons, and they point the same way. `max-two-buttons-per-row`
+            (website/AUTOSDE.yaml:230, blocking) holds a row to two controls and
+            names this exact escape -- "the third action ... goes into an
+            overflow DropdownMenu, or LEAVES THE ROW" -- and leaving is cheaper
+            than a menu for one action. And it belongs here on the merits: this
+            button changes the countdown printed beside it, so the control and
+            the state it acts on read as one thing, while Stop/Save act on the
+            loop's configuration.
+            A one-button group, so the cap is satisfied structurally rather than
+            by being under it today. Button classes are the popover's existing
+            small-button spelling (the watches Retry above).
+            Gated on `active`, not merely on `loop`: a paused record still opens
+            this popover, and every terminal bound leaves the loop inactive, so
+            the server refuses to fire one -- a button there could only ever
+            produce a 409. */}
         {loop && (
-          <div className="text-muted text-[11px] mb-3">
-            {i18nT('components.autoNudgePopover.last_fire')} {loop.last_fire_ts ? fmtTimeNumeric(loop.last_fire_ts) : i18nT('components.autoNudgePopover.never')}
-            {countdownText && <span> · {countdownText}</span>}
+          /* `flex-wrap` is for STRING LENGTH, not for 320px: the width cap on the
+             shell is what keeps this row inside the viewport, and measurement says
+             so -- pinning the shell back to 420px reddens the narrow frame while
+             removing this wrap does not. It is kept because `shrink-0` protects the
+             button, so a longer localized countdown ("Next cycle due, fires after
+             the current turn" is materially longer in several of the twelve
+             catalogues) has only this row to give. Defensive, and labelled as such
+             rather than claimed as the fix. */
+          /* STACKED in every state, not a wrapping row. When the countdown flips to
+             the longer "due" wording, a wrapping row moved the button from beside the
+             text onto its own line -- relocating a control directly under the cursor
+             that just pressed it. One layout at every width also means the narrow
+             frame and the desktop frame agree, instead of the 320px case being a
+             second shape to keep in sync. */
+          <div className="flex flex-col items-start gap-1 mb-3">
+            <div className="text-muted text-[11px]">
+              {i18nT('components.autoNudgePopover.last_fire')} {loop.last_fire_ts ? fmtTimeNumeric(loop.last_fire_ts) : i18nT('components.autoNudgePopover.never')}
+              {countdownText && <span> · {countdownText}</span>}
+            </div>
+            {loop.active ? (
+              <button
+                type="button"
+                onClick={triggerNow}
+                /* Disabled once a cycle is already due, which is what a successful
+                   press produces. Before this the button re-enabled unchanged, so
+                   the press acknowledged itself only through the schedule line's
+                   wording -- a usability reader would not press it a second time
+                   because they could not tell whether that would double the nudge
+                   or do nothing (it does nothing: the cycle is already armed). The
+                   disabled state answers that question without a new string. */
+                disabled={saving || cycleAlreadyDue}
+                className="px-2 py-0.5 rounded border border-border text-[11px] text-muted hover:text-text hover:border-accent bg-transparent cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                {i18nT('components.autoNudgePopover.trigger_nudge')}
+              </button>
+            ) : (
+              /* Says WHY the button is not here, rather than leaving a gap. A
+                 blind reader of the paused screenshot could not tell it was the
+                 same loop at all, and an inactive loop otherwise looks identical
+                 to an active one whose button failed to render -- the state is
+                 the reason for the absence, so it belongs in the space the
+                 absence leaves. Text, not a disabled button: the server refuses
+                 to fire an inactive loop, so there is no press to offer. */
+              <span
+                data-testid="auto-nudge-loop-paused"
+                className="text-muted text-[11px] shrink-0"
+              >
+                {i18nT('components.autoNudgePopover.loop_paused')}
+              </span>
+            )}
           </div>
         )}
 
@@ -382,7 +511,15 @@ export default function AutoNudgePopover({ slotKey, loop, open, onOpenChange, on
             disabled={saving || !message.trim()}
             className="px-3 py-1 rounded bg-accent text-accent-fg border-none cursor-pointer disabled:opacity-50 hover:bg-accent/90"
           >
-            {loop ? i18nT('components.autoNudgePopover.save') : i18nT('components.autoNudgePopover.start_loop')}
+            {/* A paused loop's way out was invisible: this button silently PATCHes
+                `active: true`, so on an inactive loop it must SAY so. A usability
+                reader found no resume control at all and called both "Paused" and
+                "Stop loop" risky as a result. Gated on `active`, not on existence,
+                which is the bug -- and it reuses the `start_loop` key the no-loop
+                case already uses, so no catalogue gains a string. */}
+            {loop?.active
+              ? i18nT('components.autoNudgePopover.save')
+              : i18nT('components.autoNudgePopover.start_loop')}
           </button>
         </div>
       </PopoverContent>
