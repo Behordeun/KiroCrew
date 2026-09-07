@@ -3718,6 +3718,35 @@ class TestEnsureReadyRetryOnAcpError:
         client._kill_process.assert_called_once_with(force=True)
 
     @pytest.mark.asyncio
+    async def test_retries_spawn_os_error_after_backoff(self, monkeypatch):
+        client = AcpClient()
+        client._work_dir_ready = True
+        spawn_count = 0
+
+        async def fake_spawn():
+            nonlocal spawn_count
+            spawn_count += 1
+            if spawn_count == 1:
+                raise FileNotFoundError("adapter replaced in place")
+            client._process = MagicMock(returncode=None, pid=101)
+
+        async def fake_init():
+            client._session_id = "sess-ok"
+
+        sleep = AsyncMock()
+        client._spawn = fake_spawn
+        client._initialize_session = fake_init
+        client._cleanup_failed_live_spawn = AsyncMock()
+        client._snapshot_process_tree = AsyncMock()
+        monkeypatch.setattr(acp_client.asyncio, "sleep", sleep)
+
+        await client.ensure_ready()
+
+        assert spawn_count == 2
+        sleep.assert_awaited_once_with(acp_client._ACP_RESPAWN_BACKOFF_S)
+        client._cleanup_failed_live_spawn.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_cancel_during_retry_kill_releases_bound_workspace(self, tmp_path, monkeypatch):
         client = AcpClient(work_dir=tmp_path)
         kill_entered = asyncio.Event()

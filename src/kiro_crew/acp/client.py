@@ -206,6 +206,9 @@ KIRO_CLI_BIN = "kiro-cli"
 KIRO_CLI_SUBCMD = "acp"
 
 CLAUDE_ACP_BIN = "claude-agent-acp"
+# A self-updating ACP adapter can briefly disappear or remain locked while its
+# executable is replaced. Delay the one permitted startup retry past that window.
+_ACP_RESPAWN_BACKOFF_S = 2.0
 # On-disk name of the Claude backend CLI.  The claude-agent-acp adapter
 # delegates the actual model turn to @anthropic-ai/claude-agent-sdk, which
 # needs a per-platform native binary (~250 MB each).  Those ship as npm
@@ -5621,11 +5624,13 @@ class AcpClient:
                     await self._cleanup_failed_live_spawn()
                     self._reset_state()
                     raise
-                except (AcpTimeoutError, AcpError) as exc:
+                except (AcpTimeoutError, AcpError, OSError) as exc:
                     if attempt == 0:
                         logger.warning("ACP init failed (%s), retrying with fresh process...", exc)
                         await self._cleanup_failed_live_spawn()
                         self._reset_state()
+                        if isinstance(exc, OSError):
+                            await asyncio.sleep(_ACP_RESPAWN_BACKOFF_S)
                     else:
                         # AcpAuthRequired subclasses AcpError; label it distinctly
                         # so a not-logged-in exit is never counted as a generic
