@@ -711,6 +711,27 @@ def _map_response(data: dict) -> dict | None:
     if not credit:
         return None
 
+    # Ambiguity probe (observation only — selection above is unchanged). The
+    # plan-pool picker takes the FIRST entry that is exactly resourceType
+    # "CREDIT", so a second CREDIT-typed pool (e.g. a promotional/welcome grant
+    # typed literally "CREDIT" rather than a bonus marker) can win the plan slot
+    # by list order and displace the real plan pool — a latent, unobserved case
+    # with no captured payload. When more than one entry satisfies the plan-pool
+    # test we record the SHAPE so a maintainer can choose a remedy (fail-closed
+    # vs deterministic pick) against real evidence. Log resource types and
+    # counts only, never balances or identifiers (billing-adjacent). Additive:
+    # nothing about which pool wins changes.
+    _credit_typed = [b for b in breakdowns if b.get("resourceType") == "CREDIT"]
+    if len(_credit_typed) > 1:
+        logger.warning(
+            "Kiro usage API: %d CREDIT-typed pools in usageBreakdownList "
+            "(resource types %s); plan pool selected by list order at index %d "
+            "— a second CREDIT-typed pool may be displacing the real plan pool",
+            len(_credit_typed),
+            [str(b.get("resourceType")) for b in breakdowns],
+            breakdowns.index(credit),
+        )
+
     # Prefer the *-WithPrecision fields only when they are valid numbers; a
     # present-but-null/malformed precision value must fall back to the legacy
     # currentUsage/usageLimit rather than reject an otherwise-valid response.

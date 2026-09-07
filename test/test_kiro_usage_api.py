@@ -145,6 +145,38 @@ class TestMapResponse:
         ]}
         assert "bonus_limit" not in api._map_response(data)
 
+    def test_warns_on_two_credit_typed_pools(self, caplog):
+        # The exact payload nobody has captured: TWO entries typed literally
+        # "CREDIT". The picker takes the first by list order; detection must fire
+        # AND selection must stay byte-for-byte identical (first entry wins).
+        data = {"usageBreakdownList": [
+            {"resourceType": "CREDIT", "currentUsage": 5, "usageLimit": 100},
+            {"resourceType": "CREDIT", "currentUsage": 999, "usageLimit": 2000},
+        ]}
+        with caplog.at_level("WARNING", logger=api.logger.name):
+            out = api._map_response(data)
+        # Selection unchanged: the first CREDIT entry still wins.
+        assert out["credits_used"] == 5.0
+        assert out["credits_plan"] == 100.0
+        warnings = [r for r in caplog.records if "CREDIT-typed pools" in r.getMessage()]
+        assert len(warnings) == 1
+        msg = warnings[0].getMessage()
+        assert "2 CREDIT-typed pools" in msg
+        assert "index 0" in msg
+        # Shape only — no balances/identifiers leak into the log line.
+        assert "999" not in msg and "2000" not in msg
+
+    def test_no_warn_on_single_credit_typed_pool(self, caplog):
+        # Mutate the fixture: one CREDIT entry. Detection must NOT fire — a
+        # detector that fires on every payload is worse than none.
+        data = {"usageBreakdownList": [
+            {"resourceType": "CREDIT", "currentUsage": 5, "usageLimit": 100},
+            {"resourceType": "FREE_TRIAL", "currentUsage": 10, "usageLimit": 50},
+        ]}
+        with caplog.at_level("WARNING", logger=api.logger.name):
+            api._map_response(data)
+        assert not [r for r in caplog.records if "CREDIT-typed pools" in r.getMessage()]
+
     def test_none_when_response_not_dict(self):
         assert api._map_response([]) is None
         assert api._map_response(None) is None
