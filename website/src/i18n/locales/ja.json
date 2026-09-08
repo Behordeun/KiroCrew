@@ -6473,6 +6473,7 @@
       "no_results": "結果がありません",
       "open_artifact": "アーティファクト {{name}} を開く",
       "open_as_artifact": "アーティファクトとして開く",
+      "open_in_editor": "エディタで開く",
       "open_in_file_explorer": "エクスプローラーで開く",
       "open_in_finder": "Finder で開く",
       "open_with_default_app": "デフォルトアプリで開く",

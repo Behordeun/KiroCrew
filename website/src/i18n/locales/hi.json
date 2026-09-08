@@ -6575,6 +6575,7 @@
       "no_results": "कोई परिणाम नहीं",
       "open_artifact": "आर्टिफ़ैक्ट {{name}} खोलो",
       "open_as_artifact": "आर्टिफ़ैक्ट के रूप में खोलें",
+      "open_in_editor": "एडिटर में खोलें",
       "open_in_file_explorer": "File Explorer में खोलें",
       "open_in_finder": "Finder में खोलें",
       "open_with_default_app": "डिफ़ॉल्ट ऐप में खोलो",

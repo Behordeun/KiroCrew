@@ -2097,6 +2097,7 @@
       "no_results": "No results",
       "open_artifact": "Open artifact {{name}}",
       "open_as_artifact": "Open as artifact",
+      "open_in_editor": "Open in editor",
       "open_in_file_explorer": "Open in File Explorer",
       "open_in_finder": "Open in Finder",
       "open_with_default_app": "Open with default app",
