@@ -14,6 +14,7 @@ const {
   parseIpsHead,
   ipsBelongsToApp,
   isOwnModule,
+  isElectronShaped,
   appendCrashLog,
   readSeenState,
   writeSeenState,
@@ -140,6 +141,7 @@ function fakeFs(initial = {}) {
   const api = {
     files,
     writes: [],
+    unlinked: [],
     readdirSync(dir) {
       const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
       const names = [];
@@ -174,6 +176,11 @@ function fakeFs(initial = {}) {
       if (!buf) throw new Error(`ENOENT: ${from}`);
       files.delete(from);
       files.set(to, buf);
+    },
+    unlinkSync(p) {
+      if (!files.has(p)) throw new Error(`ENOENT: ${p}`);
+      files.delete(p);
+      api.unlinked.push(p);
     },
     openSync(p) {
       const buf = files.get(p);
@@ -795,6 +802,98 @@ describe("collectCrashReports — filtering", () => {
     assert.equal(fs.files.has(LOG), false);
     assert.match(messages.join("\n"), /foreign-process/);
     assert.match(messages.join("\n"), /not-a-crash/);
+  });
+
+  it("deletes a proven-foreign dump so the inherited-handler leak stops growing", () => {
+    // Crashpad never prunes `pending/` when uploads are off, and every dump a
+    // child wrote through our inherited handler stays there forever. Proof of
+    // foreignness is what licenses the delete, the same proof that licenses
+    // the acknowledgement.
+    const ruby = path.join(PENDING, "r1.dmp");
+    const rubyCrash = path.join(PENDING, "r2.dmp");
+    const ownSnapshot = path.join(PENDING, "self-snapshot.dmp");
+    const fs = fakeFs({
+      [ruby]: buildMinidump({ moduleName: "/usr/bin/ruby", exceptionCode: 0 }),
+      [rubyCrash]: buildMinidump({ moduleName: "/usr/bin/ruby", exceptionCode: 0x8000000b }),
+      [ownSnapshot]: buildMinidump({ exceptionCode: 0 }),
+    });
+    const scan = collectCrashReports(withBaseline(fs));
+    assert.equal(scan.removed, 3);
+    assert.deepEqual(fs.unlinked.sort(), [ruby, rubyCrash, ownSnapshot].sort());
+    assert.equal(fs.files.has(ruby), false);
+    // Still acknowledged, so a later scan does not look for the vanished file.
+    const state = JSON.parse(fs.readFileSync(STATE));
+    assert.ok(state.seen.includes("minidump:r1.dmp"));
+  });
+
+  it("never deletes our own crash, an unreadable dump, or a pending one", () => {
+    const own = path.join(PENDING, "own.dmp");
+    const torn = path.join(PENDING, "torn.dmp");
+    const fs = fakeFs({
+      [own]: buildMinidump(),
+      [torn]: buildMinidump().subarray(0, 40),
+    });
+    const scan = collectCrashReports(withBaseline(fs));
+    assert.equal(scan.newCrashes.length, 1);
+    assert.equal(scan.removed, 0);
+    assert.deepEqual(fs.unlinked, []);
+    assert.equal(fs.files.has(own), true);
+    assert.equal(fs.files.has(torn), true);
+  });
+
+  it("keeps the acknowledgement when a foreign dump cannot be removed", () => {
+    const ruby = path.join(PENDING, "r1.dmp");
+    const fs = fakeFs({ [ruby]: buildMinidump({ moduleName: "/usr/bin/ruby" }) });
+    fs.unlinkSync = () => { throw new Error("EROFS"); };
+    const messages = [];
+    const scan = collectCrashReports(withBaseline(fs, { log: (m) => messages.push(m) }));
+    assert.equal(scan.removed, 0);
+    assert.match(messages.join("\n"), /could not remove foreign r1\.dmp/);
+    const state = JSON.parse(fs.readFileSync(STATE));
+    assert.ok(state.seen.includes("minidump:r1.dmp"));
+    assert.equal(fs.files.has(ruby), true);
+  });
+
+  it("keeps, but acknowledges, another Electron build's crash in the shared database", () => {
+    // `crashDumps` is `<userData>/Crashpad`, keyed on `app.getName()`, so a dev
+    // `npm start` of this same app writes into the installed build's database
+    // with main module `Electron`. That is a REAL crash belonging to the other
+    // build; not ours to report, and not ours to destroy. Children that
+    // inherited our handler (ruby here) are still removed in the same scan.
+    const devElectron = path.join(PENDING, "dev.dmp");
+    const devHelper = path.join(PENDING, "helper.dmp");
+    const ruby = path.join(PENDING, "r1.dmp");
+    const fs = fakeFs({
+      [devElectron]: buildMinidump({
+        moduleName: "/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
+        exceptionCode: 0x8000000b,
+      }),
+      [devHelper]: buildMinidump({
+        moduleName: "/repo/node_modules/electron/dist/Electron Helper (Renderer)",
+        exceptionCode: 0x8000000b,
+      }),
+      [ruby]: buildMinidump({ moduleName: "/usr/bin/ruby", exceptionCode: 0x8000000b }),
+    });
+    const scan = collectCrashReports(withBaseline(fs));
+    assert.deepEqual(scan.newCrashes, []);
+    assert.equal(scan.removed, 1);
+    assert.deepEqual(fs.unlinked, [ruby]);
+    assert.equal(fs.files.has(devElectron), true);
+    assert.equal(fs.files.has(devHelper), true);
+    // Acknowledged all the same: the other build's collector owns the report.
+    const state = JSON.parse(fs.readFileSync(STATE));
+    assert.ok(state.seen.includes("minidump:dev.dmp"));
+    assert.ok(state.seen.includes("minidump:helper.dmp"));
+  });
+
+  it("isElectronShaped keeps electron runtimes and nothing else", () => {
+    assert.equal(isElectronShaped("/x/Electron"), true);
+    assert.equal(isElectronShaped("C:\\x\\electron.exe"), true);
+    assert.equal(isElectronShaped("/x/Electron Helper (GPU)"), true);
+    assert.equal(isElectronShaped("/usr/bin/ruby"), false);
+    assert.equal(isElectronShaped("/x/chrome-headless-shell"), false);
+    assert.equal(isElectronShaped("/x/electron-updater-thing"), false);
+    assert.equal(isElectronShaped(""), false);
   });
 
   it("never re-reads a rejected dump on the next launch", () => {

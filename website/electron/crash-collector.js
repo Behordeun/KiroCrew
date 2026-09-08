@@ -295,6 +295,26 @@ function isOwnModule(moduleName, appNames) {
 }
 
 /**
+ * Is this module name an Electron runtime -- ours or not?
+ *
+ * `crashDumps` is `<userData>/Crashpad`, so it is per-app, not machine-wide; but
+ * "per-app" is keyed on `app.getName()`, and a dev `npm start` of this SAME app
+ * shares the directory with the installed build while its main module is
+ * `Electron`, which `isOwnModule` rightly refuses to claim. That dump is a
+ * genuine Electron crash that the other build's collector will read as its own
+ * on its next launch. So an electron-shaped foreign dump is acknowledged (not
+ * ours to report) but never deleted (not ours to destroy). The children this
+ * fix exists for -- ruby, python, node, chrome-headless-shell -- are not
+ * electron-shaped and stay deletable. This is the ONE place a bare `electron`
+ * prefix test is right: it decides what to keep, never what to claim.
+ */
+function isElectronShaped(moduleName) {
+  const base = normalizeName(anyBasename(moduleName));
+  if (!base) return false;
+  return base === "electron" || base.startsWith("electronhelper") || base.startsWith("electron.");
+}
+
+/**
  * Read a UTF-16LE MINIDUMP_STRING at `rva`.
  *
  * Returns "" rather than throwing on a length that runs past EOF: a truncated
@@ -414,6 +434,10 @@ function parseMinidump(read) {
  * `pending/` before it has finished filling it in, so an unreadable dump is
  * routinely one we are simply too early for — the most likely moment for that
  * being the launch right after the crash, which is when this runs.
+ *
+ * `deletable` is set only on the PROVEN not-ours verdicts, and only when the dump
+ * cannot be another Electron build's real crash (`isElectronShaped`). It is what
+ * gates the unlink in `collectCrashReports`; `readable` alone never does.
  */
 function classifyMinidump(parsed, appNames) {
   if (!parsed) return { crash: false, readable: false, reason: "not-a-minidump" };
@@ -423,7 +447,12 @@ function classifyMinidump(parsed, appNames) {
     return { crash: false, readable: false, reason: "module-unreadable" };
   }
   if (!isOwnModule(parsed.mainModule, appNames)) {
-    return { crash: false, readable: true, reason: "foreign-process" };
+    return {
+      crash: false,
+      readable: true,
+      reason: "foreign-process",
+      deletable: !isElectronShaped(parsed.mainModule),
+    };
   }
   if (parsed.exceptionCode === null) {
     // The exception stream was absent or too short to read. Crashpad publishes
@@ -434,7 +463,7 @@ function classifyMinidump(parsed, appNames) {
   }
   if (parsed.exceptionCode === 0) {
     // DumpWithoutCrashing(): a deliberate snapshot. The process kept running.
-    return { crash: false, readable: true, reason: "not-a-crash" };
+    return { crash: false, readable: true, reason: "not-a-crash", deletable: true };
   }
   return { crash: true, readable: true, reason: "" };
 }
@@ -848,6 +877,7 @@ function inspectCandidate(candidate, { fs, appNames, log = () => {} }) {
           outcome: verdict.readable ? INSPECT_FOREIGN : INSPECT_PENDING,
           name: candidate.name,
           reason: verdict.reason,
+          deletable: verdict.deletable === true,
         };
       }
       return {
@@ -921,7 +951,7 @@ function inspectCandidate(candidate, { fs, appNames, log = () => {} }) {
  * @returns {{crashLogPath: string, logsDir: string, baseline: boolean,
  *            newCrashes: Array<object>, candidates: number, inspected: number,
  *            skipped: number, deferred: number, unparsed: number, aged: number,
- *            recorded: number}}
+ *            removed: number, recorded: number}}
  */
 function collectCrashReports({
   logsDir,
@@ -947,6 +977,7 @@ function collectCrashReports({
     deferred: 0,
     unparsed: 0,
     aged: 0,
+    removed: 0,
     recorded: 0,
   };
   if (!fs) return summary;
@@ -1065,7 +1096,7 @@ function collectCrashReports({
   const lines = [];
   const records = [];      // outcome `crash`: announced AND acknowledged on write
   const notes = [];        // outcome `unparsed`: acknowledged on write, not announced
-  const provenForeign = []; // outcome `foreign`: acknowledged unconditionally
+  const provenForeign = []; // outcome `foreign`: acknowledged unconditionally, then deleted
   const pendingKeys = [];   // read short THIS run: aged out once the count trips
   for (const candidate of toInspect) {
     let result = null;
@@ -1084,7 +1115,7 @@ function collectCrashReports({
       continue;
     }
     if (result.outcome === INSPECT_FOREIGN) {
-      provenForeign.push(candidate.key);
+      provenForeign.push({ candidate, deletable: result.deletable === true });
       continue;
     }
     lines.push(formatCrashLine({ at: result.at, ...result.fields }));
@@ -1106,7 +1137,35 @@ function collectCrashReports({
 
   // Proven-foreign needs no ledger line, so its acknowledgement does not depend
   // on the write landing.
-  for (const key of provenForeign) seen.add(key);
+  //
+  // A proven-foreign dump is also DELETED when `deletable`. A dump in this
+  // database that is not ours got here because a child process inherited our
+  // Crashpad handler (a Mach exception port on macOS), so the handler faithfully
+  // wrote the child's crash into our `pending/`. Crashpad only prunes a dump it
+  // has uploaded, and `uploadToServer` is off, so nothing ever removes them: one
+  // machine accumulated 585 (129 MB) in four days, a dozen an hour, none of
+  // them this app. Acknowledging alone kept them out of the ledger but left the
+  // leak. Deletion is gated on the same PROOF as the acknowledgement — a
+  // readable dump whose first module is someone else's, or whose exception code
+  // is zero — never on a failure to read, and never when the stranger is itself
+  // an Electron build (`isElectronShaped`): `crashDumps` is per-`app.getName()`,
+  // so a dev run of this same app shares it, and its real crash belongs to that
+  // build's own collector. Our own dumps are never touched: an own-app crash is
+  // `records`, an own-app snapshot (code 0) is the one foreign case that IS
+  // ours, and it is a deliberate `DumpWithoutCrashing()` nobody asked to keep
+  // either. Best-effort: an unlink that fails leaves the dump acknowledged
+  // exactly as before, so a read-only database degrades to the old behaviour
+  // rather than to a retry loop.
+  for (const { candidate, deletable } of provenForeign) {
+    seen.add(candidate.key);
+    if (!deletable || candidate.kind !== "minidump") continue;
+    try {
+      fs.unlinkSync(candidate.filePath);
+      summary.removed += 1;
+    } catch (e) {
+      log(`crash scan could not remove foreign ${candidate.name}: ${e && e.message}`);
+    }
+  }
   if (durable) {
     for (const { candidate, record } of records) {
       seen.add(candidate.key);
@@ -1175,7 +1234,8 @@ function collectCrashReports({
   log(
     `crash scan: candidates=${summary.candidates} new=${summary.newCrashes.length} `
       + `inspected=${summary.inspected} skipped=${summary.skipped} deferred=${summary.deferred} `
-    + `unparsed=${summary.unparsed} aged=${summary.aged} recorded=${summary.recorded}`
+    + `unparsed=${summary.unparsed} aged=${summary.aged} removed=${summary.removed} `
+    + `recorded=${summary.recorded}`
   );
   return summary;
 }
@@ -1215,6 +1275,7 @@ module.exports = {
   ipsBelongsToApp,
   ipsTimestampToIso,
   isOwnModule,
+  isElectronShaped,
   appendCrashLog,
   readSeenState,
   writeSeenState,

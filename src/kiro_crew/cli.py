@@ -2717,6 +2717,14 @@ The dashboard port is set with the KIROCREW_PORT env var, not a config key.
         # DashboardContributor.start_services (which never fires for `token`
         # and only inside gateway async startup). Public default = no checks.
         run_preflight_checks()
+        # Under the desktop shell this process inherited Electron's Crashpad
+        # exception port, and so would every child it spawns (kiro-cli, MCP
+        # servers, and whatever THEY run). Their crashes would then land in
+        # OUR Crashpad database as foreign dumps nobody prunes. Cleared here,
+        # before the first child, so children fall back to the OS default.
+        from kiro_crew.crashpad_inherit import detach_inherited_crash_handler
+
+        detach_inherited_crash_handler()
         # Enable faulthandler for the long-lived gateway process: it makes
         # `kill -ABRT <pid>` dump every thread's stack to stderr (the gateway
         # log) on demand, and it is the signal the dashboard's stall watchdog
