@@ -266,17 +266,13 @@ class TestPlan:
             "_decompose",
             AsyncMock(return_value=[Task(index=1, title="T", description="d")]),
         ):
-            run = await runner.plan(
-                input_text="go", source="text", workspace_dir=str(override)
-            )
+            run = await runner.plan(input_text="go", source="text", workspace_dir=str(override))
         assert run.work_dir == str(override.resolve())
 
     @pytest.mark.asyncio
     async def test_decompose_timeout_becomes_value_error(self, tmp_path: Path) -> None:
         runner = _runner(tmp_path)
-        with patch.object(
-            TaskRunner, "_decompose", AsyncMock(side_effect=asyncio.TimeoutError())
-        ):
+        with patch.object(TaskRunner, "_decompose", AsyncMock(side_effect=asyncio.TimeoutError())):
             with pytest.raises(ValueError, match="timed out"):
                 await runner.plan(input_text="go", source="text")
         assert runner._runs == {}
@@ -399,9 +395,7 @@ class TestUpdateTask:
             ({"depends_on": "1,2"}, "depends_on must be a list"),
         ],
     )
-    async def test_validation_errors(
-        self, tmp_path: Path, updates: dict, message: str
-    ) -> None:
+    async def test_validation_errors(self, tmp_path: Path, updates: dict, message: str) -> None:
         runner = _runner(tmp_path)
         _seed_run(runner, tmp_path)
         with pytest.raises(ValueError, match=message):
@@ -413,9 +407,7 @@ class TestUpdateTask:
         runner = _runner(tmp_path)
         _seed_run(runner, tmp_path)
         with pytest.raises(ValueError, match="description too long"):
-            await runner.update_task(
-                "plan_1", 1, {"title": "new", "description": "d" * 5001}
-            )
+            await runner.update_task("plan_1", 1, {"title": "new", "description": "d" * 5001})
         assert runner._runs["plan_1"].tasks[0].title == "One"
 
     @pytest.mark.asyncio
@@ -501,9 +493,11 @@ class TestExecutePlan:
             ],
         )
         run.error = "boom"
-        with patch.object(TaskRunner, "_execute_tasks", AsyncMock()), patch.object(
-            TaskRunner, "_watchdog_loop", AsyncMock()
-        ), patch.object(tr.git_coord, "init_workspace", AsyncMock()):
+        with (
+            patch.object(TaskRunner, "_execute_tasks", AsyncMock()),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+            patch.object(tr.git_coord, "init_workspace", AsyncMock()),
+        ):
             task_id = await runner.execute_plan("plan_1")
             await runner._tasks[task_id]
         assert run.tasks[0].status == TaskStatus.PASSED
@@ -520,9 +514,11 @@ class TestExecutePlan:
             status="paused",
             tasks=[Task(index=1, title="ok", description="d", status=TaskStatus.PASSED)],
         )
-        with patch.object(TaskRunner, "_execute_tasks", AsyncMock()), patch.object(
-            TaskRunner, "_watchdog_loop", AsyncMock()
-        ), patch.object(tr.git_coord, "init_workspace", AsyncMock()):
+        with (
+            patch.object(TaskRunner, "_execute_tasks", AsyncMock()),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+            patch.object(tr.git_coord, "init_workspace", AsyncMock()),
+        ):
             task_id = await runner.execute_plan("plan_1", fresh=True)
             await runner._tasks[task_id]
         assert run.tasks[0].attempts == 0
@@ -535,9 +531,11 @@ class TestExecutePlan:
         runner = _runner(tmp_path)
         run = _seed_run(runner, tmp_path, status="paused")
         original = run.work_dir
-        with patch.object(TaskRunner, "_execute_tasks", AsyncMock()), patch.object(
-            TaskRunner, "_watchdog_loop", AsyncMock()
-        ), patch.object(tr.git_coord, "init_workspace", AsyncMock()):
+        with (
+            patch.object(TaskRunner, "_execute_tasks", AsyncMock()),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+            patch.object(tr.git_coord, "init_workspace", AsyncMock()),
+        ):
             task_id = await runner.execute_plan("plan_1", workspace_dir=str(override))
             await runner._tasks[task_id]
         assert run.work_dir == original
@@ -551,10 +549,11 @@ class TestExecutePlan:
         run.branch_name = "feat/x"
         scope = _auto_approve_scope("plan_trust")
         finalize = AsyncMock()
-        with patch.object(TaskRunner, "_execute_tasks", AsyncMock()) as exec_tasks, patch.object(
-            TaskRunner, "_watchdog_loop", AsyncMock()
-        ), patch.object(tr.git_coord, "init_workspace", AsyncMock()) as init_ws, patch.object(
-            tr.git_coord, "finalize", finalize
+        with (
+            patch.object(TaskRunner, "_execute_tasks", AsyncMock()) as exec_tasks,
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+            patch.object(tr.git_coord, "init_workspace", AsyncMock()) as init_ws,
+            patch.object(tr.git_coord, "finalize", finalize),
         ):
             task_id = await runner.execute_plan("plan_trust", auto_approve=True)
             assert safety_override().is_scope_active(scope) is True
@@ -573,10 +572,12 @@ class TestExecutePlan:
     async def test_git_init_failure_does_not_abort_run(self, tmp_path: Path) -> None:
         runner = _runner(tmp_path)
         run = _seed_run(runner, tmp_path)
-        with patch.object(TaskRunner, "_execute_tasks", AsyncMock()), patch.object(
-            TaskRunner, "_watchdog_loop", AsyncMock()
-        ), patch.object(
-            tr.git_coord, "init_workspace", AsyncMock(side_effect=RuntimeError("no git"))
+        with (
+            patch.object(TaskRunner, "_execute_tasks", AsyncMock()),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+            patch.object(
+                tr.git_coord, "init_workspace", AsyncMock(side_effect=RuntimeError("no git"))
+            ),
         ):
             task_id = await runner.execute_plan("plan_1")
             await runner._tasks[task_id]
@@ -587,10 +588,12 @@ class TestExecutePlan:
         notify = AsyncMock()
         runner = _runner(tmp_path, on_notify=notify)
         run = _seed_run(runner, tmp_path)
-        with patch.object(
-            TaskRunner, "_execute_tasks", AsyncMock(side_effect=RuntimeError("kaboom"))
-        ), patch.object(TaskRunner, "_watchdog_loop", AsyncMock()), patch.object(
-            tr.git_coord, "init_workspace", AsyncMock()
+        with (
+            patch.object(
+                TaskRunner, "_execute_tasks", AsyncMock(side_effect=RuntimeError("kaboom"))
+            ),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+            patch.object(tr.git_coord, "init_workspace", AsyncMock()),
         ):
             task_id = await runner.execute_plan("plan_1")
             await runner._tasks[task_id]
@@ -609,10 +612,12 @@ class TestExecutePlan:
                 Task(index=2, title="b", description="d"),
             ],
         )
-        with patch.object(
-            TaskRunner, "_execute_tasks", AsyncMock(side_effect=asyncio.CancelledError())
-        ), patch.object(TaskRunner, "_watchdog_loop", AsyncMock()), patch.object(
-            tr.git_coord, "init_workspace", AsyncMock()
+        with (
+            patch.object(
+                TaskRunner, "_execute_tasks", AsyncMock(side_effect=asyncio.CancelledError())
+            ),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+            patch.object(tr.git_coord, "init_workspace", AsyncMock()),
         ):
             task_id = await runner.execute_plan("plan_1")
             await runner._tasks[task_id]
@@ -824,6 +829,56 @@ class TestRetryFromTask:
             await runner.retry_from_task("plan_1", 1)
 
     @pytest.mark.asyncio
+    async def test_refuses_while_previous_run_is_still_finishing(self, tmp_path: Path) -> None:
+        """The status flips terminal BEFORE the prior run's finally-block
+        finishes -- git finalize (which removes the worktree) runs after the
+        terminal status is persisted. A retry accepted in that window
+        validates a workspace the prior finalizer is about to delete. The
+        background task handle is the honest signal: refuse while it is
+        still running."""
+        import asyncio as _asyncio
+
+        runner = _runner(tmp_path)
+        _seed_run(runner, tmp_path, status="failed")
+
+        release = _asyncio.Event()
+
+        async def _still_finalizing() -> None:
+            await release.wait()
+
+        runner._tasks["plan_1"] = _asyncio.create_task(_still_finalizing())
+        try:
+            with pytest.raises(ValueError, match="still finishing"):
+                await runner.retry_from_task("plan_1", 1)
+        finally:
+            release.set()
+            await runner._tasks["plan_1"]
+
+    @pytest.mark.asyncio
+    async def test_name_addressed_retry_hits_finishing_guard(self, tmp_path: Path) -> None:
+        """_resolve_task accepts a run NAME, but self._tasks is keyed by the
+        canonical id. A name-addressed retry must canonicalize before the
+        finishing-guard lookup, or it misses the prior background-task handle
+        and races the prior run's finalizer."""
+        import asyncio as _asyncio
+
+        runner = _runner(tmp_path)
+        _seed_run(runner, tmp_path, status="failed")
+
+        release = _asyncio.Event()
+
+        async def _still_finalizing() -> None:
+            await release.wait()
+
+        runner._tasks["plan_1"] = _asyncio.create_task(_still_finalizing())
+        try:
+            with pytest.raises(ValueError, match="still finishing"):
+                await runner.retry_from_task("demo", 1)  # by NAME, not id
+        finally:
+            release.set()
+            await runner._tasks["plan_1"]
+
+    @pytest.mark.asyncio
     async def test_resets_from_index_and_completes(self, tmp_path: Path) -> None:
         notify = AsyncMock()
         runner = _runner(tmp_path, on_notify=notify)
@@ -844,8 +899,9 @@ class TestRetryFromTask:
             ],
         )
         run.finished_at = 123.0
-        with patch.object(TaskRunner, "_execute_tasks", AsyncMock()) as exec_tasks, patch.object(
-            TaskRunner, "_watchdog_loop", AsyncMock()
+        with (
+            patch.object(TaskRunner, "_execute_tasks", AsyncMock()) as exec_tasks,
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
         ):
             task_id = await runner.retry_from_task("plan_1", 2)
             await runner._tasks[task_id]
@@ -858,26 +914,83 @@ class TestRetryFromTask:
 
     @pytest.mark.asyncio
     async def test_reinits_git_when_work_dir_is_missing(self, tmp_path: Path) -> None:
+        """A genuinely missing work_dir (not just an orphaned worktree) is
+        detected by the same workspace_is_valid() check -- _is_git_repo()
+        against a nonexistent directory is False too -- and recovery is
+        attempted via reinit_workspace_for_retry(), not init_workspace()
+        directly (see #3792: a second init_workspace() call would check the
+        DEAD worktree path rather than the original repo)."""
         runner = _runner(tmp_path)
         run = _seed_run(runner, tmp_path, status="failed")
         run.branch_name = "feat/x"
         run.work_dir = str(tmp_path / "gone")
-        init_ws = AsyncMock(side_effect=RuntimeError("git absent"))
-        with patch.object(TaskRunner, "_execute_tasks", AsyncMock()), patch.object(
-            TaskRunner, "_watchdog_loop", AsyncMock()
-        ), patch.object(tr.git_coord, "init_workspace", init_ws):
+        reinit = AsyncMock(return_value=True)
+        with (
+            patch.object(TaskRunner, "_execute_tasks", AsyncMock()),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+            patch.object(tr.git_coord, "workspace_is_valid", AsyncMock(return_value=False)),
+            patch.object(tr.git_coord, "reinit_workspace_for_retry", reinit),
+        ):
             task_id = await runner.retry_from_task("plan_1", 1)
             await runner._tasks[task_id]
-        init_ws.assert_awaited_once()
-        assert run.status == "completed"  # git failure is non-fatal
+        reinit.assert_awaited_once_with(run)
+        assert run.status == "completed"
+
+    @pytest.mark.asyncio
+    async def test_retry_fails_the_run_when_the_workspace_cannot_be_restored(
+        self, tmp_path: Path
+    ) -> None:
+        """#3792: the original bug -- a retry whose worktree was deregistered
+        (directory present, no longer a registered git repo) must not
+        silently dispatch the remaining steps against it. If recovery fails,
+        the run is failed terminally instead of continuing."""
+        runner = _runner(tmp_path)
+        run = _seed_run(runner, tmp_path, status="failed")
+        run.branch_name = "feat/x"
+        run.work_dir = str(tmp_path / "orphaned-worktree")
+        execute_tasks = AsyncMock()
+        with (
+            patch.object(TaskRunner, "_execute_tasks", execute_tasks),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+            patch.object(tr.git_coord, "workspace_is_valid", AsyncMock(return_value=False)),
+            patch.object(tr.git_coord, "reinit_workspace_for_retry", AsyncMock(return_value=False)),
+        ):
+            task_id = await runner.retry_from_task("plan_1", 1)
+            await runner._tasks[task_id]
+        execute_tasks.assert_not_awaited()
+        assert run.status == "failed"
+        assert "workspace" in run.error.lower()
+        assert run.tasks[0].status != tr.TaskStatus.PASSED
+
+    @pytest.mark.asyncio
+    async def test_retry_skips_reinit_when_the_workspace_is_already_valid(
+        self, tmp_path: Path
+    ) -> None:
+        """The common case -- worktree still valid -- must not pay the
+        reinit cost or touch the workspace at all."""
+        runner = _runner(tmp_path)
+        run = _seed_run(runner, tmp_path, status="failed")
+        run.branch_name = "feat/x"
+        reinit = AsyncMock()
+        with (
+            patch.object(TaskRunner, "_execute_tasks", AsyncMock()),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+            patch.object(tr.git_coord, "workspace_is_valid", AsyncMock(return_value=True)),
+            patch.object(tr.git_coord, "reinit_workspace_for_retry", reinit),
+        ):
+            task_id = await runner.retry_from_task("plan_1", 1)
+            await runner._tasks[task_id]
+        reinit.assert_not_awaited()
+        assert run.status == "completed"
 
     @pytest.mark.asyncio
     async def test_failure_marks_run_failed(self, tmp_path: Path) -> None:
         runner = _runner(tmp_path)
         run = _seed_run(runner, tmp_path, status="failed")
-        with patch.object(
-            TaskRunner, "_execute_tasks", AsyncMock(side_effect=RuntimeError("nope"))
-        ), patch.object(TaskRunner, "_watchdog_loop", AsyncMock()):
+        with (
+            patch.object(TaskRunner, "_execute_tasks", AsyncMock(side_effect=RuntimeError("nope"))),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+        ):
             task_id = await runner.retry_from_task("plan_1", 1)
             await runner._tasks[task_id]
         assert run.status == "failed"
@@ -898,9 +1011,10 @@ class TestRetryFromTask:
             run.tasks[0].status = TaskStatus.IN_PROGRESS
             raise asyncio.CancelledError()
 
-        with patch.object(
-            TaskRunner, "_execute_tasks", AsyncMock(side_effect=_pause_then_cancel)
-        ), patch.object(TaskRunner, "_watchdog_loop", AsyncMock()):
+        with (
+            patch.object(TaskRunner, "_execute_tasks", AsyncMock(side_effect=_pause_then_cancel)),
+            patch.object(TaskRunner, "_watchdog_loop", AsyncMock()),
+        ):
             task_id = await runner.retry_from_task("plan_1", 1)
             await runner._tasks[task_id]
         assert run.status == "paused"
@@ -946,9 +1060,7 @@ class TestStartBackground:
         cron = _seed_run(runner, tmp_path, task_id="cron_done", name="c", status="completed")
         cron.source = "cron"
         for i in range(12):
-            _seed_run(
-                runner, tmp_path, task_id=f"old{i:02d}", name=f"o{i}", status="completed"
-            )
+            _seed_run(runner, tmp_path, task_id=f"old{i:02d}", name=f"o{i}", status="completed")
         with patch.object(TaskRunner, "run", AsyncMock()):
             task_id = await runner.start_background(str(spec))
             await runner._tasks[task_id]
@@ -1040,9 +1152,7 @@ class TestCallLlmForLesson:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         runner = _runner(tmp_path)
-        monkeypatch.setattr(
-            tr, "stream_and_collect_json", AsyncMock(return_value={"rule": "R"})
-        )
+        monkeypatch.setattr(tr, "stream_and_collect_json", AsyncMock(return_value={"rule": "R"}))
         assert await runner._call_llm_for_lesson("p") == {"rule": "R"}
         runner._sessions.release.assert_called_once()
         runner._sessions.recycle_background.assert_awaited_once()
@@ -1250,17 +1360,13 @@ class TestLoadRuns:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         (tmp_path / "runs.json").write_text("{not json", encoding="utf-8")
-        monkeypatch.setattr(
-            Path, "replace", MagicMock(side_effect=OSError("cannot rename"))
-        )
+        monkeypatch.setattr(Path, "replace", MagicMock(side_effect=OSError("cannot rename")))
         runner = _runner(tmp_path)
         assert runner._runs == {}
         assert (tmp_path / "runs.json").exists()
 
     def test_running_run_recovers_as_resumable_without_trust(self, tmp_path: Path) -> None:
-        (tmp_path / "runs.json").write_text(
-            json.dumps([_registry_item()]), encoding="utf-8"
-        )
+        (tmp_path / "runs.json").write_text(json.dumps([_registry_item()]), encoding="utf-8")
         runner = _runner(tmp_path)
         run = runner._runs["r1"]
         assert run.status == "paused"
