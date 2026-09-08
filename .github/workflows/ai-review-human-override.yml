@@ -240,10 +240,16 @@ jobs:
               # them. The lane stamps its own run URL into the details_url of
               # the check-run it posts on the PR head; read the run id back
               # from the newest check-run this PR created there.
+              # The external_id is now attempt-scoped (<lane>-pr-<PR>-<run>-<attempt>),
+              # so match the PR dimension by prefix and let sort_by(.started_at)|last
+              # pick the newest attempt regardless of suffix. Trailing hyphen keeps
+              # -pr-9 from matching -pr-99.
               enc="$(jq -rn --arg name "$check_name" '$name | @uri')"
               details_url="$(gh api --method GET \
                 "repos/$REPO/commits/$HEAD/check-runs?check_name=$enc&per_page=100" \
-                --jq "[.check_runs[] | select(.external_id == \"$lane-pr-$PR\")]
+                --jq "[.check_runs[]
+                       | select(.external_id != null)
+                       | select(.external_id | startswith(\"$lane-pr-$PR-\"))]
                       | sort_by(.started_at) | last | .details_url // empty" \
                 2>/dev/null || true)"
               run_id="$(printf '%s' "$details_url" \

@@ -268,6 +268,8 @@ class Runner:
         existing_status_state: str = "",
         disposition_ok: str = "",
         disposition_violations: str = "",
+        wr_name: str = "",
+        wr_status: str = "",
     ):
         env = dict(self.env)
         if disposition_ok:
@@ -278,6 +280,10 @@ class Runner:
             env["FORK"] = "true"
         if http_error:
             env["HTTP_ERROR"] = http_error
+        if wr_name:
+            env["WR_NAME"] = wr_name
+        if wr_status:
+            env["WR_STATUS"] = wr_status
         state_file = self.fixtures / "existing_status_state.txt"
         state_file.unlink(missing_ok=True)
         if existing_status_state:
@@ -751,20 +757,24 @@ class TestSameSecondRunCollapse:
         assert outputs["label"] == "readiness: passed"
 
     def test_every_collapse_site_carries_identical_logic(self):
-        # The workflow resolves runs at three separately-written sites: the
-        # monitored-workflow loop, the dynamic CodeQL read, and the trigger-run
-        # read that dates an attempt-bound fork check-run. Behavioral tests
-        # exercise one shape each; this pins the collapse FRAGMENT itself so an
-        # edit to one site cannot drift from the others for shapes no fixture
-        # covers. The fragment starts after the site-specific select() line and
-        # runs to the terminal collapse.
+        # The workflow resolves runs at four separately-written sites: the
+        # monitored-workflow loop, the dynamic CodeQL read, the trigger-run read
+        # that dates an attempt-bound fork check-run, and the fork check-run
+        # read itself (collapsing to the newest row sharing a trigger-bound id,
+        # so a human-override rerun of the lane cannot have its stale failure
+        # outvote a fresh success). Behavioral tests exercise one shape each;
+        # this pins the collapse FRAGMENT itself so an edit to one site cannot
+        # drift from the others for shapes no fixture covers. The fragment
+        # starts after the site-specific select() line and runs to the terminal
+        # collapse.
         script = _evaluate_script()
         fragment = "| max_by(.id) // empty"
         lines = [ln.strip() for ln in script.splitlines()]
         count = lines.count(fragment)
-        assert count == 3, (
-            "expected exactly the three run-collapse sites (monitored"
-            f" workflows + dynamic CodeQL + fork trigger run), found {count}"
+        assert count == 4, (
+            "expected exactly the four run-collapse sites (monitored"
+            " workflows + dynamic CodeQL + fork trigger run + fork check-run),"
+            f" found {count}"
         )
         # No site may re-grow a filter stage between the select() and the
         # collapse: the line preceding each collapse must be the end of the
@@ -911,6 +921,267 @@ class TestForkScanVerdictIsBoundToItsPullRequest:
         assert proc.returncode == 0, proc.stderr
         summary = (runner.temp / "pr-readiness-summary.md").read_text()
         assert "Internal Content Scan (not started)" not in summary
+
+
+class _ForkLaneVerdictBinding:
+    """A fork lane verdict must belong to THIS pull request and THIS attempt.
+
+    Two open PRs can share a head SHA -- the same fork branch opened against two
+    bases, or the same commit in two forks -- and each Stage-2 lane posts a
+    check-run under the SAME NAME on that SHA. A RERUN on an unchanged head also
+    leaves the previous attempt's completed row in place while the new attempt is
+    still starting. Reading rows by name alone loses both ways, and the second one
+    is not even a narrow race: readiness recomputes on the trigger's completion,
+    which is exactly when the old row is the only one there.
+
+    Staleness is not merely cosmetic here. A model verdict can differ between
+    attempts on the same head, so accepting the previous attempt's clean verdict
+    can pass content a rerun would judge differently. The lane therefore stamps
+    external_id=<prefix><pr>-<run id>-<attempt>, and readiness derives the
+    expected value from the newest run of the triggering workflow (Fast Gate).
+
+    Subclasses set PREFIX to their lane's `<lane>-pr-` and CHECK_NAME to the
+    lane's check-run name. The stub serves check_runs.json for EVERY check-name
+    query, so every lane reads the same row -- only the lane under test is
+    attempt-bound to a matching id, and the others read a non-matching id and
+    fall to pending, which is fine because only the tested lane's outcome is
+    asserted.
+    """
+
+    PREFIX: str
+    CHECK_NAME: str
+
+    @staticmethod
+    def _only_check_run(runner: Runner, external_id: str) -> None:
+        (runner.fixtures / "check_runs.json").write_text(
+            json.dumps(
+                {
+                    "check_runs": [
+                        {
+                            "status": "completed",
+                            "conclusion": "success",
+                            "external_id": external_id,
+                        }
+                    ]
+                }
+            )
+        )
+
+    @staticmethod
+    def _check_run_rows(runner: Runner, rows: list[dict]) -> None:
+        (runner.fixtures / "check_runs.json").write_text(
+            json.dumps({"check_runs": rows})
+        )
+
+    @staticmethod
+    def _trigger_attempt(runner: Runner, attempt: int) -> None:
+        # green_runs.json is what the stub returns for the lane's triggering
+        # workflow (fast-gate.yml), so this is how the "current attempt" moves.
+        (runner.fixtures / "green_runs.json").write_text(
+            _run_json(
+                "fast-gate.yml",
+                status="completed",
+                conclusion="success",
+                run_attempt=attempt,
+            )
+        )
+
+    def _id_for(self, runner: Runner, *, pr: str, attempt: int) -> str:
+        return f"{self.PREFIX}{pr}-{RUN_ID}-{attempt}"
+
+    def test_a_siblings_clean_check_run_does_not_pass_this_pr(self, runner: Runner):
+        # Same name, same head SHA, same attempt -- DIFFERENT pull request.
+        self._only_check_run(runner, self._id_for(runner, pr="9999", attempt=1))
+
+        proc, outputs = runner.evaluate(fork=True)
+
+        assert proc.returncode == 0, proc.stderr
+        assert outputs["status_state"] == "pending"
+
+    def test_a_previous_attempts_clean_check_run_does_not_pass_a_rerun(
+        self, runner: Runner
+    ):
+        # The trigger has been re-run: attempt 2 is current, and the only row on
+        # the commit is attempt 1's clean verdict -- computed on the previous
+        # roll. It must not answer for this attempt.
+        self._trigger_attempt(runner, 2)
+        self._only_check_run(
+            runner, self._id_for(runner, pr=runner.env["PR"], attempt=1)
+        )
+
+        proc, outputs = runner.evaluate(fork=True)
+
+        assert proc.returncode == 0, proc.stderr
+        assert outputs["status_state"] == "pending"
+
+    def test_a_siblings_trigger_run_is_not_mistaken_for_this_prs(self, runner: Runner):
+        # The expected external_id names the newest run of the lane's TRIGGERING
+        # workflow, so that selection has to be bound to this PR too. Two open PRs
+        # can share the head SHA, and the sibling's trigger run can be the newer
+        # one -- selecting it would name a run this PR's lane never saw, so nothing
+        # would ever match and the lane would sit pending forever. That is the
+        # opposite failure to the stale-verdict one, and just as bad.
+        sibling_newer = json.dumps(
+            {
+                "workflow_runs": [
+                    json.loads(
+                        _run_json("fast-gate.yml", status="completed", conclusion="success")
+                    )["workflow_runs"][0],
+                    {
+                        # Same head SHA, higher id -- but another fork's branch.
+                        "id": RUN_ID + 1,
+                        "run_attempt": 1,
+                        "head_repository": {"full_name": "someone-else/KiroCrew"},
+                        "head_branch": "their/branch",
+                        "path": ".github/workflows/fast-gate.yml",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "created_at": "2026-08-11T00:00:00Z",
+                    },
+                ]
+            }
+        )
+        (runner.fixtures / "green_runs.json").write_text(sibling_newer)
+        # This PR's own row, stamped with THIS PR's trigger run.
+        self._only_check_run(
+            runner, self._id_for(runner, pr=runner.env["PR"], attempt=1)
+        )
+
+        proc, outputs = runner.evaluate(fork=True)
+
+        assert proc.returncode == 0, proc.stderr
+        summary = (runner.temp / "pr-readiness-summary.md").read_text()
+        assert f"{self.CHECK_NAME} (not started)" not in summary, (
+            "the sibling's newer trigger run was selected, so this PR's own row "
+            "could not be matched and the lane is stuck pending"
+        )
+
+    def test_the_current_attempts_own_check_run_is_read(self, runner: Runner):
+        # The binding must not blind the lane to the row that DOES belong to it --
+        # otherwise every fork PR sits pending forever, which is the opposite
+        # failure and just as bad.
+        self._only_check_run(
+            runner, self._id_for(runner, pr=runner.env["PR"], attempt=1)
+        )
+
+        proc, outputs = runner.evaluate(fork=True)
+
+        assert proc.returncode == 0, proc.stderr
+        summary = (runner.temp / "pr-readiness-summary.md").read_text()
+        assert f"{self.CHECK_NAME} (not started)" not in summary
+
+    def test_a_rerun_starting_reads_pending_not_the_stale_check_run(
+        self, runner: Runner
+    ):
+        # This evaluation can BE the `in_progress` event a human-override
+        # rerun of the lane fires the instant it starts (pr-readiness.yml is
+        # wired to the fork workflow at both in_progress and completed), before
+        # that rerun's own "Open check-run" step has posted a fresh row. Only
+        # the OLD, still-completed, still-success check-run exists at that
+        # moment; reading it would publish a stale success. The lane must read
+        # pending instead, keyed off the triggering workflow_run's own name +
+        # status, without ever calling the check-runs API.
+        self._only_check_run(
+            runner, self._id_for(runner, pr=runner.env["PR"], attempt=1)
+        )
+
+        proc, outputs = runner.evaluate(
+            fork=True,
+            wr_name=f"Fork {self.CHECK_NAME}",
+            wr_status="in_progress",
+        )
+
+        assert proc.returncode == 0, proc.stderr
+        assert outputs["status_state"] == "pending"
+        summary = (runner.temp / "pr-readiness-summary.md").read_text()
+        assert f"{self.CHECK_NAME} (rerun starting)" in summary
+
+    def test_a_different_lanes_rerun_starting_does_not_force_this_lane_pending(
+        self, runner: Runner
+    ):
+        # The guard must be scoped to THIS lane's own fork workflow name --
+        # another lane's rerun starting must not blind this one to its own
+        # genuine, already-posted verdict.
+        self._only_check_run(
+            runner, self._id_for(runner, pr=runner.env["PR"], attempt=1)
+        )
+
+        proc, outputs = runner.evaluate(
+            fork=True,
+            wr_name="Fork Some Other Review",
+            wr_status="in_progress",
+        )
+
+        assert proc.returncode == 0, proc.stderr
+        summary = (runner.temp / "pr-readiness-summary.md").read_text()
+        assert f"{self.CHECK_NAME} (not started)" not in summary
+        assert f"{self.CHECK_NAME} (rerun starting)" not in summary
+
+    def test_a_stale_failure_does_not_outvote_a_human_override_rerun(
+        self, runner: Runner
+    ):
+        # A human-override rerun (`gh api .../runs/<id>/rerun`) re-executes the
+        # LANE's own run directly, without Fast Gate re-running -- so the
+        # trigger-bound id (PR + Fast Gate run id + Fast Gate attempt) is
+        # IDENTICAL between the stale failed attempt and the fresh rerun: both
+        # check-run rows share the exact same external_id. If the reader
+        # treated a match as singular it would only ever see one row (a POST
+        # PATCHes an existing row when one is open, so in practice this is the
+        # in-place-update path); this fixture models the sweep-created edge
+        # where two distinct rows end up sharing the id, and pins that the
+        # reader collapses to the newest by CHECK-RUN id (distinct per POST,
+        # independent of external_id) rather than by fail-precedence, so the
+        # fresh success is never outvoted by the stale failure it replaces.
+        trigger_id = self._id_for(runner, pr=runner.env["PR"], attempt=1)
+        self._check_run_rows(
+            runner,
+            [
+                {
+                    "id": 1,
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "external_id": trigger_id,
+                },
+                {
+                    "id": 2,
+                    "status": "completed",
+                    "conclusion": "success",
+                    "external_id": trigger_id,
+                },
+            ],
+        )
+
+        proc, outputs = runner.evaluate(fork=True)
+
+        assert proc.returncode == 0, proc.stderr
+        summary = (runner.temp / "pr-readiness-summary.md").read_text()
+        assert f"{self.CHECK_NAME} (failure)" not in summary
+        assert f"{self.CHECK_NAME} (BLOCK)" not in summary
+
+
+class TestForkOpusVerdictIsBoundToItsPullRequest(_ForkLaneVerdictBinding):
+    PREFIX = "opus-pr-"
+    CHECK_NAME = "Opus 4.8 Review"
+
+
+class TestForkGptVerdictIsBoundToItsPullRequest(_ForkLaneVerdictBinding):
+    PREFIX = "gpt-pr-"
+    CHECK_NAME = "GPT 5.6 Review"
+
+
+class TestForkDesignVerdictIsBoundToItsPullRequest(_ForkLaneVerdictBinding):
+    PREFIX = "design-pr-"
+    CHECK_NAME = "Design Review"
+
+
+class TestForkUxVerdictIsBoundToItsPullRequest(_ForkLaneVerdictBinding):
+    PREFIX = "ux-pr-"
+    CHECK_NAME = "UX Review"
+
+
+class TestForkFirstPrinciplesVerdictIsBoundToItsPullRequest(_ForkLaneVerdictBinding):
+    PREFIX = "first-principles-pr-"
+    CHECK_NAME = "First Principles Review"
 
 
 class TestAwaitingApprovalIsAttributedToTheMaintainer:

@@ -489,6 +489,15 @@ jobs:
           DEFAULT_BRANCH: ${{ steps.context.outputs.default_branch }}
           TRIGGER_EVENT: ${{ github.event_name }}
           TRIGGER_ACTION: ${{ github.event.action }}
+          # The triggering workflow_run's own name + status, read ONLY to close
+          # a race on the fork Stage-2 lanes below: this evaluation can itself be
+          # the `in_progress` event a human-override rerun fires the INSTANT it
+          # starts, before that rerun's own "Open check-run" step has posted a
+          # fresh row -- so a check-runs read right now would still see the OLD
+          # completed verdict and publish a stale success. Empty on every other
+          # trigger (pull_request_target, or a workflow_run this isn't).
+          WR_NAME: ${{ github.event.workflow_run.name }}
+          WR_STATUS: ${{ github.event.workflow_run.status }}
           # From the disposition step above. Empty DISPOSITION_OK means the step
           # did not run at all, which contributes nothing -- the step's own `if`
           # matches this one's, and test_pr_readiness_dispositions.py pins the
@@ -555,6 +564,13 @@ jobs:
             # specs) so a fully-reviewed green fork can reach "passed" instead
             # of being forced to a maintainer-review verdict.
             skipped+=("CodeQL (fork PR)")
+            # The third field binds each verdict to THIS pull request AND this
+            # review attempt via the external_id the lane stamps: without it a
+            # sibling fork PR on the same head SHA, or a stale row from a
+            # previous rerun attempt, could answer for this one. The fourth
+            # field is the workflow whose completion triggers the lane -- all
+            # five fire on `Fast Gate` completing, so its newest run + attempt
+            # for this head is what "current" means here (fast-gate.yml).
             workflow_specs+=(
               # The scan reaches a fork through the same Stage-2 pattern: a fork
               # head gets no OIDC token, so fork-internal-content-scan.yml runs
@@ -569,11 +585,11 @@ jobs:
               # triggers the lane -- its newest run + attempt is what "current"
               # means here.
               "checkrun:Internal Content Scan|Internal Content Scan|internal-content-scan-pr-|fast-gate.yml"
-              "checkrun:Opus 4.8 Review|Opus 4.8 Review"
-              "checkrun:GPT 5.6 Review|GPT 5.6 Review"
-              "checkrun:Design Review|Design Review"
-              "checkrun:UX Review|UX Review"
-              "checkrun:First Principles Review|First Principles Review"
+              "checkrun:Opus 4.8 Review|Opus 4.8 Review|opus-pr-|fast-gate.yml"
+              "checkrun:GPT 5.6 Review|GPT 5.6 Review|gpt-pr-|fast-gate.yml"
+              "checkrun:Design Review|Design Review|design-pr-|fast-gate.yml"
+              "checkrun:UX Review|UX Review|ux-pr-|fast-gate.yml"
+              "checkrun:First Principles Review|First Principles Review|first-principles-pr-|fast-gate.yml"
             )
           else
             if [ "$stacked" = "true" ]; then
@@ -615,12 +631,26 @@ jobs:
               # check-runs, not a PR-bound workflow run (the fork reviewer runs
               # via workflow_run from the default branch, so its workflow-run
               # head ref does not bind back to the fork). The same-repo lane
-              # publishes a DIFFERENT name on a fork, but the GPT lane posts
-              # several passes under this one -- so collapse ALL check-runs
-              # of this name: any still running -> pending; any failure-class
-              # -> fail; else any success/neutral -> pass; only skipped (the
-              # real review has not posted yet) -> pending.
+              # publishes a DIFFERENT name on a fork, so read this name's
+              # check-runs, bound below to THIS PR and attempt via external_id,
+              # then collapse them: any still running -> pending; any
+              # failure-class -> fail; else any success/neutral -> pass; only
+              # an absent/unbound row (the real review has not posted yet) ->
+              # pending.
               cname="${file#checkrun:}"
+              # Close the human-override-rerun race: this evaluation can BE the
+              # `in_progress` event a lane's own rerun fires the instant it
+              # starts (workflow_run is wired at both in_progress and completed
+              # -- see the trigger list above), before that rerun's "Open
+              # check-run" step has posted a fresh row. Reading check-runs right
+              # now would still see the OLD completed verdict and publish a
+              # stale success. Force pending without a read: the rerun's own
+              # completion re-triggers this evaluation with a real verdict.
+              if [ "$FORK" = "true" ] && [ "${WR_STATUS:-}" = "in_progress" ] \
+                && [ "${WR_NAME:-}" = "Fork $cname" ]; then
+                pending+=("$label (rerun starting)")
+                continue
+              fi
               enc="$(jq -rn --arg v "$cname" '$v | @uri')"
               cruns="$(gh_retry gh api --method GET \
                 "repos/$REPO/commits/$SHA/check-runs?check_name=$enc&per_page=100")" || {
@@ -631,26 +661,34 @@ jobs:
                 transport_failed=true
                 break
               }
-              # Bind the verdict to THIS pull request AND THIS scan attempt when
-              # the lane stamps an external_id.
+              # Bind the verdict to THIS pull request AND THIS review attempt
+              # when the lane stamps an external_id.
               #
               # Two open PRs can share a head SHA -- the same fork branch opened
               # against two bases, or the same commit in two forks -- and each
-              # posts a check-run under this SAME NAME on that SHA. And a RERUN on
-              # an unchanged head leaves the previous completed row in place while
-              # the new attempt is still starting up. Reading by name alone loses
-              # both ways: a sibling's clean row, or a stale clean row from the
-              # previous attempt, answers for a scan that has not reported. The
-              # ruleset lives outside this repo and can gain a marker between
-              # attempts, so a stale clean verdict is not merely old, it can be
-              # WRONG.
+              # lane posts a check-run under this SAME NAME on that SHA. And a
+              # RERUN on an unchanged head leaves the previous completed row in
+              # place while the new attempt is still starting up. Reading by name
+              # alone loses both ways: a sibling's clean row, or a stale clean
+              # row from the previous attempt, answers for a review that has not
+              # reported. A model verdict can differ between attempts on the same
+              # head, so a stale clean verdict is not merely old, it can be WRONG.
               #
               # The fourth spec field names the workflow whose completion triggers
-              # the lane. Its newest run for this head, plus that run's attempt,
-              # is what "the current attempt" means -- so the expected id is
-              # <prefix><pr>-<run id>-<attempt> and nothing else matches. When the
-              # expected row is not there yet, total=0 -> pending, which holds the
-              # merge instead of borrowing an answer.
+              # the lane (Fast Gate, for all five). Its newest run for this head,
+              # plus that run's attempt, is what "the current attempt" means -- so
+              # the expected id is <prefix><pr>-<run id>-<attempt> and nothing
+              # else matches. When the expected row is not there yet, total=0 ->
+              # pending, which holds the merge instead of borrowing an answer.
+              #
+              # A human-override rerun (`gh api .../runs/<id>/rerun`) re-executes
+              # the LANE's run directly, without Fast Gate re-running, so the
+              # trigger-bound id stays identical between the stale failed attempt
+              # and the fresh rerun -- both rows carry the SAME external_id. That
+              # is safe: the match below collapses every row sharing that id to
+              # the newest by CHECK-RUN id (distinct per POST, monotonically
+              # increasing, independent of what external_id it carries), so the
+              # fresh rerun is never outvoted by the stale attempt it replaces.
               #
               # Run id AND attempt: a rerun keeps the id and bumps the attempt, so
               # the id alone would still accept the stale row.
@@ -680,15 +718,29 @@ jobs:
                     | max_by(.id) // empty
                   ' <<<"$trg")"
                   if [ -z "$trun" ]; then
-                    # The trigger has not run for this head yet, so no scan is
+                    # The trigger has not run for this head yet, so no review is
                     # owed and none can have reported. Pending, not passed.
                     pending+=("$label (not started)")
                     continue
                   fi
                   want="$want-$(jq -r '.id' <<<"$trun")-$(jq -r '.run_attempt // 1' <<<"$trun")"
                 fi
+                # Match the exact trigger-bound id, then collapse to the
+                # newest CHECK-RUN by id (distinct per POST, monotonically
+                # increasing -- independent of the external_id these rows
+                # share). A lane rerun triggered by a human override
+                # (`gh api .../runs/<id>/rerun`) re-executes the lane directly
+                # without Fast Gate re-running, so the trigger-bound id stays
+                # identical between the stale failed attempt and the fresh
+                # one; the check-run id collapse alone still picks the fresh
+                # row, because each POST -- stale or fresh -- got its own
+                # higher check-run id regardless of what external_id it
+                # carries.
                 cruns="$(jq -c --arg x "$want" \
-                  '{check_runs: [.check_runs[] | select(.external_id == $x)]}' \
+                  '{check_runs: [
+                      [.check_runs[] | select(.external_id == $x)]
+                      | max_by(.id) // empty
+                    ] | map(select(. != null))}' \
                   <<<"$cruns")"
               fi
               total="$(jq '.check_runs | length' <<<"$cruns")"

@@ -237,7 +237,11 @@ class TestHumanOverrideHandler:
 
         assert 'if [ "$IS_FORK" = "true" ]; then' in script
         assert "check-runs?check_name=$enc" in script
-        assert 'select(.external_id == \\"$lane-pr-$PR\\")' in script
+        # The id is now attempt-scoped (<lane>-pr-<PR>-<run>-<attempt>), so the
+        # lookup matches the PR dimension by PREFIX and lets sort_by|last pick
+        # the newest attempt; the old attempt-blind exact match must be gone.
+        assert 'select(.external_id | startswith(\\"$lane-pr-$PR-\\"))' in script
+        assert 'select(.external_id == \\"$lane-pr-$PR\\")' not in script
         assert "sort_by(.started_at) | last" in script
         # The resolved run must be verified to belong to the expected fork
         # lane before anything is re-run: any workflow with checks:write
@@ -274,7 +278,11 @@ class TestHumanOverrideHandler:
         # POST and the finalize fallback POST (used when the job dies before
         # opening one) must carry the stamp -- and the fallback must also
         # carry the external_id the handler filters on, or the one check-run
-        # holding the run URL is never a lookup candidate.
+        # holding the run URL is never a lookup candidate. The id is now
+        # two-dimensional (PR + triggering run id + attempt), so a rerun on an
+        # unchanged head cannot reuse the previous attempt's verdict; the env
+        # must supply WR_RUN_ID and WR_RUN_ATTEMPT so a future edit cannot drop
+        # the attempt dimension silently.
         stamp = '-f details_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"'
         for name, lane in (
             ("fork-opus-review.yml", "opus"),
@@ -285,7 +293,11 @@ class TestHumanOverrideHandler:
         ):
             workflow = _workflow(name)
             assert workflow.count(stamp) >= 2, name
-            assert f'ext_args=(-f external_id="{lane}-pr-$PR")' in workflow, name
+            assert (
+                f'ext_args=(-f external_id="{lane}-pr-$PR-$WR_RUN_ID-$WR_RUN_ATTEMPT")' in workflow
+            ), name
+            assert "WR_RUN_ID: ${{ github.event.workflow_run.id }}" in workflow, name
+            assert "WR_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}" in workflow, name
 
     def test_handler_requires_write_permission_fresh_sha_and_reason(self) -> None:
         workflow = _workflow("ai-review-human-override.yml")
@@ -846,11 +858,14 @@ class TestPrReadiness:
         assert '[ "$FORK" = "true" ]' in workflow
         # CodeQL stays the only ineligible fork lane.
         assert '"CodeQL (fork PR)"' in workflow
-        # AI reviews are now monitored on forks via check-run specs.
-        assert '"checkrun:Opus 4.8 Review|Opus 4.8 Review"' in workflow
-        assert '"checkrun:GPT 5.6 Review|GPT 5.6 Review"' in workflow
-        assert '"checkrun:Design Review|Design Review"' in workflow
-        assert '"checkrun:UX Review|UX Review"' in workflow
+        # AI reviews are now monitored on forks via check-run specs, each bound
+        # to THIS PR and attempt: the third field is the external_id prefix and
+        # the fourth is the triggering workflow (Fast Gate) whose newest run +
+        # attempt defines "current".
+        assert '"checkrun:Opus 4.8 Review|Opus 4.8 Review|opus-pr-|fast-gate.yml"' in workflow
+        assert '"checkrun:GPT 5.6 Review|GPT 5.6 Review|gpt-pr-|fast-gate.yml"' in workflow
+        assert '"checkrun:Design Review|Design Review|design-pr-|fast-gate.yml"' in workflow
+        assert '"checkrun:UX Review|UX Review|ux-pr-|fast-gate.yml"' in workflow
         assert "commits/$SHA/check-runs?check_name=$enc" in workflow
         # The blanket fork skip and the maintainer-review verdict are gone.
         assert '"GPT 5.6 Review (fork PR)"' not in workflow
@@ -1088,13 +1103,18 @@ class TestFirstPrinciplesReview:
         # Two open PRs can share a head commit, so a check-run of this name on this
         # head may belong to a DIFFERENT pull request -- completing it would publish
         # a verdict computed from another diff. The wedge fix is therefore scoped by
-        # external_id, so it can never reach a sibling's review.
+        # external_id, so it can never reach a sibling's review. The id now also
+        # carries the triggering run id + attempt, so a rerun on an unchanged head
+        # gets a fresh row; the sweep matches the PR dimension by PREFIX so it still
+        # catches a row stranded by a previous attempt (trailing hyphen keeps -pr-9
+        # from matching -pr-99).
         workflow = _workflow("fork-first-principles-review.yml")
         opened = _step_script(workflow, "Open check-run (in progress)")
         finalize = _step_script(workflow, "Finalize check-run (advisory)")
 
-        assert '-f external_id="first-principles-pr-$PR"' in opened
-        assert 'select(.external_id == \\"first-principles-pr-$PR\\")' in finalize
+        assert '-f external_id="first-principles-pr-$PR-$WR_RUN_ID-$WR_RUN_ATTEMPT"' in opened
+        assert 'select(.external_id | startswith(\\"first-principles-pr-$PR-\\"))' in finalize
+        assert 'select(.external_id == \\"first-principles-pr-$PR\\")' not in finalize
         assert '[ -n "${PR:-}" ]' in finalize
         # An unscoped sweep must not come back.
         assert 'select(.status != "completed") | .id' not in finalize
@@ -1358,7 +1378,10 @@ class TestFirstPrinciplesReview:
         assert "      - First Principles Review" in workflow
         assert "      - Fork First Principles Review" in workflow
         assert '"first-principles-review.yml|First Principles Review"' in workflow
-        assert '"checkrun:First Principles Review|First Principles Review"' in workflow
+        assert (
+            '"checkrun:First Principles Review|First Principles Review'
+            '|first-principles-pr-|fast-gate.yml"' in workflow
+        )
         # Advisory (UX-style), NOT a readiness blocker like Design Review: a
         # model must not wedge a merge on whether a feature should exist.
         advisory = '[ "$label" = "UX Review" ] || [ "$label" = "First Principles Review" ]'
@@ -2428,11 +2451,13 @@ class TestForkLaneStrandedRunSweeps:
     ) -> None:
         # Without an external_id at CREATION the sweep has nothing safe to
         # match on: a check-run of this name on this head can belong to a
-        # different PR that shares the commit.
+        # different PR that shares the commit. The id is now two-dimensional
+        # (PR + triggering run id + attempt) so a rerun on an unchanged head
+        # cannot reuse the previous attempt's verdict.
         opened = _step_script(_workflow(lane), "Open check-run (in progress)")
         assert (
-            f'-f external_id="{prefix}-pr-$PR"' in opened
-        ), f"{lane}: check-run created without a PR-scoped external_id"
+            f'-f external_id="{prefix}-pr-$PR-$WR_RUN_ID-$WR_RUN_ATTEMPT"' in opened
+        ), f"{lane}: check-run created without a PR+attempt-scoped external_id"
 
     @pytest.mark.parametrize(("lane", "check_name", "prefix", "finalize"), FORK_SWEEP_LANES)
     def test_finalize_sweeps_stranded_check_runs(
@@ -2449,11 +2474,17 @@ class TestForkLaneStrandedRunSweeps:
         self, lane: str, check_name: str, prefix: str, finalize: str
     ) -> None:
         # Two open PRs can share a head commit; an unscoped sweep would publish
-        # a verdict computed from another PR's diff.
+        # a verdict computed from another PR's diff. The match is a PREFIX on the
+        # PR dimension (not exact equality) so it still catches a row stranded by
+        # a PREVIOUS attempt, whose id carries a different run+attempt suffix; the
+        # trailing hyphen keeps -pr-9 from matching -pr-99.
         script = _step_script(_workflow(lane), finalize)
         assert (
-            f'select(.external_id == \\"{prefix}-pr-$PR\\")' in script
-        ), f"{lane}: sweep is not scoped by external_id"
+            f'select(.external_id | startswith(\\"{prefix}-pr-$PR-\\"))' in script
+        ), f"{lane}: sweep is not scoped by external_id prefix"
+        assert (
+            f'select(.external_id == \\"{prefix}-pr-$PR\\")' not in script
+        ), f"{lane}: sweep still uses the old attempt-blind exact match"
         assert '[ -n "${PR:-}" ]' in script, f"{lane}: sweep runs without a resolved PR"
         assert (
             'select(.status != "completed") | .id' not in script
@@ -3668,12 +3699,13 @@ class TestProtectedCheckNameHasOnePublisherPerPrType:
     def test_readiness_still_reads_the_protected_name_on_forks(
         self, workflow: str, check: str, fork: str
     ) -> None:
-        # Readiness reads fork verdicts from the head SHA's check-runs by name.
-        # It collapses every run of the name and treats "no completed run" as
-        # pending, so the rename removes a `skipped` row without making a
-        # missing review look green.
+        # Readiness reads fork verdicts from the head SHA's check-runs by name,
+        # bound to THIS PR and attempt via the spec's external_id prefix and
+        # triggering-workflow fields. It treats "no completed run bound to this
+        # PR+attempt" as pending, so the rename removes a `skipped` row without
+        # making a missing review look green.
         readiness = _workflow("pr-readiness.yml")
-        assert f'"checkrun:{check}|{check}"' in readiness, check
+        assert f'"checkrun:{check}|{check}|' in readiness, check
         assert '[ "$total" -eq 0 ] || [ "$incomplete" -gt 0 ]' in readiness
         assert 'pending+=("$label (not started)")' in readiness
 

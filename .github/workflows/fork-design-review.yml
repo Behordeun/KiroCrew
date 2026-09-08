@@ -164,11 +164,22 @@ jobs:
       # head_sha, so the status always surfaces (advisory-neutral even if a later
       # step dies).
       #
-      # `external_id` carries the PR number, which is what makes the finalize
-      # sweep safe: a check-run of this name on this head can belong to ANOTHER
-      # pull request (two PRs may share a commit), and completing that one would
-      # publish a verdict computed from a different diff. The sweep matches on
-      # this id, so it can only ever finish a run this pull request created.
+      # `external_id` carries the PR number AND the triggering run id + attempt,
+      # which is what makes the finalize sweep and the readiness read safe: a
+      # check-run of this name on this head can belong to ANOTHER pull request
+      # (two PRs may share a commit), and completing that one would publish a
+      # verdict computed from a different diff. A rerun on an unchanged head --
+      # of Fast Gate, or of THIS lane directly via a human-override
+      # `gh api .../runs/<id>/rerun` -- must also not reuse the previous
+      # attempt's verdict, because a model verdict can differ between attempts
+      # on the same head. A lane-direct rerun leaves `WR_RUN_ID`/`WR_RUN_ATTEMPT`
+      # unchanged, so the old failed attempt and the new one share this id; the
+      # reader resolves that by collapsing every check-run matching the id to
+      # the newest by CHECK-RUN id (distinct per POST, monotonically
+      # increasing), so the fresh row always wins regardless of how many share
+      # the external_id. The sweep matches on this id's PR dimension, so a
+      # verdict can only ever answer for the run this pull request created at
+      # this attempt.
       #
       # `details_url` carries this run's URL: a workflow_run-triggered run is
       # keyed to the DEFAULT branch context, so this stamp is the only link
@@ -182,11 +193,13 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD: ${{ steps.pr.outputs.head_sha }}
           PR: ${{ steps.pr.outputs.pr }}
+          WR_RUN_ID: ${{ github.event.workflow_run.id }}
+          WR_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
           set -uo pipefail
           id="$(gh api --method POST "repos/$REPO/check-runs" \
             -f name="Design Review" -f head_sha="$HEAD" -f status="in_progress" \
-            -f external_id="design-pr-$PR" \
+            -f external_id="design-pr-$PR-$WR_RUN_ID-$WR_RUN_ATTEMPT" \
             -f details_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID" \
             --jq '.id')"
           echo "id=$id" >> "$GITHUB_OUTPUT"
@@ -751,6 +764,8 @@ jobs:
           HEAD: ${{ steps.pr.outputs.head_sha || github.event.workflow_run.head_sha }}
           CHECK_ID: ${{ steps.check.outputs.id }}
           PR: ${{ steps.pr.outputs.pr }}
+          WR_RUN_ID: ${{ github.event.workflow_run.id }}
+          WR_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           VERDICT: ${{ steps.verdict.outputs.verdict }}
         run: |
           set -uo pipefail
@@ -815,13 +830,16 @@ jobs:
             complete "$CHECK_ID" "$conclusion" "$title" || true
           elif [ -n "${HEAD:-}" ]; then
             # external_id makes this fallback check-run discoverable by the
-            # override handler's fork rerun lookup, same as the opening POST.
-            # PR can be empty in exactly this branch (HEAD has a workflow_run
-            # fallback, PR does not), and a malformed "design-pr-" id would
-            # match nothing -- stamp it only when the PR is known.
+            # override handler's fork rerun lookup and attributable by the
+            # readiness read, same as the opening POST: PR + triggering run id +
+            # attempt. PR can be empty in exactly this branch (HEAD has a
+            # workflow_run fallback, PR does not) -- stamp the id only when the
+            # PR is known. With no id the row carries no attribution, so the
+            # bound reader cannot see it and reads the lane as pending, which
+            # still holds the merge: the miss fails CLOSED, not open.
             ext_args=()
             if [ -n "${PR:-}" ]; then
-              ext_args=(-f external_id="design-pr-$PR")
+              ext_args=(-f external_id="design-pr-$PR-$WR_RUN_ID-$WR_RUN_ATTEMPT")
             fi
             gh api --method POST "repos/$REPO/check-runs" \
               -f name="Design Review" -f head_sha="$HEAD" \
@@ -832,10 +850,14 @@ jobs:
           fi
           # Sweep any still-incomplete run of this name that THIS pull request
           # created (ours, if the PATCH above lost both attempts, or one stranded
-          # by a previous run). Scoped by `external_id`: a check-run of this name
-          # on this head can belong to another PR that shares the commit, and
-          # completing that one would publish a verdict computed from a different
-          # diff -- the wedge is closed without ever touching a sibling's review.
+          # by a previous run). Scoped by `external_id`'s PR dimension (prefix
+          # match, so it spans attempts): a check-run of this name on this head
+          # can belong to another PR that shares the commit, and completing that
+          # one would publish a verdict computed from a different diff -- the
+          # wedge is closed without ever touching a sibling's review, while still
+          # catching a row stranded by a PREVIOUS attempt (which carries a
+          # different run+attempt suffix). The trailing hyphen keeps -pr-9 from
+          # matching -pr-99.
           # Completed with THIS run's computed verdict, not a hardcoded neutral:
           # a genuine BLOCK whose own PATCH lost both attempts must not be
           # swept into a verdict pr-readiness no longer gates on. With no
@@ -846,7 +868,8 @@ jobs:
               "repos/$REPO/commits/$HEAD/check-runs?check_name=$enc&per_page=100" \
               --jq ".check_runs[]
                     | select(.status != \"completed\")
-                    | select(.external_id == \"design-pr-$PR\")
+                    | select(.external_id != null)
+                    | select(.external_id | startswith(\"design-pr-$PR-\"))
                     | .id" 2>/dev/null || true)"
             for id in $stranded; do
               echo "completing stranded check-run $id for $HEAD (PR #$PR)"
