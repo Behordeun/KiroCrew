@@ -2082,6 +2082,26 @@ function ChatInput({
     return () => document.removeEventListener('keydown', onSlashFocus)
   }, [typedCommandMenus, composerCollapsed, expandComposer, composerControl])
 
+  // Teardown keyed to the HANDLE's lifecycle, not the component's: the handle
+  // leaves the tree on its own mid-drag (the pointer type flipping coarse swaps
+  // it for the plain spacer; the approval ghost swap unmounts the strip) and
+  // pointer capture dies with the element — the terminal lostpointercapture
+  // then fires on a DETACHED node, which React's root listener never sees, so
+  // onEnd never arrives. React invokes callback refs with null on unmount
+  // (component unmount included), making this the one teardown path that
+  // covers every exit. onEnd keeps the normal path; whichever runs first wins,
+  // the `dragging` flag makes the loser a no-op.
+  const releaseDragSuppression = useCallback(() => {
+    if (!dragging.current) return
+    dragging.current = false
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    if (wrapperRef.current) wrapperRef.current.style.contain = ''
+  }, [])
+  const resizeHandleLifecycleRef = useCallback((node: HTMLDivElement | null) => {
+    if (node === null) releaseDragSuppression()
+  }, [releaseDragSuppression])
+
   const inputResize = usePointerDrag({
     threshold: 0,
     onStart: (e) => {
@@ -2110,27 +2130,21 @@ function ChatInput({
       wrapperRef.current.style.height = h + 'px'
     },
     onEnd: () => {
-      if (!dragging.current || !wrapperRef.current) return
-      dragging.current = false
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      wrapperRef.current.style.contain = ''
+      if (!dragging.current) return
+      // Restore the page-wide suppression BEFORE anything that can bail: the
+      // wrapper ref going null must never strand body.cursor/userSelect.
+      releaseDragSuppression()
+      const el = wrapperRef.current
+      if (!el) return // suppression released; nothing to measure or commit
       // Commit final height to React state
-      const finalH = wrapperRef.current.offsetHeight
+      const finalH = el.offsetHeight
       setManualHeight(finalH)
       safeSetItem(INPUT_HEIGHT_LS_KEY, String(Math.round(finalH)))
     },
   })
-  // Unmount guard: onEnd can't fire if the composer unmounts mid-drag
-  // (setPointerCapture dies with the element), so restore the global body styles
-  // here to avoid leaving the resize cursor / text-selection lock stuck.
-  useEffect(() => () => {
-    if (dragging.current) {
-      dragging.current = false
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-  }, [])
+  // (Component-unmount teardown is covered by resizeHandleLifecycleRef above:
+  // React fires callback refs with null on unmount at every level, so a
+  // separate unmount-only effect guard would be a dead duplicate here.)
 
 
 
@@ -3364,6 +3378,7 @@ function ChatInput({
       {!showGhost && (isTouch || composerCollapsed
         ? <div aria-hidden="true" data-testid="composer-top-gap" className="h-[6px] shrink-0" />
         : <div
+        ref={resizeHandleLifecycleRef}
         aria-hidden="true"
         data-testid="composer-resize-handle"
         className="flex items-center justify-center h-[6px] cursor-row-resize group/drag"
