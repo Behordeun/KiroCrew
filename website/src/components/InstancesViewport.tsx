@@ -36,7 +36,7 @@ import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { Trans } from 'react-i18next'
 import { api } from '../api/client'
 import { SettingsLink } from './SettingsLink'
-import { useAppDispatch, useAppSelector } from '../store'
+import { useAppDispatch, useAppSelector, useAppStore } from '../store'
 import { clearPaneReady, removeWarm, setActiveId, setPaneReady, setUnread, setWarm } from '../store/instancesSlice'
 import InstanceTabBar, { visibleInstanceTabs, useCrewPins, toggleCrewPin, useCrewSwitcherStableOrder, setStableOrder } from './InstanceTabBar'
 import { parseLoopbackOriginPort, resolveTunnelOrigin } from '../lib/tunnelOrigin'
@@ -168,8 +168,19 @@ export default function InstancesViewport({ macInset = false }: { macInset?: boo
   // Live iframe elements by id, so the parent can postMessage the switcher model
   // into each embedded pane. Set/cleared by the iframe ref cb.
   const iframeRefs = useRef<Map<string, HTMLIFrameElement>>(new Map())
+  // One STABLE ref callback per pane id. An inline `ref={el => ...}` gets a new
+  // function identity on every render, and React 18 then calls the OLD callback
+  // with null and the NEW one with the same, never-detached element on each
+  // re-render. With the journal lines inside that callback, every 10s poll and
+  // every host-model broadcast printed an `iframe-unmounted` + `iframe-mounted`
+  // pair for every warm pane (600+ per pane per hour in one capture) and read
+  // as a remount storm that never happened, burying the one real question --
+  // did THIS pane's document ever load -- under fake churn. Caching the callback
+  // per id means React only calls it when the element genuinely attaches or
+  // detaches, which is what the two journal lines claim to mean.
+  const iframeRefCallbacks = useRef<Map<string, (el: HTMLIFrameElement | null) => void>>(new Map())
   // Read-only mirrors for the long-lived message listener, kept current without
-  // re-subscribing (mirrors the warmRef / portToIdRef pattern already used here).
+  // re-subscribing (mirrors the warmRef pattern already used here).
   const postModelToRef = useRef<(id: string) => void>(() => {})
   // Distinct readiness ack, sent ONLY from the mc-embedded-ready handler (never
   // from the input-driven broadcast). It is the pane's proof that THIS parent
@@ -239,13 +250,17 @@ export default function InstancesViewport({ macInset = false }: { macInset?: boo
     [dispatch],
   )
 
-  // Origin→id map for the relay listener, kept current without re-subscribing.
-  const portToIdRef = useRef<Map<number, string>>(new Map())
-  useEffect(() => {
+  // Origin→id map for the relay listener, read from the store at message time.
+  // The store is current the instant `setWarm` dispatches; a render and its
+  // passive effects come later. A fast loopback iframe can post its first
+  // `mc-embedded-boot` inside that gap, so a map refreshed by an effect on
+  // `warm` would still lack the new port and drop the boot as unattributed.
+  const store = useAppStore()
+  const currentPortToId = useCallback((): Map<number, string> => {
     const m = new Map<number, string>()
-    for (const [id, w] of Object.entries(warm)) m.set(w.port, id)
-    portToIdRef.current = m
-  }, [warm])
+    for (const [id, w] of Object.entries(store.getState().instances.warm)) m.set(w.port, id)
+    return m
+  }, [store])
 
   // Drop relayed drag gaps for panes that are no longer warm, so the map cannot
   // grow without bound and a re-warmed pane starts from its own fresh report.
@@ -259,26 +274,38 @@ export default function InstancesViewport({ macInset = false }: { macInset?: boo
       }
       return changed ? next : prev
     })
+    for (const id of iframeRefCallbacks.current.keys()) {
+      if (!warm[id]) iframeRefCallbacks.current.delete(id)
+    }
   }, [warm])
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const data = e.data
       if (!data || typeof data !== 'object') return
-      const id = resolveTunnelOrigin(e.origin, portToIdRef.current)
+      const portToId = currentPortToId()
+      const id = resolveTunnelOrigin(e.origin, portToId)
       if (!id) {
-        // A readiness announce from a loopback origin this parent does not
-        // currently map to a warm pane is the handshake being dropped on the
-        // floor: the pane loaded and said so, and the parent could not tell
-        // whose voice it was (the warm entry moved to another port, was
-        // evicted, or the origin map has not caught up). Only THIS type is
-        // journaled, and the child sends it at most six times per load, so the
-        // line cannot flood; every other unattributed message stays silent.
-        if (data.type === 'mc-embedded-ready' && parseLoopbackOriginPort(e.origin) !== null) {
-          paneLog('ready-unattributed', {
-            origin: e.origin,
-            knownPorts: [...portToIdRef.current.keys()].join(','),
-          })
+        // A readiness or boot announce from a loopback origin this parent does
+        // not currently map to a warm pane is the handshake being dropped on
+        // the floor: the pane's bundle ran and said so, and the parent could
+        // not tell whose voice it was (the warm entry moved to another port or
+        // was evicted). Only these two types are journaled -- the child sends
+        // ready at most six times and boot exactly three times per load, so
+        // the lines cannot flood; every other unattributed message stays
+        // silent. Journaling the boot here is what keeps "no `boot` line" a
+        // trustworthy reading of "no JavaScript of ours ran in that frame".
+        if (parseLoopbackOriginPort(e.origin) !== null) {
+          const knownPorts = [...portToId.keys()].join(',')
+          if (data.type === 'mc-embedded-ready') {
+            paneLog('ready-unattributed', { origin: e.origin, knownPorts })
+          } else if (data.type === 'mc-embedded-boot') {
+            paneLog('boot-unattributed', {
+              origin: e.origin,
+              stage: typeof data.stage === 'string' ? data.stage : 'unknown',
+              knownPorts,
+            })
+          }
         }
         return
       }
@@ -376,6 +403,14 @@ export default function InstancesViewport({ macInset = false }: { macInset?: boo
           paneChromeRef.current[id] = on
           if (id === activeIdRef.current) setFocusChromeVisible(on)
         }
+      } else if (data.type === 'mc-embedded-boot') {
+        // The pane's bundle EXECUTED (posted from main.tsx before React renders,
+        // see EmbeddedHostBridge for the ready half). This line splits the one
+        // failure the journal could not: a pane whose shell loaded (200,
+        // cross-origin) but never announced readiness was either a bundle that
+        // never ran (no `boot`) or an App that mounted and got stuck before the
+        // bridge (a `boot` with no `ready`). Journal only, no state change.
+        paneLog('boot', { id, stage: typeof data.stage === 'string' ? data.stage : 'unknown' })
       } else if (data.type === 'mc-embedded-ready') {
         // The pane just (re)mounted and asked for the current model — send it now
         // rather than waiting for the next input-driven broadcast. Also record
@@ -413,7 +448,7 @@ export default function InstancesViewport({ macInset = false }: { macInset?: boo
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [dispatch, refreshToken, canRefreshNow])
+  }, [dispatch, refreshToken, canRefreshNow, currentPortToId])
 
   // Proactive refresh: when an embedded token passes REFRESH_AT_ELAPSED_FRAC of
   // its TTL, re-mint and reload that iframe ahead of the cap. Skips the active
@@ -521,6 +556,39 @@ export default function InstancesViewport({ macInset = false }: { macInset?: boo
     }, PANE_LOAD_TIMEOUT_MS)
     return () => window.clearTimeout(t)
   }, [activeId, activeWarmPort, activeSeq, activeReady])
+
+  // See iframeRefCallbacks: the callback is created once per id and reused
+  // across renders, so React invokes it only on a real attach/detach. It reads
+  // the reload seq through a ref because a closure over `reloadSeq` state would
+  // force a new identity per change -- exactly the churn this avoids; Retry
+  // remounts via the element KEY, which detaches and re-attaches for real, so
+  // the seq journaled at attach time is already the new one.
+  const reloadSeqRef = useRef(reloadSeq)
+  reloadSeqRef.current = reloadSeq
+  const iframeRefFor = useCallback((id: string) => {
+    let cb = iframeRefCallbacks.current.get(id)
+    if (!cb) {
+      cb = (el: HTMLIFrameElement | null) => {
+        if (el) {
+          iframeRefs.current.set(id, el)
+          // The mount is the moment the src is committed to a live frame.
+          // An empty `src` here means srcFor found no warm entry, which is
+          // the one way the pane can end up parked on about:blank forever.
+          paneLog('iframe-mounted', {
+            id,
+            port: warmRef.current[id]?.port,
+            seq: reloadSeqRef.current[id] || 0,
+            src: safePaneUrl(el.getAttribute('src')),
+          })
+        } else {
+          iframeRefs.current.delete(id)
+          paneLog('iframe-unmounted', { id })
+        }
+      }
+      iframeRefCallbacks.current.set(id, cb)
+    }
+    return cb
+  }, [])
 
   const retry = useCallback(
     (id: string) => {
@@ -794,23 +862,7 @@ export default function InstancesViewport({ macInset = false }: { macInset?: boo
           // reloadSeq in the key forces a remount (= reload) on Retry even when
           // the re-minted src is byte-identical to the dead frame's.
           key={`${id}:${reloadSeq[id] || 0}`}
-          ref={el => {
-            if (el) {
-              iframeRefs.current.set(id, el)
-              // The mount is the moment the src is committed to a live frame.
-              // An empty `src` here means srcFor found no warm entry, which is
-              // the one way the pane can end up parked on about:blank forever.
-              paneLog('iframe-mounted', {
-                id,
-                port: warmRef.current[id]?.port,
-                seq: reloadSeq[id] || 0,
-                src: safePaneUrl(el.getAttribute('src')),
-              })
-            } else {
-              iframeRefs.current.delete(id)
-              paneLog('iframe-unmounted', { id })
-            }
-          }}
+          ref={iframeRefFor(id)}
           title={nameFor(id)}
           src={srcFor(id)}
           // The embedded pane is the SAME SPA on the tunnel's loopback port, so

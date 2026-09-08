@@ -215,7 +215,29 @@ const appTree = (
 // localStorage read, so the usual launch renders on the same tick as before. The
 // first-time path is bounded by hydrateUiPrefs' own timeout, and a gateway that
 // never answers renders defaults rather than hanging the boot. See lib/uiPrefs.ts.
+
+// Embedded panes only: tell the parent this bundle EXECUTED, before React renders
+// anything. The parent's pane journal records `boot` for it. Without this line a
+// pane that loads its shell (a 200 the parent can see) and then never announces
+// `mc-embedded-ready` is indistinguishable from one whose bundle never ran; with
+// it the parent can tell "the entry ran but App/its bridge never mounted" from
+// "no JavaScript of ours ever executed in that frame". `stage` names how far
+// this file got. Wildcard target is safe: the payload carries no data and the
+// parent validates the origin. See EmbeddedHostBridge for the ready half.
+function announceBoot(stage: string): void {
+  if (!isEmbeddedPane()) return
+  try {
+    // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
+    window.parent?.postMessage({ type: 'mc-embedded-boot', v: 1, stage }, '*')
+  } catch {
+    /* no parent reachable — the ready announce carries its own retries */
+  }
+}
+announceBoot('entry')
+
+// (See the block above announceBoot for why the first-time boot may reload.)
 function boot(startSync: boolean): void {
+  announceBoot('render')
   createRoot(document.getElementById('root')!).render(appTree)
   if (startSync) startUiPrefsSync()
 }

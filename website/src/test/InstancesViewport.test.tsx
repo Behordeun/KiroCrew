@@ -1115,4 +1115,130 @@ describe('InstancesViewport', () => {
       vi.useRealTimers()
     }
   })
+
+  it('journals iframe-mounted once per real attach, not once per re-render (stable ref callback)', async () => {
+    mockConnectedCd1()
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    try {
+      const store = createTestStore({
+        instances: { warm: { 'cd-1': { port: 7778, token: 'tok' } }, activeId: 'cd-1', mru: ['cd-1'], unread: {}, ready: {} },
+      })
+      renderWithProviders(<InstancesViewport />, { store })
+      expect(await screen.findByText(/Loading pane/i)).toBeInTheDocument()
+      const paneLines = () => info.mock.calls.map(c => String(c[0])).filter(l => l.startsWith('[pane]'))
+      const mounts = () => paneLines().filter(l => l.includes('iframe-mounted id=cd-1')).length
+      const unmounts = () => paneLines().filter(l => l.includes('iframe-unmounted id=cd-1')).length
+      expect(mounts()).toBe(1)
+      expect(unmounts()).toBe(0)
+
+      // Force several re-renders of the viewport WITHOUT touching the iframe:
+      // a host-model input (unread count) and a same-port/token warm write are
+      // both things the 10s poll and the broadcast effect do in production. An
+      // inline `ref={el => ...}` would journal an unmount+mount pair for each.
+      for (let i = 1; i <= 5; i++) {
+        act(() => {
+          window.dispatchEvent(new MessageEvent('message', {
+            data: { type: 'mc-unread-slots', count: i },
+            origin: 'http://127.0.0.1:7778',
+          }))
+        })
+        act(() => { store.dispatch(setWarm({ id: 'cd-1', conn: { port: 7778, token: 'tok' } })) })
+      }
+      await waitFor(() => expect(store.getState().instances.unread['cd-1']).toBe(5))
+      expect(mounts()).toBe(1)
+      expect(unmounts()).toBe(0)
+
+      // A real detach (the pane leaves the warm set) still journals exactly once.
+      act(() => { store.dispatch(removeWarm('cd-1')) })
+      await waitFor(() => expect(unmounts()).toBe(1))
+      expect(mounts()).toBe(1)
+    } finally {
+      info.mockRestore()
+    }
+  })
+
+  it('journals the pane bundle\'s mc-embedded-boot stages from its tunnel origin, and only from a mapped origin', async () => {
+    mockConnectedCd1()
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    try {
+      const store = createTestStore({
+        instances: { warm: { 'cd-1': { port: 7778, token: 'tok' } }, activeId: 'cd-1', mru: ['cd-1'], unread: {}, ready: {} },
+      })
+      renderWithProviders(<InstancesViewport />, { store })
+      expect(await screen.findByText(/Loading pane/i)).toBeInTheDocument()
+      const bootLines = () => info.mock.calls.map(c => String(c[0])).filter(l => l.startsWith('[pane] boot '))
+
+      for (const stage of ['entry', 'render', 'bridge']) {
+        act(() => {
+          window.dispatchEvent(new MessageEvent('message', {
+            data: { type: 'mc-embedded-boot', v: 1, stage },
+            origin: 'http://127.0.0.1:7778',
+          }))
+        })
+      }
+      expect(bootLines()).toEqual([
+        '[pane] boot id=cd-1 stage=entry',
+        '[pane] boot id=cd-1 stage=render',
+        '[pane] boot id=cd-1 stage=bridge',
+      ])
+      // Boot is a journal line, never readiness: the overlay stays up.
+      expect(store.getState().instances.ready['cd-1']).toBeUndefined()
+      expect(screen.getByText(/Loading pane/i)).toBeInTheDocument()
+
+      // A loopback origin the parent does not map is journaled as unattributed
+      // (mirrors ready-unattributed) rather than dropped: "no boot line" must
+      // keep meaning "no JavaScript of ours ran", not "the parent lost it".
+      act(() => {
+        window.dispatchEvent(new MessageEvent('message', {
+          data: { type: 'mc-embedded-boot', v: 1, stage: 'entry' },
+          origin: 'http://127.0.0.1:9999',
+        }))
+      })
+      expect(bootLines().length).toBe(3)
+      const unattributed = info.mock.calls.map(c => String(c[0])).filter(l => l.startsWith('[pane] boot-unattributed '))
+      expect(unattributed).toEqual(['[pane] boot-unattributed origin=http://127.0.0.1:9999 stage=entry knownPorts=7778'])
+
+      // A non-loopback origin stays silent.
+      act(() => {
+        window.dispatchEvent(new MessageEvent('message', {
+          data: { type: 'mc-embedded-boot', v: 1, stage: 'entry' },
+          origin: 'https://example.com',
+        }))
+      })
+      expect(info.mock.calls.filter(c => String(c[0]).startsWith('[pane] boot')).length).toBe(4)
+    } finally {
+      info.mockRestore()
+    }
+  })
+
+  it('attributes a boot from a pane warmed in the same tick, before the warm effect has flushed', async () => {
+    mockConnectedCd1()
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    try {
+      const store = createTestStore({
+        instances: { warm: { 'cd-1': { port: 7778, token: 'tok' } }, activeId: 'cd-1', mru: ['cd-1'], unread: {}, ready: {} },
+      })
+      renderWithProviders(<InstancesViewport />, { store })
+      expect(await screen.findByText(/Loading pane/i)).toBeInTheDocument()
+
+      // Warm a second pane and let its bundle announce boot inside the SAME
+      // React flush. The render has already seen the new warm entry (warmRef
+      // is assigned during render) but no passive effect keyed on `warm` has
+      // run yet -- the exact window in which an effect-populated origin map
+      // still lacks port 7790 and would drop this boot as unattributed.
+      act(() => {
+        store.dispatch(setWarm({ id: 'cd-2', conn: { port: 7790, token: 'tok2' } }))
+        window.dispatchEvent(new MessageEvent('message', {
+          data: { type: 'mc-embedded-boot', v: 1, stage: 'entry' },
+          origin: 'http://127.0.0.1:7790',
+        }))
+      })
+      const lines = info.mock.calls.map(c => String(c[0])).filter(l => l.startsWith('[pane] boot'))
+      expect(lines).toContain('[pane] boot id=cd-2 stage=entry')
+      expect(lines.some(l => l.startsWith('[pane] boot-unattributed'))).toBe(false)
+    } finally {
+      info.mockRestore()
+    }
+  })
+
 })

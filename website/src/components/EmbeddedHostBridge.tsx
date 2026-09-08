@@ -109,6 +109,17 @@ export default function EmbeddedHostBridge() {
     let acked = false
     const retryTimers: number[] = []
 
+    // The App tree reached this bridge: the last `boot` stage before `ready`.
+    // A parent journal showing `boot stage=render` but not `stage=bridge` means
+    // something between main.tsx and this effect (the prerequisite gate, a
+    // provider, an error boundary) swallowed the tree.
+    try {
+      // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
+      window.parent?.postMessage({ type: 'mc-embedded-boot', v: 1, stage: 'bridge' }, '*')
+    } catch {
+      /* covered by announceReady's retries */
+    }
+
     const announceReady = () => {
       try {
         // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
