@@ -252,14 +252,23 @@ class TestSpawnListUsesTheSameFilter:
         import pathlib
 
         assert sa.UNADVERTISED_AGENTS == frozenset(
-            {"kirocrew", "kirocrew-conductor", "kirocrew-pipeline-conductor"}
+            {
+                "kirocrew",
+                "kirocrew-conductor",
+                "kirocrew-pipeline-conductor",
+                "kirocrew-security-conductor",
+            }
         )
         default = inspect.signature(sa.visible_agent_names).parameters["exclude"].default
         assert default is sa.UNADVERTISED_AGENTS
         for module in (sa, spawn_tools):
             src = pathlib.Path(module.__file__).read_text(encoding="utf-8")
             expected = 1 if module is sa else 0
-            for reserved in ("kirocrew-conductor", "kirocrew-pipeline-conductor"):
+            for reserved in (
+                "kirocrew-conductor",
+                "kirocrew-pipeline-conductor",
+                "kirocrew-security-conductor",
+            ):
                 assert src.count(reserved) == expected, (
                     f"{module.__name__} respells the reserved set; call "
                     "subagent.visible_agent_names instead"

@@ -229,5 +229,10 @@ class TestExclusionIsInheritedNotRespelled:
         default = inspect.signature(sa.visible_agent_names).parameters["exclude"].default
         assert default is sa.UNADVERTISED_AGENTS
         assert sa.UNADVERTISED_AGENTS == frozenset(
-            {"kirocrew", "kirocrew-conductor", "kirocrew-pipeline-conductor"}
+            {
+                "kirocrew",
+                "kirocrew-conductor",
+                "kirocrew-pipeline-conductor",
+                "kirocrew-security-conductor",
+            }
         )

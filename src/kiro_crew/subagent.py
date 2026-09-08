@@ -170,7 +170,14 @@ _MAX_CONCURRENT = 3
 #: reached by OMITTING ``agent``, not by naming one. Every roster inherits this
 #: as :func:`visible_agent_names`' default ``exclude``, so no other module names
 #: the set and it cannot drift when a reserved name appears.
-UNADVERTISED_AGENTS = frozenset({"kirocrew", "kirocrew-conductor", "kirocrew-pipeline-conductor"})
+UNADVERTISED_AGENTS = frozenset(
+    {
+        "kirocrew",
+        "kirocrew-conductor",
+        "kirocrew-pipeline-conductor",
+        "kirocrew-security-conductor",
+    }
+)
 
 #: Wire code for the unknown-agent refusal ``_validate_agent`` returns. It rides
 #: ``SubagentInfo.error_code`` to ``POST /api/spawn``, which forwards the FIELD as

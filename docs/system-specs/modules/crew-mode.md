@@ -242,8 +242,9 @@ never pruned).
   masked for every caller but the owner. An already-stored name is not renamed
   retroactively, which is why the owner keeps reading it verbatim: a name must
   be legible to be renamed.
-- `kirocrew`, `kirocrew-conductor` and `kirocrew-pipeline-conductor` are in
-  `UNADVERTISED_AGENTS`, so they never appear in a rendered roster.
+- `kirocrew`, `kirocrew-conductor`, `kirocrew-pipeline-conductor` and
+  `kirocrew-security-conductor` are in `UNADVERTISED_AGENTS`, so they never
+  appear in a rendered roster.
 
 ## Tests that pin this
 
