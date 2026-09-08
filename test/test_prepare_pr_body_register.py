@@ -48,3 +48,31 @@ def test_prepare_pr_pins_the_pr_body_to_the_age_5_register() -> None:
 def test_explain_for_still_carries_the_age_5_row() -> None:
     """The row `prepare-pr` points at must exist, or the reference is dead."""
     assert "| Age 5 |" in _flat(EXPLAIN_FOR)
+
+
+def test_prepare_pr_body_is_a_snapshot_of_the_whole_diff_not_a_round_changelog() -> None:
+    """Each round must REWRITE the body from the whole diff, never append to it.
+
+    Observed failure: `What changed` grew an "also, after review, ..." paragraph
+    per round until no paragraph matched the diff. Three joints keep that from
+    coming back: the contract section, the Phase 2 amend step, and the Phase 3
+    existing-PR path (which is where `gh pr view --json body` + edit sneaks in).
+    """
+    flat = _flat(PREPARE_PR)
+    assert "### Snapshot, not changelog" in flat
+    assert "never one round's fix" in flat
+    # Phase 2: an amend rewrites, it does not append.
+    assert "rewrite the PR body from the whole diff" in flat
+    assert "Rewrite, do not append" in flat
+    # Phase 3: an existing PR gets a regenerated body, not a patched one.
+    assert "regenerate the whole body from the current diff" in flat
+    # The history words that betray a per-round delta are named, so the rule is
+    # checkable rather than a vibe.
+    assert "`after review`, `round N`" in flat
+
+
+def test_prepare_pr_body_leads_with_the_punch_line() -> None:
+    """First sentence of each section is the fact; the diff is not recited."""
+    flat = _flat(PREPARE_PR)
+    assert "Punch line first, in every section" in flat
+    assert "Do not recite the diff" in flat
