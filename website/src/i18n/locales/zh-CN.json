@@ -14010,6 +14010,7 @@
       "configuration": "配置",
       "details": "详情",
       "edit_in_crew_manager": "在团队管理页中编辑",
+      "edit_member": "编辑成员",
       "empty_roster": "还没有团队成员。在团队管理页创建一个 crew 后会显示在这里。",
       "inherited": "继承",
       "member_count_other": "{{count}} 位成员",

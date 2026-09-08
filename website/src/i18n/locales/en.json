@@ -6942,6 +6942,7 @@
       "configuration": "Configuration",
       "details": "Details",
       "edit_in_crew_manager": "Edit in crew manager",
+      "edit_member": "Edit member",
       "empty_roster": "No crew members yet. Create a crew in the crew manager to see it here.",
       "inherited": "Inherited",
       "member_count_one": "{{count}} member",

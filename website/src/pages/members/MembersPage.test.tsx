@@ -444,18 +444,20 @@ describe('MembersPage drawer and edit jump', () => {
     await waitFor(() => expect(screen.queryByTestId('member-drawer')).toBeNull())
   })
 
-  it('the edit affordance lives in the drawer only and navigates to the crew manager crews tab', async () => {
+  it('the edit affordance lives in the drawer only and navigates to this member\'s editor in the crew manager', async () => {
     await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
     fireEvent.click(await rosterRow('oncall'))
     // Edit is a rare secondary action: it must NOT be a header-level peer of
-    // Details. The header carries exactly one action (the drawer toggle).
+    // Details (issue #9425 placed it INSIDE the title row instead, revealed
+    // on hover — see the "member edit entry" block below).
     expect(screen.queryByTestId('member-edit-jump')).toBeNull()
     // Mutation check: the assertion is on the DESTINATION (explicit ?tab=crews
-    // beats CapabilitiesPage's remembered last tab), so retargeting the jump
+    // beats CapabilitiesPage's remembered last tab, and ?crew=<name> opens
+    // THIS member's editor rather than the roster), so retargeting the jump
     // anywhere else fails here.
     for (const btn of screen.getAllByRole('button', { name: /edit in crew manager/i })) {
       fireEvent.click(btn)
-      expect(navigateSpy).toHaveBeenCalledWith('/capabilities?tab=crews')
+      expect(navigateSpy).toHaveBeenCalledWith('/capabilities?tab=crews&crew=oncall')
       navigateSpy.mockClear()
     }
   })
@@ -1019,68 +1021,93 @@ describe('MembersPage auto patrol (monitor loop status)', () => {
   })
 })
 
-describe('MembersPage avatar entry (issue #9103)', () => {
-  const AVATAR_LINK = '/capabilities?tab=crews&crew=oncall&avatar=1'
+describe('MembersPage member edit entry (issue #9425)', () => {
+  const EDIT_LINK = '/capabilities?tab=crews&crew=oncall'
 
   beforeEach(() => { localStorage.clear() })
 
-  it('the DM header face is an "Edit avatar" button that deep-links into the crew manager builder', async () => {
+  it('the DM header carries a pencil right of the name, named "Edit member", that opens this member\'s editor', async () => {
     await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
     fireEvent.click(await rosterRow('oncall'))
-    const face = await screen.findByTestId('member-avatar-button')
-    expect(face.tagName).toBe('BUTTON')
-    expect(face).toHaveAccessibleName('Edit avatar')
-    // Visible affordance travels with the face: scrim for hover, badge for touch.
-    expect(face.querySelector('[data-testid="avatar-edit-scrim"]')).not.toBeNull()
-    expect(face.querySelector('[data-testid="avatar-edit-badge"]')).not.toBeNull()
-    fireEvent.click(face)
-    // Mutation check on the DESTINATION: this page never writes — the
-    // builder opens in the crew manager, on THIS crew, with the builder up.
-    expect(navigateSpy).toHaveBeenCalledWith(AVATAR_LINK)
+    const btn = await screen.findByTestId('member-edit-name-button')
+    expect(btn.tagName).toBe('BUTTON')
+    // The label names what the click does — the whole editor, not the builder.
+    expect(btn).toHaveAccessibleName('Edit member')
+    expect(btn).toHaveAttribute('title', 'Edit member')
+    expect(btn.querySelector('svg')).not.toBeNull()
+    // It sits INSIDE the title row, after the name — not a header-level peer
+    // of the drawer toggle.
+    const titleRow = screen.getByTestId('member-title-row')
+    expect(titleRow).toContainElement(btn)
+    expect(titleRow.textContent).toContain('oncall')
+    expect(titleRow.compareDocumentPosition(screen.getByTestId('member-drawer-toggle')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(btn)
+    // Mutation check on the DESTINATION: this page never writes — the crew
+    // manager opens THIS crew's editor. No `&avatar=1`: the builder is one
+    // row inside that editor, not where an "edit this member" click lands.
+    expect(navigateSpy).toHaveBeenCalledWith(EDIT_LINK)
+    expect(navigateSpy).not.toHaveBeenCalledWith(expect.stringContaining('avatar=1'))
   })
 
-  it('the drawer carries an explicit "Edit avatar" text route to the same destination', async () => {
+  it('the pencil is invisible at rest, revealed by hovering the title row or by focus, and low-contrast-persistent on touch', async () => {
+    await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
+    fireEvent.click(await rosterRow('oncall'))
+    const btn = await screen.findByTestId('member-edit-name-button')
+    const cls = btn.className
+    expect(cls).toContain('opacity-0')
+    expect(cls).toContain('group-hover/title:opacity-100')
+    expect(cls).toContain('focus-visible:opacity-100')
+    // Reveal is scoped to the TITLE row, so hovering the drawer toggle to the
+    // right does not summon it.
+    expect(screen.getByTestId('member-title-row').className).toContain('group/title')
+    // Transition present, deferring to prefers-reduced-motion.
+    expect(cls).toContain('transition-opacity')
+    expect(cls).toContain('motion-reduce:transition-none')
+    // No hover on touch: the pencil stays, dimmed, instead of never appearing.
+    expect(cls).toContain('[@media(hover:none)]:opacity-60')
+  })
+
+  it('the chat surface\'s avatar is just an avatar: no scrim, no badge, no chip, no text "Edit avatar" button', async () => {
+    // The #9116 shapes the user rejected: the face wrapped as an "Edit avatar"
+    // button, a full-width "Edit avatar" text button in the drawer and an
+    // "Edit this avatar" chip beside the header face. The default-face
+    // fixture (`{}`) is exactly the one that used to summon the chip.
+    await renderPage([row({ bound: true, slot_key: 'member-oncall', avatar: {} })])
+    fireEvent.click(await rosterRow('oncall'))
+    await screen.findByTestId('member-drawer')
+    expect(screen.queryByTestId('member-avatar-button')).toBeNull()
+    expect(screen.queryByTestId('avatar-edit-scrim')).toBeNull()
+    expect(screen.queryByTestId('avatar-edit-badge')).toBeNull()
+    expect(screen.queryByTestId('avatar-edit-hint')).toBeNull()
+    expect(screen.queryByTestId('member-edit-avatar')).toBeNull()
+    expect(screen.queryByRole('button', { name: /edit avatar/i })).toBeNull()
+    expect(screen.queryByText('Edit this avatar')).toBeNull()
+  })
+
+  it('the DM header has no rule under it — it meets the transcript on spacing alone, like ChatPage\'s session header', async () => {
+    await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
+    fireEvent.click(await rosterRow('oncall'))
+    const header = await screen.findByTestId('member-thread-header')
+    expect(header.tagName).toBe('HEADER')
+    expect(header.className).not.toMatch(/\bborder-b\b/)
+    expect(header.className).not.toMatch(/\bborder-border\b/)
+    // Still set off from the transcript by its own padding.
+    expect(header.className).toMatch(/\bpy-2\b/)
+  })
+
+  it('the drawer\'s one text route agrees with the pencil on the destination', async () => {
     await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
     fireEvent.click(await rosterRow('oncall'))
     await screen.findByTestId('member-drawer')
-    const btn = screen.getByTestId('member-edit-avatar')
-    expect(btn).toHaveTextContent('Edit avatar')
-    fireEvent.click(btn)
-    expect(navigateSpy).toHaveBeenCalledWith(AVATAR_LINK)
-    // The existing roster-level edit route is untouched.
-    expect(screen.getByRole('button', { name: /edit in crew manager/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('member-edit-in-manager'))
+    expect(navigateSpy).toHaveBeenCalledWith(EDIT_LINK)
   })
 
   it('encodes the crew name in the deep link', async () => {
     await renderPage([row({ name: 'on call/2', slug: 'on-call-2', bound: true, slot_key: 'member-on-call-2' })])
     fireEvent.click(await rosterRow('on call/2'))
-    fireEvent.click(await screen.findByTestId('member-avatar-button'))
-    expect(navigateSpy).toHaveBeenCalledWith('/capabilities?tab=crews&crew=on%20call%2F2&avatar=1')
-  })
-
-  it('shows the one-time "Edit this avatar" chip only while the member wears the default face', async () => {
-    // The real backend stores `{}` for "no override" — truthy, so a raw
-    // `!avatar` test would hide the chip for EVERY default face. The row
-    // fixture here carries exactly that shape.
-    await renderPage([
-      row({ bound: true, slot_key: 'member-oncall', avatar: {} }),
-      row({ name: 'beta', slug: 'beta', avatar: { kind: 'image', v: 1 } }),
-    ])
-    fireEvent.click(await rosterRow('oncall'))
-    const chip = await screen.findByTestId('avatar-edit-hint')
-    expect(chip).toHaveTextContent('Edit this avatar')
-    // A member with a custom face gets no nudge.
-    fireEvent.click(await rosterRow('beta'))
-    await waitFor(() => expect(screen.queryByTestId('avatar-edit-hint')).toBeNull())
-  })
-
-  it('the chip leaves through the click that opens the builder, and stays gone', async () => {
-    await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
-    fireEvent.click(await rosterRow('oncall'))
-    fireEvent.click(await screen.findByTestId('avatar-edit-hint'))
-    expect(navigateSpy).toHaveBeenCalledWith(AVATAR_LINK)
-    expect(screen.queryByTestId('avatar-edit-hint')).toBeNull()
-    expect(localStorage.getItem('mc-avatar-edit-hint-dismissed')).toBe('1')
+    fireEvent.click(await screen.findByTestId('member-edit-name-button'))
+    expect(navigateSpy).toHaveBeenCalledWith('/capabilities?tab=crews&crew=on%20call%2F2')
   })
 })
 

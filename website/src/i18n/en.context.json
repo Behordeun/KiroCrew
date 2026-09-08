@@ -262,6 +262,7 @@
     "pages.mcpGatewayCard.pid": "\"PID\" = operating-system process id, labelling a number. A term of art; keep the acronym practitioners in the target language use.",
     "pages.mcpGatewayCard.rss": "\"RSS\" = resident set size, the process's physical memory use, labelling a byte count. NOT the web feed format.",
     "pages.mcpGatewayCard.s": "The unit \"s\" = seconds, rendered directly after a number (`30s`). Not a plural marker.",
+    "pages.membersPage.edit_member": "Accessible name and tooltip of a clickable crew face on the Crew Members chat page: opens that member's whole editor (name, template, model, workspace, triggers, avatar), NOT only the avatar builder. \"Edit\" as an imperative verb; \"member\" = a crew member (an agent), same noun as member_count.",
     "pages.overview.memoryTab.add": "Verb on a button: add an entry to the list beside it. If the target language needs an object, name the thing being added.",
     "pages.overview.portabilityTab.kb": "The unit \"KB\" = kilobytes, rendered after a numeric size. NOT \"knowledge base\", which is a separate feature in this product that shares the abbreviation in English.",
     "pages.overview.tokenDailyChart.all": "Filter option meaning no filter — show every item. A quantifier over the list beside it, not the adjective \"whole\".",

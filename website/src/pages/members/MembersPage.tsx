@@ -29,7 +29,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Circle, Clock, ExternalLink, Goal, Pause, Pencil, Star, UserPen, UserPlus, Users, Webhook } from 'lucide-react'
+import { ArrowLeft, Circle, Clock, ExternalLink, Goal, Pause, Pencil, Star, UserPlus, Users, Webhook } from 'lucide-react'
 import { PanelRightSolid } from '../../components/icons/panels'
 import { useTranslation } from 'react-i18next'
 import { api, type MemberRosterRow, type WebhookTokenEntry } from '../../api/client'
@@ -57,9 +57,8 @@ import { usePersistedString } from '../../hooks/usePersistedString'
 import { findReport, type ErrorReport } from '../../utils/errorReport'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { markSlotRead } from '../../store/dashboardSlice'
-import CrewAvatar, { hasAvatarOverride } from '../../components/CrewAvatar'
+import CrewAvatar from '../../components/CrewAvatar'
 import CrewStateAvatar from '../../components/CrewStateAvatar'
-import CrewAvatarButton from '../../components/crew/CrewAvatarButton'
 import ChatPane from '../../components/ChatPane'
 import DetailPanel from '../../components/DetailPanel'
 import ErrorBoundary from '../../components/ErrorBoundary'
@@ -82,12 +81,15 @@ import { safeGetItem, safeSetItem } from '../../utils/safeStorage'
  *  The explicit tab wins over CapabilitiesPage's remembered last tab. */
 const CREW_MANAGER_PATH = '/capabilities?tab=crews'
 
-/** The avatar builder for one member, reached THROUGH the crew manager: the
- *  deep link opens that crew's editor with the builder already up (see
- *  KiroCrewAgentsPage's `?crew=` latch). This page stays read-only — the face
- *  is clickable here, but the write still happens in the one editor. */
-const crewAvatarEditPath = (name: string) =>
-  `${CREW_MANAGER_PATH}&crew=${encodeURIComponent(name)}&avatar=1`
+/** One member's editor, reached THROUGH the crew manager: the deep link opens
+ *  that crew's full editor — name, template, model, workspace, triggers, and
+ *  the avatar row that leads on to the builder (see KiroCrewAgentsPage's
+ *  `?crew=` latch). This page stays read-only — the face is clickable here,
+ *  but every write still happens in the one editor. It deliberately does NOT
+ *  add `&avatar=1`: from a chat surface the user asked for "edit this member",
+ *  and landing straight in the builder answered a narrower question. */
+const crewEditPath = (name: string) =>
+  `${CREW_MANAGER_PATH}&crew=${encodeURIComponent(name)}`
 /** The open member rides the URL (`?member=<name>`) so a reload keeps it
  *  and a link lands on one. Switching members REPLACES the entry — the page
  *  holds one history entry, so Back leaves it in one press (the Sessions
@@ -1250,7 +1252,11 @@ export default function MembersPage() {
         )}
         {active && (
           <>
-            <header className="flex items-center gap-2.5 px-4 py-2 border-b border-border">
+            {/* No rule under the header: it shares the transcript's background
+                and is set off by spacing alone, the way ChatPage's session
+                header sits over its transcript (bg-bg, no border-b). A hairline
+                here read as a second frame inside the pane (issue #9425). */}
+            <header className="flex items-center gap-2.5 px-4 py-2" data-testid="member-thread-header">
               <button
                 // Back to the roster. When this entry was pushed from the
                 // roster on this page, pop it — the browser's own Back then
@@ -1267,35 +1273,42 @@ export default function MembersPage() {
               >
                 <ArrowLeft size={16} className="lucide-inline" />
               </button>
-              {/* The face is the one place a new user tries first, so it is
-                  the entry to the avatar builder — visibly (hover scrim +
-                  pencil, persistent badge on touch) and with a one-time
-                  "Edit this avatar" chip while the member still wears its
-                  name-derived default. The chip lives HERE because this is the
-                  page's resting view: the drawer's "Edit avatar" text route is
-                  behind the Details toggle (closed by default below md), so the
-                  header face is the only entry on screen when the page opens.
-                  It navigates to the crew manager rather than editing here:
-                  this page never becomes a second writer (issue #9103). The
-                  face inside is the same reactive CrewStateAvatar as before —
-                  wrapping it changes nothing about how it draws or reacts. */}
-              <CrewAvatarButton
+              {/* The face is just the face on a chat surface — no hover
+                  scrim, no pencil badge: #9116 tried making the avatar the
+                  edit entry here and it read as an oversized "Edit avatar"
+                  control sitting in the conversation (issue #9425). It is the
+                  same reactive CrewStateAvatar as before. */}
+              <CrewStateAvatar
+                seed={active.name}
+                avatar={active.avatar}
+                slotKey={activeSlot || active.slot_key}
+                running={!!isRunning(active)}
                 size={30}
-                onEdit={() => navigate(crewAvatarEditPath(active.name))}
-                hint={!hasAvatarOverride(active.avatar)}
-                data-testid="member-avatar-button"
-              >
-                <CrewStateAvatar
-                  seed={active.name}
-                  avatar={active.avatar}
-                  slotKey={activeSlot || active.slot_key}
-                  running={!!isRunning(active)}
-                  size={30}
-                  working="full"
-                />
-              </CrewAvatarButton>
-              <div className="min-w-0 flex-1">
+                working="full"
+              />
+              {/* Title row = name + a small pencil to its RIGHT. That pencil is
+                  the member's edit entry: invisible at rest, it fades in when
+                  the pointer is over the title row (or the button has focus),
+                  and under (hover: none) it sits at low contrast permanently
+                  — a touch user can never hover it into view. The click opens
+                  the member's WHOLE editor in the crew manager — name,
+                  template, model, workspace, triggers, avatar — not just the
+                  avatar builder, so the label says "Edit member". It navigates
+                  rather than editing here: this page never becomes a second
+                  writer (issue #9103). `group/title` is scoped to this row so
+                  the drawer toggle to the right does not reveal it. */}
+              <div className="group/title min-w-0 flex-1 flex items-center gap-1.5" data-testid="member-title-row">
                 <div className="text-[13.5px] font-semibold truncate">{active.name}</div>
+                <button
+                  type="button"
+                  onClick={() => navigate(crewEditPath(active.name))}
+                  className="inline-flex shrink-0 items-center justify-center w-6 h-6 rounded-md text-muted hover:text-text hover:bg-bg-hover cursor-pointer focus-ring opacity-0 transition-opacity duration-150 motion-reduce:transition-none group-hover/title:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60"
+                  aria-label={t('pages.membersPage.edit_member')}
+                  title={t('pages.membersPage.edit_member')}
+                  data-testid="member-edit-name-button"
+                >
+                  <Pencil size={13} className="lucide-inline" />
+                </button>
               </div>
               {/* One action in the header: toggle the detail drawer — same
                   icon and hit-target as the chat page's side-panel toggle, so
@@ -1303,8 +1316,8 @@ export default function MembersPage() {
                   every member thread is pinned by construction (a server
                   invariant, not a per-thread state), so announcing it taught
                   the user a term for a thing that can never be otherwise.
-                  Edit lives inside the drawer: it is a rare, secondary
-                  action, not a header-level peer of the drawer toggle. */}
+                  The member's edit entry is not a peer of this toggle: it is
+                  the pencil inside the title row, revealed on hover. */}
               <button
                 onClick={() => setDrawerOpen((v) => !v)}
                 className="flex items-center justify-center w-7 h-7 rounded-md transition-colors bg-transparent border-none shrink-0 text-muted hover:text-text hover:bg-bg-hover cursor-pointer"
@@ -1806,22 +1819,16 @@ export default function MembersPage() {
                   store: String(active.memory_store),
                 })}
           </div>
-          {/* Two exits, both into the crew manager (the only writer). "Edit
-              avatar" lands directly in the builder for THIS member — the
-              text route for a user who never guessed the face was clickable;
-              "Edit in crew manager" keeps landing on the roster. */}
+          {/* One exit, into the crew manager (the only writer), landing on
+              THIS member's editor — the same destination as the header face,
+              so the drawer's text route and the face never disagree. The
+              #9116 "Edit avatar" text button is gone: it duplicated the face,
+              and the avatar row inside the editor is where the builder opens
+              from now. */}
           <button
-            onClick={() => navigate(crewAvatarEditPath(active.name))}
+            onClick={() => navigate(crewEditPath(active.name))}
             className="mt-4 w-full inline-flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-md border border-border hover:bg-accent/40"
-            title={t('components.avatarBuilder.edit_avatar')}
-            data-testid="member-edit-avatar"
-          >
-            <UserPen size={12} className="lucide-inline" />
-            {t('components.avatarBuilder.edit_avatar')}
-          </button>
-          <button
-            onClick={() => navigate(CREW_MANAGER_PATH)}
-            className="mt-2 w-full inline-flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-md border border-border hover:bg-accent/40"
+            data-testid="member-edit-in-manager"
           >
             <Pencil size={12} className="lucide-inline" />
             {t('pages.membersPage.edit_in_crew_manager')}

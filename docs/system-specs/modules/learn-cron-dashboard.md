@@ -1595,11 +1595,21 @@ pencil glyph, a persistent corner pencil badge under `(hover: none)`, and an
 optional one-time "Edit this avatar" chip (`mc-avatar-edit-hint-dismissed`,
 one flag per origin — dismissed by the first click on any face or chip). The
 editor header and the Triggers-pane row also carry an explicit "Edit avatar"
-text button. The read-only Crew Members page reaches the builder WITHOUT
-becoming a second writer: its DM-header face and the drawer's "Edit avatar"
-button navigate to `/capabilities?tab=crews&crew=<name>&avatar=1`, a deep link
-`KiroCrewAgentsPage` latches once the roster has loaded (open that crew's editor;
-`avatar=1` opens the builder on top) and then strips from the URL, so closing the
+text button. The read-only Crew Members page reaches the editor WITHOUT
+becoming a second writer, and QUIETLY, because it is a chat surface (issue
+#9425): its faces are plain faces (no scrim, badge, text "Edit avatar" button or
+first-run chip — #9116 tried those there and they read as an oversized control
+inside a conversation). The edit entry is a small pencil button to the RIGHT of
+the member name in the DM-header title row, named "Edit member": invisible at
+rest, faded in when the title row is hovered or the button focused (150ms,
+reduced-motion honoured), and low-contrast-persistent under `(hover: none)`.
+That header carries no rule under it — it shares the transcript's background and
+meets it on spacing alone, as ChatPage's session header does.
+That pencil and the drawer's "Edit in crew manager" button both navigate to
+`/capabilities?tab=crews&crew=<name>`, a deep link `KiroCrewAgentsPage` latches
+once the roster has loaded (open that crew's whole editor; an optional
+`&avatar=1` opens the builder on top, used by no current caller) and then strips
+from the URL, so closing the
 editor never re-opens it. The **ghost tier** is
 pure config — POST `/api/agents` and PUT `/api/agents/{name}` accept
 `avatar: {"kind":"ghost","traits":{…}}` (or `{}` to reset) and reject any other

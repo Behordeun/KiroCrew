@@ -14010,6 +14010,7 @@
       "configuration": "구성",
       "details": "상세",
       "edit_in_crew_manager": "크루 관리 페이지에서 편집",
+      "edit_member": "멤버 편집",
       "empty_roster": "아직 크루 멤버가 없습니다. 크루 관리 페이지에서 만들면 여기에 표시됩니다.",
       "inherited": "상속됨",
       "member_count_other": "멤버 {{count}}명",

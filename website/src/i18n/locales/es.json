@@ -14377,6 +14377,7 @@
       "configuration": "Configuración",
       "details": "Detalles",
       "edit_in_crew_manager": "Editar en el gestor de equipos",
+      "edit_member": "Editar miembro",
       "empty_roster": "Aún no hay miembros. Crea un equipo en el gestor de equipos para verlo aquí.",
       "inherited": "Heredado",
       "member_count_many": "{{count}} miembros",

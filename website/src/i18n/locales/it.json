@@ -14376,6 +14376,7 @@
       "configuration": "Configurazione",
       "details": "Dettagli",
       "edit_in_crew_manager": "Modifica nel gestore delle crew",
+      "edit_member": "Modifica membro",
       "empty_roster": "Ancora nessun membro. Crea una crew nel gestore per vederla qui.",
       "inherited": "Ereditato",
       "member_count_many": "{{count}} membri",

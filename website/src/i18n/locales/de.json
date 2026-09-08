@@ -14193,6 +14193,7 @@
       "configuration": "Konfiguration",
       "details": "Details",
       "edit_in_crew_manager": "In der Crew-Verwaltung bearbeiten",
+      "edit_member": "Mitglied bearbeiten",
       "empty_roster": "Noch keine Crew-Mitglieder. Lege in der Crew-Verwaltung eine Crew an, um sie hier zu sehen.",
       "inherited": "Geerbt",
       "member_count_one": "{{count}} Mitglied",
