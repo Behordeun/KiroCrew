@@ -752,6 +752,217 @@ def _program_path(cmd: str) -> str:
     return cmd.split(" ", 1)[0] if cmd else ""
 
 
+#: Shells that take the program to run as a command STRING in an argument. A
+#: banned tool named inside that string is text the shell was handed, not the
+#: program this pid is running.
+SHELL_PROGRAMS = frozenset({"sh", "bash", "zsh", "dash", "ash", "busybox"})
+
+
+def _basename(program: str) -> str:
+    """Lowercased basename of a program path, minus a ``.exe`` suffix.
+
+    Split on ``/`` explicitly rather than via os.path: the cmdline comes from a
+    Linux /proc even when this script is running somewhere else, so the answer
+    must not depend on the host's separator.
+    """
+    base = program.replace("\\", "/").rpartition("/")[2].lower()
+    return base[:-4] if base.endswith(".exe") else base
+
+
+#: Shell options that consume the NEXT argv entry as their operand. Without this,
+#: the leading-option scan below stops at the operand -- `bash -o pipefail -c ...`
+#: broke on `pipefail`, never reached the `-c`, and the wrapper stayed
+#: misattributed to whatever its command string named. The long forms are here
+#: for the same reason and not with the other `--` options: skipping a `--long`
+#: entry alone leaves its operand behind, so `bash --rcfile /dev/null -c ...`
+#: stopped on the path. The `--opt=value` spelling is one entry and needs no
+#: operand rule.
+_SHELL_OPTS_WITH_OPERAND = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
+
+
+#: Directories whose contents are the system's real shells. A basename is not a
+#: program: an interpreter COPIED to ``/tmp/bash`` answers ``bash`` to every
+#: basename test while running whatever it was handed, so a name-only check let it
+#: claim the wrapper exemption and its banned run left no ``BANNED`` line at all.
+#: Requiring the kernel's ``exe`` to resolve INTO one of these directories is what
+#: makes the shell claim checkable rather than self-asserted -- writing there needs
+#: root, which is already enough privilege to stop the probe outright, so it buys
+#: an attacker nothing they did not already have.
+#:
+#: A shell installed anywhere else -- a Nix store path, a container's ``/busybox``,
+#: a relocated toolchain -- therefore gets NO exemption and its wrapper is
+#: REPORTED. That is the direction to fail in: a false ``BANNED`` line names a pid
+#: an operator can look at and dismiss, while a missing one hides a real unbounded
+#: run for the whole session.
+_TRUSTED_PROGRAM_DIRS = frozenset(
+    {"/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/usr/local/sbin"}
+)
+
+
+#: Suffix procfs adds to ``/proc/<pid>/exe`` once the running binary is unlinked.
+_PROCFS_DELETED_MARKER = " (deleted)"
+
+
+def _trusted_program_base(proc_entry: Path) -> str | None:
+    """Basename of the binary this pid is REALLY running, or None if untrustworthy.
+
+    ``argv[0]`` is chosen by the process itself -- ``exec -a bash …`` lets a genuine
+    unbounded pytest introduce itself as a shell, and the wrapper check would then
+    drop it as somebody else's argument and never stop the offender.
+    ``/proc/<pid>/exe`` is a kernel-maintained symlink to the actual binary and the
+    process cannot rewrite it, so it is the only trustworthy answer to "what is this".
+
+    ``None`` means the link did not produce a trustworthy program. Two causes, and
+    both must be treated the same way. The link could not be followed: usually a
+    process that exited mid-scan, and on a shared host every OTHER user's process,
+    whose ``exe`` this uid cannot resolve while its ``cmdline`` stays world-readable
+    -- the same asymmetry ``_owner_class`` already documents for ``cwd``. Or it
+    resolved OUTSIDE ``_TRUSTED_PROGRAM_DIRS``, which makes a shell-shaped basename
+    a claim about a file anybody could have put there rather than a fact about a
+    system shell.
+
+    ``None`` grants NO exemption: the caller reports such a pid rather than trusting
+    ``argv[0]``, because a process can hide its own ``exe`` by going non-dumpable and
+    "no evidence" must not be the cheapest way to buy a pass. The cost is bounded --
+    a pid this uid cannot inspect is one the conductor cannot stop either, and
+    ``_owner_class`` sorts it into `foreign`/`unknown` rather than raising a fleet
+    violation.
+
+    Read only for a pid whose cmdline ALREADY matched a banned rule, so this is one
+    extra syscall per match -- a handful per scan -- not one per process.
+    """
+    try:
+        target = os.readlink(proc_entry / "exe")
+    except OSError:
+        return None
+    # Separators are normalised the same way ``_basename`` does, and for the same
+    # reason: the answer comes from a Linux /proc even when this script runs
+    # somewhere else, so the decision must not depend on the host's separator.
+    normalized = target.replace("\\", "/")
+    # procfs appends this marker when the running binary has been unlinked, which a
+    # package upgrade of bash or coreutils does mid-session. Without the strip the
+    # link reads ``/usr/bin/bash (deleted)``: the directory gate still passes, but
+    # the basename becomes ``bash (deleted)``, matches no entry in SHELL_PROGRAMS,
+    # and the wrapper exemption is lost -- so a live ``bash -c '… pytest …'`` in a
+    # worktree emits a false ``BANNED`` and the conductor stops a healthy owner,
+    # discarding its in-flight work. Stripping it can only NARROW the false-BANNED
+    # direction: the name behind the marker still has to be a shell AND still has to
+    # sit in a trusted directory, and a deleted ``/usr/bin/pytest`` reduces to
+    # ``pytest``, which is reported exactly as before.
+    if normalized.endswith(_PROCFS_DELETED_MARKER):
+        normalized = normalized[: -len(_PROCFS_DELETED_MARKER)]
+    if normalized.rpartition("/")[0] not in _TRUSTED_PROGRAM_DIRS:
+        return None
+    return _basename(normalized)
+
+
+def _is_shell_command_wrapper(argv: list[str], exe_base: str | None) -> bool:
+    """Is *argv* a known shell running a command string rather than the tool it names?
+
+    The banned-operation rules are matched against the whole joined cmdline, which
+    is what makes an arg-shaped rule expressible at all -- ``\\bvitest\\b\\s+run\\s*$``
+    is a statement about the ARGUMENTS, and ``\\bpytest\\b(?!.*-n\\s*\\d)`` reads
+    boundedness out of them. The cost of matching that far is that a wrapper's
+    argument is read as the wrapper's own program: ``bash -c 'cd x && pytest -q'``
+    is reported as an unbounded pytest while the process that exists is a shell.
+
+    Skipping the wrapper removes a misattribution and loses no coverage, because
+    the probe scans EVERY process: a genuinely running wrapped tool has its own
+    pid and is matched there on its own merits. Attributing it to the wrapper as
+    well only makes the conductor stop the wrong pid.
+
+    That "loses no coverage" argument rests on the wrapped tool still being alive
+    at the next ``/proc`` walk, which is true of the two built-in rules and NOT
+    guaranteed of an operator's own. The caller therefore consults this function
+    only for a match on a built-in rule; a custom ``banned_process_res`` reports
+    the wrapper as it did before the fix.
+
+    Takes real ARGV, not a joined string. Once NUL separators become spaces, an
+    argument containing a space is indistinguishable from two arguments, so the
+    option/operand structure this function has to read is no longer recoverable.
+
+    Three spellings of the same flag all have to be recognised, and each one was
+    a live misattribution before it was:
+
+    * alone -- ``bash -c 'pytest'``
+    * grouped into a cluster -- ``bash -lc``, ``bash -ic``, ``sh -euxc``; a login
+      shell is the commonest spelling of all
+    * behind an option that takes an OPERAND -- ``bash -o pipefail -c``, and its
+      long forms ``bash --rcfile /dev/null -c`` and ``bash --init-file f -c``
+
+    BusyBox is a multi-call binary, so the applet -- not ``busybox`` -- is the
+    effective program, and it is resolved before the option scan starts. Which
+    argv entry names it depends on how the applet was invoked, and only ONE of the
+    two spellings puts it in argv[1]:
+
+    * through a SYMLINK, the standard form -- ``argv[0]`` is the applet
+      (``/usr/bin/wget``) while ``exe`` resolves to busybox itself
+    * explicit multi-call dispatch -- ``busybox sh -c '...'`` names the applet in
+      argv[1], where every other shell would put an option
+
+    Reading argv[1] for the symlink form left ``base`` as ``busybox``, which is a
+    shell, so a banned applet carrying a ``-c``-shaped flag (``wget -c URL``) was
+    read as a shell holding a command string and dropped from the scan.
+    """
+    if not argv:
+        return False
+    # The exemption requires the KERNEL to say this is a shell, and to say it about a
+    # binary in a system directory. ``argv[0]`` is not accepted as a substitute even
+    # when ``exe`` cannot be read, because that is the whole spoof: a process that
+    # makes itself non-dumpable (``prctl(PR_SET_DUMPABLE, 0)``) hides its own ``exe``
+    # link, and could then present a shell-shaped ``argv[0]`` with a ``-c`` and be
+    # dropped from the scan. Nor is a shell-shaped FILENAME accepted on its own -- an
+    # interpreter copied to ``/tmp/bash`` is not bash, so ``_trusted_program_base``
+    # answers ``None`` for it as well. No exemption on no evidence, so both cases now
+    # REPORT. The cost is bounded and lands on the right side: a process this uid
+    # cannot inspect is usually another user's, and ``_owner_class`` already sorts
+    # those into `foreign`/`unknown` rather than raising a fleet violation.
+    if exe_base is None:
+        return False
+    base = exe_base
+    rest = argv[1:]
+    if base == "busybox":
+        # A busybox applet is normally reached through a SYMLINK, so argv[0] is the
+        # applet and `exe` is busybox: `wget -c URL` invoked that way is a wget, not
+        # a shell carrying a command string, and leaving `base` as `busybox` handed
+        # it the shell exemption. argv[1] holds the applet ONLY for the explicit
+        # `busybox <applet>` dispatch form.
+        #
+        # Consulting argv[0] here cannot widen the exemption: `exe` has already
+        # proven this pid is busybox, and a spoofed argv[0] can only replace one
+        # SHELL_PROGRAMS member with another (still a shell) or with a non-shell,
+        # which REPORTS. The spoof direction stays closed.
+        argv0_base = _basename(argv[0])
+        if argv0_base != "busybox":
+            base = argv0_base
+        elif rest and not rest[0].startswith(("-", "+")):
+            base = _basename(rest[0])
+            rest = rest[1:]
+    if base not in SHELL_PROGRAMS:
+        return False
+    # Only the LEADING option run is examined, and the scan stops at the first
+    # entry that is not an option, because that entry is the command string (or a
+    # script path) and everything after it is the shell's payload rather than the
+    # shell's own flags -- `bash -lc 'grep -c foo'` must be decided by the `-lc`,
+    # never by the `-c` inside the string it carries. A ``--long`` option cannot
+    # be a cluster, so it is skipped rather than ending the run.
+    index = 0
+    while index < len(rest):
+        token = rest[index]
+        if not token.startswith(("-", "+")):
+            break
+        if token in _SHELL_OPTS_WITH_OPERAND:
+            index += 2
+            continue
+        if token.startswith("--"):
+            index += 1
+            continue
+        if "c" in token[1:]:
+            return True
+        index += 1
+    return False
+
+
 def _venv_root(program: str) -> str | None:
     """The virtualenv a program path belongs to, or None if it is not in one.
 
@@ -888,18 +1099,53 @@ def _host_lines(cfg: dict[str, Any]) -> tuple[list[str], str]:
             if not entry.name.isdigit():
                 continue
             try:
-                cmd = (
-                    (entry / "cmdline")
-                    .read_bytes()
-                    .replace(b"\0", b" ")
-                    .decode("utf-8", "replace")
-                    .strip()
-                )
+                # argv is kept as a LIST, not just the space-joined string. The
+                # banned-operation rules are arg-shaped and must still see the
+                # joined form, but deciding whether this pid is a shell wrapper is
+                # a question about ARGUMENTS -- and once the NUL separators are
+                # replaced by spaces, an argument containing a space is
+                # indistinguishable from two arguments, so `-o pipefail -c` cannot
+                # be parsed back out of it.
+                #
+                # Only the TRAILING empty is dropped, and only because
+                # ``/proc/<pid>/cmdline`` is NUL-TERMINATED: its final split element
+                # is an artefact of the terminator, never an argument. An INTERIOR
+                # empty entry is a real (if unusual) argument, and discarding one
+                # silently re-spaces the joined string that a custom
+                # ``banned_process_res`` pattern is matched against -- so a rule an
+                # operator wrote against the real command line would quietly stop
+                # matching.
+                argv = (entry / "cmdline").read_bytes().decode("utf-8", "replace").split("\0")
+                while argv and argv[-1] == "":
+                    argv.pop()
+                cmd = " ".join(argv).strip()
             except OSError:
                 continue
             if cmd:
                 matched = next((rx.pattern for rx in banned_res if rx.search(cmd)), None)
                 if matched is None:
+                    continue
+                # The rule matched somewhere in the joined cmdline, which for a
+                # shell running a command string is the shell's ARGUMENT and not
+                # the program this pid is running. See ``_is_shell_command_wrapper``
+                # for why dropping the wrapper costs no coverage, and
+                # ``_trusted_program_base`` for why the kernel's idea of the program
+                # beats the process's own argv[0].
+                #
+                # Only a BUILT-IN rule earns the exemption. Its premise is that a
+                # genuinely running wrapped tool has its own pid for the next
+                # ``/proc`` walk to find, which holds for the two default rules
+                # because both name a long-running test runner. An operator's own
+                # rule can name a SHORT-LIVED command instead -- ``\bcurl\b`` against
+                # a shell that sleeps two minutes and then makes one request is
+                # visible for two minutes as the shell and for milliseconds as
+                # ``curl`` -- so exempting that wrapper would drop the only sample the
+                # probe was ever going to get. A custom rule therefore reports the
+                # wrapper, which is the pre-fix behaviour and the fail-closed
+                # direction for a monitoring control.
+                if matched in DEFAULT_BANNED_RES and _is_shell_command_wrapper(
+                    argv, _trusted_program_base(entry)
+                ):
                     continue
                 # A banned SHAPE is only a banned OPERATION when the fleet owns
                 # it. The same unbounded pytest run in an unrelated checkout is
