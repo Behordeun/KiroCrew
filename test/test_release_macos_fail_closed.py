@@ -24,9 +24,54 @@ import yaml
 
 from kiro_crew.subprocess_utf8 import UTF8_TEXT
 
+
+def _bash_can_run_the_assembly_step() -> bool:
+    """Whether this host's ``bash`` is close enough to ubuntu-latest's to mean anything.
+
+    The step uses ``mapfile``, a bash **4+** builtin, and these tests execute it for
+    real. macOS ships ``/bin/bash`` 3.2.57, where the step dies with
+    ``mapfile: command not found`` -- so on a Mac four of these tests failed while
+    testing nothing, and the ``os.name == "nt"`` guard they replaced did not catch it
+    even though its own reason named ubuntu-latest.
+
+    A capability probe rather than ``sys.platform != "darwin"``: a Mac with a bash 4+
+    first on PATH runs the step faithfully and keeps the coverage. ``os.name == "nt"``
+    is kept as well, so no platform that skipped before starts running these now.
+    """
+    try:
+        probe = subprocess.run(
+            ["bash", "-c", "type -t mapfile"],
+            capture_output=True,
+            check=False,
+            # A CONSTRUCTED environment, not the inherited one. `pytestmark` runs
+            # this at COLLECTION time, and conftest.py's
+            # `_scrub_inherited_preload_env` is function-scoped, so it has not run
+            # yet -- this is the only bash in this file outside that protection.
+            # An inherited `BASH_ENV` is a file bash SOURCES before it reaches
+            # `type -t mapfile`, and that fixture's own docstring treats such a
+            # variable as ordinary host state ("a login profile exporting
+            # BASH_ENV, or a container image setting it"), not an exotic one.
+            #
+            # `PATH` is passed on deliberately and is the only thing passed on:
+            # this is a capability probe, so a Mac with bash 4+ first on PATH has
+            # to be discovered, and PATH selects which program runs rather than
+            # supplying code for it to run. The literal fallback avoids
+            # `os.defpath`, whose leading empty entry would put the working
+            # directory on the search path.
+            env={"PATH": os.environ.get("PATH") or "/usr/bin:/bin"},
+            **UTF8_TEXT,
+        )
+    except OSError:
+        return False  # no bash on PATH at all
+    return probe.returncode == 0 and (probe.stdout or "").strip() == "builtin"
+
+
 pytestmark = pytest.mark.skipif(
-    os.name == "nt",
-    reason="the GitHub Release assembly step runs under bash on ubuntu-latest",
+    os.name == "nt" or not _bash_can_run_the_assembly_step(),
+    reason=(
+        "the GitHub Release assembly step runs under bash on ubuntu-latest; this host "
+        "has no bash providing mapfile (a bash 4+ builtin the step uses)"
+    ),
 )
 
 ROOT = Path(__file__).resolve().parents[1]
