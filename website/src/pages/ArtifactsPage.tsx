@@ -184,8 +184,8 @@ function FolderMiniThumb({ a }: { a: Artifact }) {
 
 /** Gallery folder card: click to enter, draggable (nest via drop on another
  * folder card / breadcrumb), droppable (receives artifacts and folders).
- * Carries the same mr-3/mb-3 gutters the masonry cards use so folder cards
- * line up column-for-column with the gallery below. */
+ * Carries the same mb-3 row gap the masonry cards use; the column gutter is
+ * the FolderCardGrid's `gap-x-3`, so the card must NOT add an `mr-3` of its own. */
 function FolderCard({ folder, folders, previewArtifacts, actions }: {
   folder: ArtifactFolder
   folders: ArtifactFolder[]
@@ -208,7 +208,7 @@ function FolderCard({ folder, folders, previewArtifacts, actions }: {
               tabIndex={0}
               onKeyDown={(e) => { if (!renaming && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); actions.onOpen(folder.id) } }}
               aria-label={i18nT('pages.artifactsPage.open_folder', { name: folder.name })}
-              className={`group mr-3 mb-3 rounded-lg border bg-card p-3 cursor-pointer transition-all hover:border-border-strong hover:shadow-md ${
+              className={`group mb-3 rounded-lg border bg-card p-3 cursor-pointer transition-all hover:border-border-strong hover:shadow-md ${
                 isOver ? 'border-accent ring-2 ring-accent/40 bg-accent/5' : 'border-border'
               }`}
               style={{
@@ -256,17 +256,25 @@ function FolderCard({ folder, folders, previewArtifacts, actions }: {
   )
 }
 
-/** Grid for folder cards using the same measurement + gutter scheme as
- * LibraryMasonry (-mr-3 container, cards carry mr-3/mb-3, identical 300px
- * min column width) so folder cards align column-for-column with the
- * masonry gallery below. */
+/** Width of one card gutter (`mr-3` on the masonry cards, `gap-x-3` here). */
+const CARD_GUTTER_PX = 12
+
+/** Grid for folder cards, sized to align column-for-column with the masonry
+ * gallery below (same 300px column pitch, same gutter).
+ *
+ * The gutter is a grid `gap`, NOT the masonry's `-mr-3` wrapper + per-card
+ * `mr-3` scheme. That scheme makes the wrapper one gutter WIDER than its
+ * parent, which is harmless in a padded page column but is 12px of scrollable
+ * overflow inside a scroll container — and once the gallery virtualizes this
+ * grid lives inside the capped, `overflow-y-auto` folder region (which makes
+ * its overflow-x `auto` too), so the wrapper painted a horizontal scrollbar
+ * under the folder cards. The gutter is passed to the column count so both
+ * grids still divide the same width and never disagree at a boundary. */
 function FolderCardGrid({ children }: { children: React.ReactNode }) {
-  const [ref, cols] = useColumnCount(300)
+  const [ref, cols] = useColumnCount(300, CARD_GUTTER_PX)
   return (
-    <div ref={ref} className="-mr-3">
-      <div className="grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-        {children}
-      </div>
+    <div ref={ref} className="grid gap-x-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      {children}
     </div>
   )
 }
@@ -1878,7 +1886,7 @@ export default function ArtifactsPage() {  const navigate = useNavigate()
             {view === 'grid' && (subfolders.length > 0 || (creatingFolder && !filtersActive)) && (
               <FolderCardGrid>
                 {creatingFolder && !filtersActive && (
-                  <div className="mr-3 mb-3 rounded-lg border border-accent bg-card p-3" style={newFolderColor ? { borderLeft: `3px solid ${newFolderColor}` } : undefined}>
+                  <div className="mb-3 rounded-lg border border-accent bg-card p-3" style={newFolderColor ? { borderLeft: `3px solid ${newFolderColor}` } : undefined}>
                     <div className="h-[84px] rounded-md border border-dashed border-border flex items-center justify-center text-muted mb-2.5">
                       <FolderPlus size={22} className="opacity-50" />
                     </div>
