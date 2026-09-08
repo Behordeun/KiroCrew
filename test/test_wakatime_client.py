@@ -169,6 +169,29 @@ async def test_fetch_summaries_raises_when_response_has_no_data_list() -> None:
         await client.fetch_summaries("2026-09-01", "2026-09-03")
 
 
+async def test_fetch_stats_returns_data_dict_on_success() -> None:
+    session = _FakeSession([_FakeResp(200, {"data": {"languages": [{"name": "Python"}]}})])
+    client = _client_with(session)
+    result = await client.fetch_stats("last_7_days")
+    assert result == {"languages": [{"name": "Python"}]}
+
+
+async def test_fetch_stats_raises_on_server_error() -> None:
+    session = _FakeSession([_FakeResp(500)])
+    client = _client_with(session)
+    with pytest.raises(WakaTimeUnavailableError):
+        await client.fetch_stats("last_7_days")
+
+
+async def test_fetch_stats_raises_when_response_has_no_data_dict() -> None:
+    # A non-JSON 200 coerces to {} in _api; no data dict means failure, not a
+    # false-empty stats payload.
+    session = _FakeSession([_FakeResp(200, {})])
+    client = _client_with(session)
+    with pytest.raises(WakaTimeUnavailableError):
+        await client.fetch_stats("last_7_days")
+
+
 async def test_verify_raises_on_rejected_key() -> None:
     session = _FakeSession([_FakeResp(401)])
     client = _client_with(session)

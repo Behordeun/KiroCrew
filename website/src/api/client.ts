@@ -2153,6 +2153,20 @@ export interface MemberActivityEntry {
   project?: string
 }
 
+/** WakaTime coding-stats payload (GET /api/wakatime/stats). When the
+ *  integration is off the endpoint returns { configured: false } instead. */
+export type WakaTimeStatsEntry = { name: string; total_seconds: number }
+export type WakaTimeStats = {
+  configured: boolean
+  range?: string
+  stats?: {
+    total_seconds?: number
+    daily_average?: number
+    languages?: WakaTimeStatsEntry[]
+    projects?: WakaTimeStatsEntry[]
+  }
+}
+
 export const api = {
   status: () => fetch('/api/status').then(j),
   tunnelStatus: () => fetch('/api/tunnel/status').then(j) as Promise<TunnelStatus>,
@@ -2189,6 +2203,37 @@ export const api = {
    *  every row (the endpoint's app-ownership filter applies to app callers). */
   usageTurns: (slot: string) =>
     fetch('/api/usage/turns?slot=' + encodeURIComponent(slot)).then(j),
+  /** WakaTime coding stats for a named range. Returns { configured: false }
+   *  when the integration is off; a 502 body carries { code: 'upstream_unavailable' }. */
+  wakatimeStats: (range: string) =>
+    fetch('/api/wakatime/stats?range=' + encodeURIComponent(range)).then(j) as Promise<WakaTimeStats>,
+  /** Download URL for the billable-hours export. The browser navigates to it so
+   *  the CSV/JSON arrives via the endpoint's own Content-Disposition. */
+  wakatimeExportUrl: (start: string, end: string, format: 'csv' | 'json') =>
+    `/api/wakatime/export?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&format=${format}`,
+  /** Download the export as a file. Fetches rather than navigating, so an
+   *  upstream 502 raises here (surfaced through ErrorNotice) instead of
+   *  replacing the dashboard with the raw error body. The saved filename comes
+   *  from the endpoint's own sanitized Content-Disposition. */
+  wakatimeExportDownload: async (start: string, end: string, format: 'csv' | 'json') => {
+    const r = await get(api.wakatimeExportUrl(start, end, format))
+    if (!r.ok) {
+      const t = await r.text()
+      throw new ApiError(r.status, t || `HTTP ${r.status}`)
+    }
+    const blob = await r.blob()
+    const cd = r.headers.get('Content-Disposition') || ''
+    const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/.exec(cd)
+    const filename = (m && decodeURIComponent(m[1])) || `wakatime-hours-${start}-to-${end}.${format}`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
   /** Intent summary for the chat summary panel.
    *
    *  Read-only: it never triggers generation. Summaries are produced at turn end

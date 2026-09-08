@@ -11783,6 +11783,30 @@
         "vector_memory": "Mémoire vectorielle",
         "vector_memory_is_initializing_the_embedding_mode": "La mémoire vectorielle s'initialise. Le modèle d'embedding (~610MB) se télécharge automatiquement en arrière-plan et l'ancienne mémoire est migrée d'elle-même — aucune action requise.",
         "verifying_model_integrity": "Vérification de l’intégrité du modèle…"
+      },
+      "wakatimeTab": {
+        "active_projects": "Projets sur lesquels vous avez travaillé",
+        "coding_time": "Temps de codage",
+        "connect_body": "WakaTime est un outil gratuit qui mesure le temps que vous passez à coder dans votre éditeur.",
+        "connect_hint": "Ajoutez un secret nommé WAKATIME_API_KEY dans Paramètres et définissez wakatime.enabled sur true dans votre configuration. Obtenez une clé sur wakatime.com/settings/account.",
+        "connect_title": "Connecter WakaTime",
+        "daily_average": "Moyenne par jour",
+        "export_csv": "Exporter les heures (CSV)",
+        "export_failed_title": "Échec de l'export",
+        "export_json": "Exporter les heures (JSON)",
+        "languages": "Langages",
+        "no_activity_body": "Aucun temps de codage enregistré pour les dates choisies. Essayez une période plus large.",
+        "no_activity_title": "Aucune activité pour ces dates",
+        "projects": "Projets",
+        "range_label": "Plage de dates",
+        "range_last30": "30 derniers jours",
+        "range_last6mo": "6 derniers mois",
+        "range_last7": "7 derniers jours",
+        "range_today": "Aujourd'hui",
+        "subtitle": "Votre activité de codage, mesurée par WakaTime depuis votre éditeur de code.",
+        "this_range": "Total pour ces dates",
+        "unreachable_body": "Le service ou votre clé API est injoignable. Vos données ne sont pas perdues, réessayez bientôt.",
+        "unreachable_title": "WakaTime est injoignable"
       }
     },
     "overviewPage": {
@@ -11812,7 +11836,10 @@
       "usage": "Utilisation",
       "usage_tracking_is_not_available_for": "Le suivi de l'utilisation n'est pas disponible pour",
       "v": "· v",
-      "view_details": "Voir les détails"
+      "view_details": "Voir les détails",
+      "wakatime": "WakaTime",
+      "wakatime_last_7_days": "7 derniers jours",
+      "wakatime_not_connected": "Non connecté"
     },
     "performanceTab": {
       "builder_mcp_procs": "Builder MCP",

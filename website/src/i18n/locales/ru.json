@@ -11946,6 +11946,30 @@
         "vector_memory": "Векторная память",
         "vector_memory_is_initializing_the_embedding_mode": "Векторная память инициализируется. Модель эмбеддингов (~610MB) скачивается автоматически в фоне, а старая память переносится сама — действий не требуется.",
         "verifying_model_integrity": "Проверка целостности модели..."
+      },
+      "wakatimeTab": {
+        "active_projects": "Проекты, над которыми вы работали",
+        "coding_time": "Время программирования",
+        "connect_body": "WakaTime — это бесплатный инструмент, который отслеживает время, проведённое за программированием в вашем редакторе.",
+        "connect_hint": "Добавьте секрет с именем WAKATIME_API_KEY в настройках и задайте wakatime.enabled равным true в своей конфигурации. Получить ключ можно на wakatime.com/settings/account.",
+        "connect_title": "Подключить WakaTime",
+        "daily_average": "В среднем за день",
+        "export_csv": "Экспорт часов (CSV)",
+        "export_failed_title": "Не удалось выполнить экспорт",
+        "export_json": "Экспорт часов (JSON)",
+        "languages": "Языки",
+        "no_activity_body": "За выбранные даты нет записанного времени программирования. Попробуйте более широкий период.",
+        "no_activity_title": "Нет активности за эти даты",
+        "projects": "Проекты",
+        "range_label": "Диапазон дат",
+        "range_last30": "Последние 30 дней",
+        "range_last6mo": "Последние 6 месяцев",
+        "range_last7": "Последние 7 дней",
+        "range_today": "Сегодня",
+        "subtitle": "Ваша активность в программировании, измеренная WakaTime из вашего редактора кода.",
+        "this_range": "Всего за эти даты",
+        "unreachable_body": "Не удалось связаться со службой или проверить ваш ключ API. Ваши данные не потеряны, повторите попытку позже.",
+        "unreachable_title": "WakaTime недоступен"
       }
     },
     "overviewPage": {
@@ -11975,7 +11999,10 @@
       "usage": "Использование",
       "usage_tracking_is_not_available_for": "Отслеживание использования недоступно для",
       "v": "· v",
-      "view_details": "Подробнее"
+      "view_details": "Подробнее",
+      "wakatime": "WakaTime",
+      "wakatime_last_7_days": "Последние 7 дней",
+      "wakatime_not_connected": "Не подключено"
     },
     "performanceTab": {
       "builder_mcp_procs": "Builder MCP",

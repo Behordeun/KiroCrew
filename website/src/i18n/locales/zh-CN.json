@@ -11457,6 +11457,30 @@
         "vector_memory": "向量记忆",
         "vector_memory_is_initializing_the_embedding_mode": "向量记忆正在初始化。嵌入模型（约 610MB）会在后台自动下载，旧版记忆也会自动迁移 — 无需任何操作。",
         "verifying_model_integrity": "正在校验模型完整性…"
+      },
+      "wakatimeTab": {
+        "active_projects": "你参与的项目",
+        "coding_time": "编码时间",
+        "connect_body": "WakaTime 是一款免费工具，用于记录你在编辑器中编码所花的时间。",
+        "connect_hint": "在设置中添加名为 WAKATIME_API_KEY 的密钥，并在配置中将 wakatime.enabled 设为 true。可在 wakatime.com/settings/account 获取密钥。",
+        "connect_title": "连接 WakaTime",
+        "daily_average": "每日平均",
+        "export_csv": "导出工时（CSV）",
+        "export_failed_title": "导出失败",
+        "export_json": "导出工时（JSON）",
+        "languages": "语言",
+        "no_activity_body": "所选日期没有记录到编码时间。请尝试更大的时间范围。",
+        "no_activity_title": "这些日期没有活动",
+        "projects": "项目",
+        "range_label": "日期范围",
+        "range_last30": "最近 30 天",
+        "range_last6mo": "最近 6 个月",
+        "range_last7": "最近 7 天",
+        "range_today": "今天",
+        "subtitle": "WakaTime 从你的代码编辑器测量的编码活动。",
+        "this_range": "这些日期的合计",
+        "unreachable_body": "无法连接服务或验证你的 API 密钥。你的数据未丢失，请稍后重试。",
+        "unreachable_title": "WakaTime 无法访问"
       }
     },
     "overviewPage": {
@@ -11486,7 +11510,10 @@
       "usage": "用量",
       "usage_tracking_is_not_available_for": "用量统计不适用于",
       "v": "· v",
-      "view_details": "查看详情"
+      "view_details": "查看详情",
+      "wakatime": "WakaTime",
+      "wakatime_last_7_days": "最近 7 天",
+      "wakatime_not_connected": "未连接"
     },
     "performanceTab": {
       "builder_mcp_procs": "Builder MCP",

@@ -251,6 +251,23 @@ class WakaTimeClient:
                 return data
         return {}
 
+    async def fetch_stats(self, wakatime_range: str = "last_7_days") -> dict[str, Any]:
+        """Like :meth:`get_stats`, but RAISE on an upstream failure.
+
+        Same contract as :meth:`fetch_summaries`: a successful stats response
+        always carries a ``data`` dict (its fields empty for a range with no
+        activity), so anything without one — ``None`` from ``_api`` on a failure,
+        or the ``{}`` ``_api`` returns for a non-JSON 200 body — is a failure and
+        raises :class:`WakaTimeUnavailableError` rather than degrading to a false
+        empty result. Used where an empty payload must not be mistaken for real
+        zero data.
+        """
+        result = await self._api("GET", f"/users/current/stats/{wakatime_range}")
+        data = result.get("data") if isinstance(result, dict) else None
+        if not isinstance(data, dict):
+            raise WakaTimeUnavailableError("WakaTime stats request failed or returned no data")
+        return data
+
     async def get_durations(self, date: str, *, project: str | None = None) -> list[dict]:
         """GET the duration blocks for a single ``date`` (YYYY-MM-DD).
 

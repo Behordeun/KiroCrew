@@ -8,6 +8,7 @@ import type { RootState } from '../store'
 vi.mock('../pages/overview', () => ({
   MemoryTab: () => <div data-testid="memory-tab">MemoryTab</div>,
   UsageTab: () => <div data-testid="usage-tab">UsageTab</div>,
+  WakaTimeTab: () => <div data-testid="wakatime-tab">WakaTimeTab</div>,
 }))
 
 vi.mock('../hooks/useUptime', () => ({
@@ -89,8 +90,9 @@ describe('OverviewPage — mission control', () => {
 
   it('drills into Memory and back', () => {
     renderWithProviders(<OverviewPage />, { store: statusStore() })
-    // Both summary cards use the same verb; Usage renders first, Memory second.
-    fireEvent.click(screen.getAllByRole('button', { name: /View details/ })[1])
+    // Summary cards share the verb, in render order: Usage (0), WakaTime (1),
+    // Memory (2).
+    fireEvent.click(screen.getAllByRole('button', { name: /View details/ })[2])
     expect(screen.getByTestId('memory-tab')).toBeInTheDocument()
     expect(screen.queryByText('All systems running')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Overview/ }))
@@ -104,6 +106,14 @@ describe('OverviewPage — mission control', () => {
     expect(screen.getByTestId('usage-tab')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Overview/ }))
     expect(screen.queryByTestId('usage-tab')).not.toBeInTheDocument()
+  })
+
+  it('drills into WakaTime and back', () => {
+    renderWithProviders(<OverviewPage />, { store: statusStore() })
+    fireEvent.click(screen.getAllByRole('button', { name: /View details/ })[1])
+    expect(screen.getByTestId('wakatime-tab')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Overview/ }))
+    expect(screen.queryByTestId('wakatime-tab')).not.toBeInTheDocument()
   })
 
   // Overview reads state and edits nothing, so it offers no apply/restart

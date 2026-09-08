@@ -1,18 +1,18 @@
-"""Dashboard HTTP handler for the WakaTime integration.
+"""Dashboard HTTP handlers for the WakaTime integration.
 
-One read endpoint, single-owner (no per-user identity: this is the local
+Two read endpoints, both single-owner (no per-user identity: this is the local
 dashboard owner's own configured WakaTime account):
 
+- ``GET /api/wakatime/stats`` — aggregate stats for a named range, for the
+  productivity view (coding time, language/project breakdown).
 - ``GET /api/wakatime/export`` — hours grouped by project over a date range,
-  as a CSV download, for billable-hours export.
+  as CSV (a download) or JSON, for billable-hours export.
 
-When the integration is disabled or unconfigured the endpoint returns a 200 with
+When the integration is disabled or unconfigured the endpoints return a 200 with
 ``{"configured": false}`` rather than an error, so the frontend renders an
-ordinary "connect WakaTime" empty state instead of an error banner.
-
-The stats endpoint and a JSON export variant are deferred to the dashboard
-productivity-view change that consumes them, so this ships only the surface with
-a use today: the CSV invoicing export.
+ordinary "connect WakaTime" empty state instead of an error banner. When the
+range is empty but the upstream call itself failed, they return a 502 rather
+than a false-empty result, so an outage is never mistaken for real zero data.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import json
 import logging
 import urllib.parse
 from collections import defaultdict
@@ -29,6 +30,20 @@ from typing import Any
 from aiohttp import web
 
 logger = logging.getLogger(__name__)
+
+# Ranges the WakaTime stats endpoint accepts. Guard the query param against this
+# allowlist so an arbitrary value is never interpolated into the upstream path.
+_ALLOWED_RANGES = frozenset(
+    {
+        "last_7_days",
+        "last_30_days",
+        "last_6_months",
+        "last_year",
+        "today",
+        "yesterday",
+    }
+)
+_DEFAULT_RANGE = "last_7_days"
 
 # YYYY-MM-DD is the only date shape WakaTime's summaries endpoint accepts.
 
@@ -56,6 +71,45 @@ def _upstream_error() -> web.Response:
         },
         status=502,
     )
+
+
+async def api_wakatime_stats(request: web.Request) -> web.Response:
+    """GET /api/wakatime/stats?range=last_7_days — aggregate coding stats.
+
+    Returns the WakaTime ``stats`` payload (languages, projects, totals) for the
+    range, ``{"configured": false}`` when the integration is off, or a 502 when
+    the upstream call fails (never a false-empty payload).
+    """
+    range_param = request.query.get("range", _DEFAULT_RANGE)
+    if range_param not in _ALLOWED_RANGES:
+        return web.json_response(
+            {
+                "error": f"unsupported range; allowed: {sorted(_ALLOWED_RANGES)}",
+                "code": "invalid_range",
+            },
+            status=400,
+        )
+
+    # Import the optional WakaTime subsystem lazily, on first request, so it
+    # stays off the gateway boot path (handlers/__init__ is imported at startup).
+    from kiro_crew.wakatime import WakaTimeUnavailableError, service
+
+    # build_client() does synchronous config-load + vault-decrypt I/O; run it off
+    # the event loop so a request never stalls the loop on filesystem reads.
+    client = await asyncio.to_thread(service.build_client)
+    if client is None:
+        return web.json_response({"configured": False})
+
+    try:
+        # fetch_stats RAISES on an upstream failure rather than degrading to {},
+        # so an outage is reported as a 502, never a false-empty stats payload.
+        data = await client.fetch_stats(range_param)
+    except WakaTimeUnavailableError:
+        return _upstream_error()
+    finally:
+        await client.close()
+
+    return web.json_response({"configured": True, "range": range_param, "stats": data})
 
 
 # Characters a spreadsheet treats as the start of a formula. A project name
@@ -99,12 +153,14 @@ def _rows_by_project(summaries: list[dict]) -> list[dict[str, Any]]:
 
 
 async def api_wakatime_export(request: web.Request) -> web.Response:
-    """GET /api/wakatime/export?start=&end= — billable hours as a CSV download.
+    """GET /api/wakatime/export?start=&end=&format=csv|json — billable hours.
 
     Hours grouped by project over ``start``..``end`` (inclusive, YYYY-MM-DD).
+    ``format`` is ``csv`` (default, a download) or ``json``.
     """
     start = request.query.get("start", "")
     end = request.query.get("end", "")
+    fmt = request.query.get("format", "csv").lower()
 
     if not _valid_date(start) or not _valid_date(end):
         return web.json_response(
@@ -114,6 +170,11 @@ async def api_wakatime_export(request: web.Request) -> web.Response:
     if start > end:
         return web.json_response(
             {"error": "start must not be after end", "code": "invalid_range"},
+            status=400,
+        )
+    if fmt not in ("csv", "json"):
+        return web.json_response(
+            {"error": "format must be csv or json", "code": "invalid_format"},
             status=400,
         )
 
@@ -139,6 +200,23 @@ async def api_wakatime_export(request: web.Request) -> web.Response:
         await client.close()
 
     rows = _rows_by_project(summaries)
+
+    if fmt == "json":
+        # An attachment disposition (mirroring the CSV branch) so the browser
+        # downloads a file rather than navigating the dashboard away to a raw
+        # JSON blob with no way back.
+        payload = json.dumps({"configured": True, "start": start, "end": end, "projects": rows})
+        filename = f"wakatime-hours-{start}-to-{end}.json"
+        quoted = urllib.parse.quote(filename, safe="")
+        return web.Response(
+            body=payload.encode("utf-8"),
+            content_type="application/json",
+            charset="utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{quoted}",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     # CSV: generated in-memory, returned with a download disposition.
     buf = io.StringIO()

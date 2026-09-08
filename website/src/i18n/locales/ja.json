@@ -11457,6 +11457,30 @@
         "vector_memory": "ベクトルメモリ",
         "vector_memory_is_initializing_the_embedding_mode": "ベクトルメモリが初期化中です。埋め込みモデル（約610MB）はバックグラウンドで自動的にダウンロードされ、レガシーメモリは自動的に移行します — 操作は不要です。",
         "verifying_model_integrity": "モデルの整合性を確認中…"
+      },
+      "wakatimeTab": {
+        "active_projects": "取り組んだプロジェクト",
+        "coding_time": "コーディング時間",
+        "connect_body": "WakaTime は、エディターでコーディングに費やした時間を記録する無料ツールです。",
+        "connect_hint": "設定でシークレット WAKATIME_API_KEY を追加し、設定ファイルで wakatime.enabled を true にします。キーは wakatime.com/settings/account で取得できます。",
+        "connect_title": "WakaTime を接続",
+        "daily_average": "1日あたりの平均",
+        "export_csv": "時間をエクスポート（CSV）",
+        "export_failed_title": "エクスポートに失敗しました",
+        "export_json": "時間をエクスポート（JSON）",
+        "languages": "言語",
+        "no_activity_body": "選択した日付にはコーディング時間の記録がありません。期間を広げてみてください。",
+        "no_activity_title": "この期間のアクティビティはありません",
+        "projects": "プロジェクト",
+        "range_label": "期間",
+        "range_last30": "過去30日",
+        "range_last6mo": "過去6か月",
+        "range_last7": "過去7日",
+        "range_today": "今日",
+        "subtitle": "コードエディターから WakaTime が計測したコーディングアクティビティ。",
+        "this_range": "この期間の合計",
+        "unreachable_body": "サービスまたは API キーに接続できませんでした。データは失われていません。しばらくしてからもう一度お試しください。",
+        "unreachable_title": "WakaTime に接続できません"
       }
     },
     "overviewPage": {
@@ -11486,7 +11510,10 @@
       "usage": "使用量",
       "usage_tracking_is_not_available_for": "使用量追跡は以下では利用できません",
       "v": "· v",
-      "view_details": "詳細を表示"
+      "view_details": "詳細を表示",
+      "wakatime": "WakaTime",
+      "wakatime_last_7_days": "過去7日",
+      "wakatime_not_connected": "未接続"
     },
     "performanceTab": {
       "builder_mcp_procs": "Builder MCP",

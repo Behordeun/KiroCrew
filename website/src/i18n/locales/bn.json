@@ -11620,6 +11620,30 @@
         "vector_memory": "ভেক্টর মেমরি",
         "vector_memory_is_initializing_the_embedding_mode": "ভেক্টর মেমরি চালু হচ্ছে। এমবেডিং মডেল (~610MB) স্বয়ংক্রিয়ভাবে ব্যাকগ্রাউন্ডে ডাউনলোড হয়, আর পুরোনো মেমরি নিজে নিজেই মাইগ্রেট হয় — কিছু করার প্রয়োজন নেই।",
         "verifying_model_integrity": "মডেলের অখণ্ডতা যাচাই করা হচ্ছে…"
+      },
+      "wakatimeTab": {
+        "active_projects": "আপনি যে প্রকল্পগুলোতে কাজ করেছেন",
+        "coding_time": "কোডিং সময়",
+        "connect_body": "WakaTime একটি বিনামূল্যের টুল যা আপনার এডিটরে কোডিংয়ে ব্যয় করা সময় রেকর্ড করে।",
+        "connect_hint": "সেটিংসে WAKATIME_API_KEY নামে একটি সিক্রেট যোগ করুন এবং আপনার কনফিগে wakatime.enabled true করুন। wakatime.com/settings/account থেকে একটি কী নিন।",
+        "connect_title": "WakaTime সংযুক্ত করুন",
+        "daily_average": "দৈনিক গড়",
+        "export_csv": "ঘণ্টা এক্সপোর্ট করুন (CSV)",
+        "export_failed_title": "এক্সপোর্ট ব্যর্থ হয়েছে",
+        "export_json": "ঘণ্টা এক্সপোর্ট করুন (JSON)",
+        "languages": "ভাষা",
+        "no_activity_body": "আপনার বেছে নেওয়া তারিখগুলোর জন্য কোনো কোডিং সময় রেকর্ড নেই। বড় একটি সময়সীমা চেষ্টা করুন।",
+        "no_activity_title": "এই তারিখগুলোর জন্য কোনো কার্যকলাপ নেই",
+        "projects": "প্রকল্প",
+        "range_label": "তারিখের পরিসর",
+        "range_last30": "গত 30 দিন",
+        "range_last6mo": "গত 6 মাস",
+        "range_last7": "গত 7 দিন",
+        "range_today": "আজ",
+        "subtitle": "আপনার কোড এডিটর থেকে WakaTime দ্বারা পরিমাপ করা আপনার কোডিং কার্যকলাপ।",
+        "this_range": "এই তারিখগুলোর মোট",
+        "unreachable_body": "সেবা বা আপনার API কী-তে পৌঁছানো যায়নি। আপনার ডেটা হারায়নি, একটু পরে আবার চেষ্টা করুন।",
+        "unreachable_title": "WakaTime-এ পৌঁছানো যাচ্ছে না"
       }
     },
     "overviewPage": {
@@ -11649,7 +11673,10 @@
       "usage": "ব্যবহার",
       "usage_tracking_is_not_available_for": "ব্যবহার ট্র্যাকিং উপলব্ধ নয়",
       "v": "· v",
-      "view_details": "বিবরণ দেখুন"
+      "view_details": "বিবরণ দেখুন",
+      "wakatime": "WakaTime",
+      "wakatime_last_7_days": "গত 7 দিন",
+      "wakatime_not_connected": "সংযুক্ত নয়"
     },
     "performanceTab": {
       "builder_mcp_procs": "Builder MCP",
