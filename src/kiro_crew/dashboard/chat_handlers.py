@@ -5817,6 +5817,11 @@ async def api_chat_slot_agent(request: web.Request) -> web.Response:
                 slot.workspace = pre_await_workspace
             if committed_project is not None and slot.project is committed_project:
                 slot.project = pre_await_project
+            # Re-mark unconditionally: the periodic flush writes a slot's
+            # metadata line only while _dirty is set, so without this a
+            # rollback that follows a persisted provisional binding leaves
+            # the rejected values on disk across a restart.
+            slot._dirty = True
 
         # Last-instant re-probe in a NO-AWAIT window before the teardown (the
         # model template's rule at its own reset site): the pre-commit check
@@ -5869,7 +5874,6 @@ async def api_chat_slot_agent(request: web.Request) -> web.Response:
             # and persisted state land on the rolled-back truth, then let the
             # raise escape as a 500.
             _rollback_switch()
-            slot._dirty = True
             state.push_slots_update()
             raise
         if reset_verdict is None:
@@ -5903,7 +5907,6 @@ async def api_chat_slot_agent(request: web.Request) -> web.Response:
                     )
                 except Exception:
                     _rollback_switch()
-                    slot._dirty = True
                     state.push_slots_update()
                     raise
                 if reset_verdict is None:
