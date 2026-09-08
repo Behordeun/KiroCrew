@@ -296,7 +296,7 @@
     "src/kiro_crew/dashboard/chat_persistence.py": 24,
     "src/kiro_crew/dashboard/chat_pins.py": 1,
     "src/kiro_crew/dashboard/chat_rewind.py": 1,
-    "src/kiro_crew/dashboard/chat_runner.py": 103,
+    "src/kiro_crew/dashboard/chat_runner.py": 99,
     "src/kiro_crew/dashboard/chat_slack.py": 9,
     "src/kiro_crew/dashboard/chat_summary.py": 1,
     "src/kiro_crew/dashboard/chat_tags.py": 3,
