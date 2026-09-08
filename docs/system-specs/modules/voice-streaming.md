@@ -413,10 +413,58 @@ path.
 `_synthesize_polly()`, `_synthesize_piper()`, and `streaming_piper_reply()` run their commands through
 `wrap_argv_async(..., _prepare=wrap_argv)` and catch
 `SandboxUnavailableError` separately from provider failures. They log the
-sandbox error kind and its own message. The distinction is load-bearing because
-only the sandbox layer can distinguish a missing backend from transient
-pressure or an existing outer sandbox, and therefore provides the applicable
-remedy.
+sandbox error kind and its own message, then **re-raise**. The distinction is
+load-bearing because only the sandbox layer can distinguish a missing backend
+from transient pressure or an existing outer sandbox, and therefore provides the
+applicable remedy.
+
+Re-raising rather than returning `None` is what lets that remedy reach a person.
+A refusal collapsed into the generic "no audio" result is indistinguishable from
+a broken engine, a rejected voice name or a muted device, so the one fact that
+resolves it would live only in the gateway log. `synthesize_speech()` therefore
+propagates the error rather than swallowing it, and each caller decides what its
+surface can show:
+
+- The dashboard synthesis endpoint relays `str(exc)` to the client and over
+  `voice_error`, prefixed but never rewritten — the endpoint must not compose a
+  remedy of its own, because only `exc.kind` distinguishes the three cases and
+  advising `sandbox_allow_unsandboxed_exec` is actively wrong for two of them.
+  The 502 body also carries `code` = `sandbox_<exc.kind>`, derived mechanically
+  from the closed kind set so no mapping table can drift: relayed prose is
+  untranslatable on its own, and the kind is what decides which remedy it states.
+  Neither the 502 nor the `voice_error` broadcast carries the remedy to a person.
+  The dashboard does handle `voice_error`, but it keys a generic failure off
+  `code` and never renders `error`, and both auto-speak call sites discard the
+  rejected request — so the handler also raises one notification-centre
+  note carrying the remedy. That handler also drops any event without a
+  `request_id`, so the broadcast carries the request identity rather than the slot
+  alone; without it the event is discarded before reaching that surface.
+  That note is throttled per sandbox KIND, never per
+  request: the refusal is a host-level property with an identical remedy for every
+  slot, and a key carrying caller-chosen data would grow for the process lifetime
+  on a host that refuses every sentence. Three kinds means three entries, bounded
+  by construction rather than by a size cap. The note is persisted and its `meta`
+  is stored verbatim — the payload validator checks title, body, actions, url and
+  ttl, never `meta` values — so what keeps caller junk out of it is the endpoint's
+  own request validation, which refuses a non-string `slot` with a 400 before any
+  synthesis runs. No downstream normalization is needed, and adding one would be
+  unreachable.
+  Both branches that reach this helper report through it, so they cannot drift.
+  Those are the default `system` engine's single-WAV path and Polly's
+  sentence-chunked one; Polly needs its own clause because without it the refusal
+  would fall to the generic handler — a 500 with no note — and stay invisible on a
+  Polly host, which is the defect itself rather than a cosmetic difference.
+  The `piper` provider takes neither: it has its own streaming path whose runtime
+  converts the refusal into `VoiceSynthesisError("voice_sandbox_unavailable")`,
+  which carries the sandbox's own prose to the HTTP caller but raises no
+  notification. Recovering the note there means reading the preserved cause, and
+  is deliberately not part of this change.
+- `synthesize_and_deliver()` has no channel for prose, so it still reports "no
+  audio" and catches the refusal explicitly so it cannot escape as an unhandled
+  error on a voice reply. Both current callers then drop that signal — Slack's
+  `_safe_voice_reply` discards the returned bool and Telegram only logs it — so a
+  refusal is still silent on those surfaces. Closing that is a separate change to
+  those callers, not to this function.
 
 ## Slack voice replies
 

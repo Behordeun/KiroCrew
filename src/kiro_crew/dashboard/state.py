@@ -5092,6 +5092,13 @@ class DashboardState:
         # Consumed claims whose durable finalization failed remain blocked from
         # redispatch while a later Spec Builder detail poll retries the ledger write.
         self._spec_decision_deliveries_consumed: set[tuple[str, str]] = set()
+        # Sandbox kind -> monotonic time of the last notification for it. Keyed on
+        # the sandbox layer's own closed kind set (three values), NEVER on request
+        # data: auto-speak synthesises one request per sentence, so a key carrying
+        # a caller-chosen slot would grow for the process lifetime on a host that
+        # refuses every one of them. Bounded at three entries by construction, so
+        # it needs no size cap and no eviction pass.
+        self._voice_sandbox_notified: dict[str, float] = {}
         # Slot keys that EXIST but are deliberately absent from ``_slots`` while
         # they are being built (see ``session_transfer``'s import path, which
         # retracts a slot so it is unreachable until its transcript and context

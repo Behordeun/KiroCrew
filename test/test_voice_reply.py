@@ -1670,14 +1670,14 @@ class TestSynthesizePiper:
             assert await _synthesize_piper("hello", piper_model=str(model)) is None
 
     @pytest.mark.asyncio
-    async def test_sandbox_unavailable_returns_none_and_unlinks(
+    async def test_sandbox_unavailable_propagates_and_unlinks(
         self, tmp_path, monkeypatch, caplog,
     ) -> None:
         """A fail-closed sandbox is reported with its remedy, not as a generic error.
 
         Mirrors the Polly counterpart: no OS sandbox backend (every Windows host,
         Linux without user namespaces) makes wrap_argv raise, and piper must
-        degrade to None, unlink the temp WAV, and relay the sandbox layer's own
+        propagate, unlink the temp WAV, and relay the sandbox layer's own
         remedy prose rather than logging a stack trace that reads as a
         binary/model fault.
         """
@@ -1709,7 +1709,8 @@ class TestSynthesizePiper:
         )
 
         with caplog.at_level("ERROR", logger="kiro_crew.voice_reply"):
-            assert await _synthesize_piper("hello", piper_model=str(model)) is None
+            with pytest.raises(SandboxUnavailableError):
+                await _synthesize_piper("hello", piper_model=str(model))
 
         assert created, "piper should have allocated a temp wav"
         assert not os.path.exists(created[0]), "temp wav must be unlinked"
@@ -2046,7 +2047,7 @@ class TestSynthesizePolly:
         assert spawned["n"] == 0
 
     @pytest.mark.asyncio
-    async def test_sandbox_unavailable_returns_none_and_unlinks(
+    async def test_sandbox_unavailable_propagates_and_unlinks(
         self, monkeypatch, caplog,
     ) -> None:
         """A fail-closed sandbox is reported with its remedy, not as a generic error.
@@ -2075,7 +2076,8 @@ class TestSynthesizePolly:
         monkeypatch.setattr("kiro_crew.voice_reply.wrap_argv", refuse)
 
         with caplog.at_level("ERROR", logger="kiro_crew.voice_reply"):
-            assert await _synthesize_polly("<speak>hi</speak>") is None
+            with pytest.raises(SandboxUnavailableError):
+                await _synthesize_polly("<speak>hi</speak>")
 
         assert created, "polly should have allocated a temp mp3"
         assert not os.path.exists(created[0]), "temp mp3 must be unlinked"
@@ -2109,7 +2111,8 @@ class TestSynthesizePolly:
         monkeypatch.setattr("kiro_crew.voice_reply.wrap_argv", refuse)
 
         with caplog.at_level("ERROR", logger="kiro_crew.voice_reply"):
-            assert await _synthesize_polly("<speak>hi</speak>") is None
+            with pytest.raises(SandboxUnavailableError):
+                await _synthesize_polly("<speak>hi</speak>")
 
         assert transient_prose in caplog.text
         assert "transient" in caplog.text
@@ -2896,3 +2899,70 @@ class TestSynthesizePollyCancelOwnership:
             with pytest.raises(asyncio.CancelledError):
                 await _synthesize_polly("<speak>hi</speak>")
         assert not owned.exists()
+
+
+class TestSynthesizeSpeechDoesNotSwallowARefusal:
+    """The seam between the provider and the endpoint.
+
+    The provider raises and the endpoint relays, but ``synthesize_speech`` sits
+    between them, so it is where a swallowed refusal would go unnoticed. The
+    endpoint tests patch ``synthesize_speech`` itself, so without this the middle
+    link is covered by nothing and a future catch-all added here would ship
+    silently.
+    """
+
+    @pytest.mark.asyncio
+    async def test_piper_refusal_travels_through_synthesize_speech(self, tmp_path, monkeypatch):
+        from kiro_crew.sandbox import SandboxUnavailableError
+        from kiro_crew.voice_reply import synthesize_speech
+
+        prose = "SEAM-SENTINEL: the sandbox refused"
+        bin_path = tmp_path / "piper"
+        _make_executable(str(bin_path))
+        model = tmp_path / "voice.onnx"
+        model.write_bytes(b"m")
+
+        # Patch the seam the spawn actually goes through. Reaching the real
+        # sandbox layer here would make the test pass for the wrong reason on a
+        # host that genuinely refuses, and vacuously on one that does not.
+        async def refuse(cmd, **kw):
+            raise SandboxUnavailableError(prose, "no_backend", "not Linux")
+
+        monkeypatch.setattr("kiro_crew.voice_reply.sandboxed_spawn_argv_async", refuse)
+        monkeypatch.setattr(
+            "kiro_crew.voice_reply._resolve_piper_binary", lambda *a, **k: str(bin_path)
+        )
+
+        with pytest.raises(SandboxUnavailableError) as caught:
+            await synthesize_speech("hello", provider="piper", piper_model=str(model))
+        assert prose in str(caught.value)
+
+    @pytest.mark.asyncio
+    async def test_polly_refusal_travels_through_synthesize_speech(
+        self, monkeypatch, _polly_consented
+    ):
+        from kiro_crew.sandbox import SandboxUnavailableError
+        from kiro_crew.voice_reply import synthesize_speech
+
+        prose = "SEAM-SENTINEL: the sandbox refused"
+
+        # Polly refuses without recorded consent and without a resolvable CLI, and
+        # both bail BEFORE the spawn -- so without these the test would pass for
+        # the wrong reason on a host that simply has no aws binary.
+        _patch_aws_on_path(monkeypatch)
+
+        # Patch the seam the spawn actually goes through. Reaching the real
+        # sandbox layer here would make the test pass for the wrong reason on a
+        # host that genuinely refuses, and vacuously on one that does not.
+        def refuse(cmd, mode):
+            raise SandboxUnavailableError(prose, "no_backend", "not Linux")
+
+        # Polly deliberately keeps an UNSCRUBBED env (the AWS CLI authenticates
+        # from it), so it wraps through `wrap_argv_async` rather than the
+        # credential-scrubbing spawn the local engines use. Patch the seam this
+        # path really takes, or the spawn proceeds and the test proves nothing.
+        monkeypatch.setattr("kiro_crew.voice_reply.wrap_argv", refuse)
+
+        with pytest.raises(SandboxUnavailableError) as caught:
+            await synthesize_speech("hello", provider="polly")
+        assert prose in str(caught.value)

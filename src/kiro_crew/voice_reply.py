@@ -605,7 +605,11 @@ async def _run_tts_subprocess(
             exc.kind,
             exc,
         )
-        return False
+        # Re-raised rather than collapsed to False: this exception carries the ONLY
+        # actionable diagnosis, and a bool cannot be told apart from a broken
+        # binary, a rejected voice or a muted device. Each caller decides what its
+        # own surface can show; the dashboard endpoint relays the prose.
+        raise
     except Exception:
         logger.exception("%s synthesis error", label)
         return False
@@ -1163,7 +1167,11 @@ async def _synthesize_polly(
                 exc.kind,
                 exc,
             )
-            return None
+            # Re-raised for the same reason as the shared subprocess helper: the
+            # sentinel loses the one fact that resolves this. The ``finally`` below
+            # still discards the owned temp file, which matters MORE once the
+            # exception travels instead of a return value.
+            raise
         except Exception:
             logger.exception("Polly synthesis error")
             return None
@@ -1768,21 +1776,31 @@ async def synthesize_and_deliver(
     Returns False when synthesis produced nothing, so a caller can post its
     unavailable notice rather than silently sending only text.
     """
-    audio_path = await synthesize_speech(
-        response_text,
-        provider=provider,
-        voice_id=voice_id,
-        engine=engine,
-        rate=rate,
-        pitch=pitch,
-        aws_profile=aws_profile,
-        region=region,
-        piper_binary=piper_binary,
-        piper_model=piper_model,
-        piper_model_config=piper_model_config,
-        length_scale=length_scale,
-        system_voice=system_voice,
-    )
+    try:
+        audio_path = await synthesize_speech(
+            response_text,
+            provider=provider,
+            voice_id=voice_id,
+            engine=engine,
+            rate=rate,
+            pitch=pitch,
+            aws_profile=aws_profile,
+            region=region,
+            piper_binary=piper_binary,
+            piper_model=piper_model,
+            piper_model_config=piper_model_config,
+            length_scale=length_scale,
+            system_voice=system_voice,
+        )
+    except SandboxUnavailableError:
+        # This path delivers audio to a chat surface and has no channel for remedy
+        # prose, so a refusal is still just "no audio" here. Both current callers
+        # drop that signal — Slack's wrapper discards the bool entirely and
+        # Telegram only logs it — so on those surfaces a refusal stays silent,
+        # unchanged by this function. Caught explicitly all the same, so it cannot
+        # escape as an unhandled error on a voice reply; the dashboard synthesis
+        # endpoint is the surface that relays the remedy.
+        return False
     if not audio_path:
         return False
     try:
