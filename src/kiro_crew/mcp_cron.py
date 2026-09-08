@@ -29,6 +29,7 @@ from typing import Any
 from kiro_crew import model_registry
 from kiro_crew.config.loader import config_dir
 from kiro_crew.cron import (
+    _JOB_TIMEOUT_SECS,
     CronJob,
     CronService,
     CronStoreBusy,
@@ -93,6 +94,35 @@ _UNIT_SECS = {
     "hour": 3600,
     "hours": 3600,
 }
+
+
+def _sub_floor_timeout_note(timeout_secs_val: object) -> str:
+    """Return a caller-facing note when ``timeout_secs`` is below the reaper floor.
+
+    The primary ``asyncio.wait_for`` guard in ``_execute_with_timeout`` honors any
+    value in ``1..86400``, so a sub-floor budget IS enforced on the normal path.
+    The reaper force-kill backstop, however, clamps its deadline to at least
+    ``_JOB_TIMEOUT_SECS`` (``max(min(timeout_secs, 86400), _JOB_TIMEOUT_SECS)``),
+    so if the event loop stalls or the task ignores cancellation the job is not
+    force-killed until that floor. Surfacing the gap at set time is cheaper than
+    letting the caller discover it from a job that outran its configured budget.
+
+    Returns an empty string when the value is absent, non-numeric, or already at
+    or above the floor, so callers can unconditionally append it to their reply.
+    """
+    if not isinstance(timeout_secs_val, (int, float, str)):
+        return ""
+    try:
+        secs = int(timeout_secs_val)
+    except (ValueError, TypeError):
+        return ""
+    if 1 <= secs < _JOB_TIMEOUT_SECS:
+        return (
+            f" Note: timeout_secs={secs}s is below the {_JOB_TIMEOUT_SECS}s reaper "
+            "floor -- the primary guard enforces it, but if the event loop stalls "
+            f"the force-kill backstop will not trigger until {_JOB_TIMEOUT_SECS}s."
+        )
+    return ""
 
 
 # Credential dirs/files a cron shell command must never reference directly. The
@@ -2220,6 +2250,7 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
         return (
             f"Added job: {job.id} ({job.name}) [{sched_str}]. "
             f"Tell the user: scheduled for {sched_str}.{caveats}"
+            + _sub_floor_timeout_note(timeout_secs_val)
         )
 
     if name == "cron_update":
@@ -2261,9 +2292,7 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
         if "folder" in args:
             # "" resolves to "" (ungrouped) with no error, so an explicit empty
             # string moves the job out of its folder.
-            fid, folder_err = _resolve_cron_folder(
-                args["folder"], session_key=_authz_session_key()
-            )
+            fid, folder_err = _resolve_cron_folder(args["folder"], session_key=_authz_session_key())
             if folder_err:
                 return f"Error: {folder_err}"
             kwargs["folder_id"] = fid
@@ -2329,7 +2358,8 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
             not (updated.command or updated.script),
             len(updated.agent_sequence),
         )
-        return f"Updated job: {updated.id} ({updated.name}) [{sched_str}]{caveat}"
+        note = _sub_floor_timeout_note(args["timeout_secs"]) if "timeout_secs" in args else ""
+        return f"Updated job: {updated.id} ({updated.name}) [{sched_str}]{caveat}{note}"
 
     if name == "cron_remove":
         jid = args["job_id"]
