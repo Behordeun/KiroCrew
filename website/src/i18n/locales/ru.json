@@ -7683,6 +7683,15 @@
       "drag_to_select_the_screen_region_to_capture": "Перетащите, чтобы выбрать область экрана для захвата",
       "screen_capture_drag_the_area_you_want_it_attache": "Снимок экрана — выделите нужную область; она вложится автоматически при отпускании"
     },
+    "startupVideoModal": {
+      "close": "Закрыть",
+      "feature_intro": "Знакомство с функцией",
+      "got_it": "Понятно",
+      "media_failed": "Не удалось загрузить видео о функции",
+      "share": "Поделиться",
+      "share_description": "Превратите это видео о функции в карточку, которую можно опубликовать где угодно.",
+      "share_include_title": "Добавить название видео"
+    },
     "tagManagerList": {
       "change_color": "Изменить цвет {{name}}",
       "delete_tag": "Удалить тег «{{name}}»",

@@ -7572,6 +7572,15 @@
       "drag_to_select_the_screen_region_to_capture": "Arrastra para seleccionar la región de la pantalla que quieres capturar",
       "screen_capture_drag_the_area_you_want_it_attache": "Captura de pantalla: arrastra el área que quieras; se adjunta automáticamente al soltar"
     },
+    "startupVideoModal": {
+      "close": "Cerrar",
+      "feature_intro": "Introducción a la función",
+      "got_it": "Entendido",
+      "media_failed": "No se pudo cargar el vídeo de la función",
+      "share": "Compartir",
+      "share_description": "Convierte este vídeo de la función en una tarjeta que puedes publicar donde quieras.",
+      "share_include_title": "Incluir el título del vídeo"
+    },
     "tagManagerList": {
       "change_color": "Cambiar el color de {{name}}",
       "delete_tag": "Eliminar la etiqueta \"{{name}}\"",

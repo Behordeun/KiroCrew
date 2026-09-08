@@ -7461,6 +7461,15 @@
       "drag_to_select_the_screen_region_to_capture": "कैप्चर करने के लिए स्क्रीन का क्षेत्र चुनने के लिए ड्रैग करें",
       "screen_capture_drag_the_area_you_want_it_attache": "स्क्रीन कैप्चर — जो क्षेत्र चाहिए उसे ड्रैग करें; छोड़ने पर यह स्वतः अटैच हो जाता है"
     },
+    "startupVideoModal": {
+      "close": "बंद करें",
+      "feature_intro": "फ़ीचर परिचय",
+      "got_it": "समझ गया",
+      "media_failed": "फ़ीचर वीडियो लोड नहीं हो सका",
+      "share": "साझा करो",
+      "share_description": "इस फ़ीचर वीडियो को शेयर कार्ड बनाओ जिसे कहीं भी पोस्ट कर सकते हो।",
+      "share_include_title": "वीडियो का शीर्षक शामिल करो"
+    },
     "tagManagerList": {
       "change_color": "{{name}} का रंग बदलें",
       "delete_tag": "टैग \"{{name}}\" हटाएँ",

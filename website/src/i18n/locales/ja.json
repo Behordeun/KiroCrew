@@ -7350,6 +7350,15 @@
       "drag_to_select_the_screen_region_to_capture": "ドラッグしてキャプチャする画面領域を選択してください",
       "screen_capture_drag_the_area_you_want_it_attache": "スクリーンキャプチャ — ドラッグして希望の領域を選択してください; 放すと自動的に添付されます"
     },
+    "startupVideoModal": {
+      "close": "閉じる",
+      "feature_intro": "機能紹介",
+      "got_it": "了解しました",
+      "media_failed": "機能紹介動画を読み込めませんでした",
+      "share": "共有",
+      "share_description": "この機能紹介動画を、どこにでも投稿できる共有カードにします。",
+      "share_include_title": "動画のタイトルを含める"
+    },
     "tagManagerList": {
       "change_color": "{{name}}の色を変更",
       "delete_tag": "タグ「{{name}}」を削除",

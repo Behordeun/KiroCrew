@@ -7572,6 +7572,15 @@
       "drag_to_select_the_screen_region_to_capture": "Trascina per selezionare l'area dello schermo da catturare",
       "screen_capture_drag_the_area_you_want_it_attache": "Cattura dello schermo — trascina l'area desiderata; viene allegata automaticamente al rilascio"
     },
+    "startupVideoModal": {
+      "close": "Chiudi",
+      "feature_intro": "Introduzione alla funzionalità",
+      "got_it": "Ho capito",
+      "media_failed": "Non è stato possibile caricare il video della funzionalità",
+      "share": "Condividi",
+      "share_description": "Trasforma questo video della funzione in una scheda che puoi pubblicare dove vuoi.",
+      "share_include_title": "Includi il titolo del video"
+    },
     "tagManagerList": {
       "change_color": "Cambia il colore di {{name}}",
       "delete_tag": "Elimina il tag \"{{name}}\"",

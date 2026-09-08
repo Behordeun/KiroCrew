@@ -7461,6 +7461,15 @@
       "drag_to_select_the_screen_region_to_capture": "Ziehen, um den zu erfassenden Bildschirmbereich auszuwählen",
       "screen_capture_drag_the_area_you_want_it_attache": "Bildschirmaufnahme — ziehen Sie den gewünschten Bereich; er wird beim Loslassen automatisch angehängt"
     },
+    "startupVideoModal": {
+      "close": "Schließen",
+      "feature_intro": "Feature-Einführung",
+      "got_it": "Verstanden",
+      "media_failed": "Feature-Video konnte nicht geladen werden",
+      "share": "Teilen",
+      "share_description": "Verwandeln Sie dieses Feature-Video in eine Karte, die Sie überall posten können.",
+      "share_include_title": "Videotitel einschließen"
+    },
     "tagManagerList": {
       "change_color": "Farbe von {{name}} ändern",
       "delete_tag": "Tag „{{name}}“ löschen",

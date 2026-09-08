@@ -1392,6 +1392,15 @@
       "reject_all": "Reject all — refuse the rest without asking",
       "reject_once": "Reject once — keep asking about the rest"
     },
+    "startupVideoModal": {
+      "close": "Close",
+      "feature_intro": "Feature intro",
+      "got_it": "Got it",
+      "media_failed": "Feature video could not be loaded",
+      "share": "Share",
+      "share_description": "Turn this feature video into a share card you can post anywhere.",
+      "share_include_title": "Include the video title"
+    },
     "tailnetMobile": {
       "automatic_https": "After HTTPS is enabled for this tailnet, Tailscale creates and renews the private certificate automatically.",
       "setting_up": "Setting up phone access…",

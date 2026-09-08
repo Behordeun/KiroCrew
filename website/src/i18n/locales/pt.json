@@ -7572,6 +7572,15 @@
       "drag_to_select_the_screen_region_to_capture": "Arraste para selecionar a região da tela a capturar",
       "screen_capture_drag_the_area_you_want_it_attache": "Captura de tela — arraste a área desejada; ela é anexada automaticamente ao soltar"
     },
+    "startupVideoModal": {
+      "close": "Fechar",
+      "feature_intro": "Introdução ao recurso",
+      "got_it": "Entendi",
+      "media_failed": "Não foi possível carregar o vídeo do recurso",
+      "share": "Compartilhar",
+      "share_description": "Transforme este vídeo do recurso em um card que você pode publicar em qualquer lugar.",
+      "share_include_title": "Incluir o título do vídeo"
+    },
     "tagManagerList": {
       "change_color": "Alterar a cor de {{name}}",
       "delete_tag": "Excluir a tag \"{{name}}\"",

@@ -7461,6 +7461,15 @@
       "drag_to_select_the_screen_region_to_capture": "ক্যাপচার করার জন্য স্ক্রিনের অংশটি ড্র্যাগ করে নির্বাচন করুন",
       "screen_capture_drag_the_area_you_want_it_attache": "স্ক্রিন ক্যাপচার — আপনি যে অংশটি চান সেটি ড্র্যাগ করুন; ছেড়ে দিলেই তা স্বয়ংক্রিয়ভাবে সংযুক্ত হবে"
     },
+    "startupVideoModal": {
+      "close": "বন্ধ করুন",
+      "feature_intro": "ফিচার পরিচিতি",
+      "got_it": "বুঝেছি",
+      "media_failed": "ফিচার ভিডিওটি লোড করা যায়নি",
+      "share": "ভাগ করো",
+      "share_description": "এই ফিচার ভিডিওকে শেয়ার কার্ডে পরিণত করো যা যেকোনো জায়গায় পোস্ট করা যায়।",
+      "share_include_title": "ভিডিওর শিরোনাম যোগ করো"
+    },
     "tagManagerList": {
       "change_color": "{{name}} এর রং পরিবর্তন করুন",
       "delete_tag": "\"{{name}}\" ট্যাগ মুছে ফেলো",
