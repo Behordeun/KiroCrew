@@ -107,15 +107,19 @@ SUBAGENT_TIMEOUT_MAX = 86400
 # one-character slip that flips the flag semantics or reintroduces the ReDoS
 # class below on a single surface.
 #
-# Body: a TEMPERED greedy repetition that allows every bracket EXCEPT a ``[``
-# that begins a fresh ``[OPTIONS:``. This matters for ReDoS (py/polynomial-redos):
-# a plain greedy ``.*`` body can itself consume a ``[`` that also starts the outer
-# ``[OPTIONS:`` literal, so over untrusted text with many ``[OPTIONS:`` prefixes
-# ``search()``/``findall()`` re-explore the body from each position — polynomial
-# backtracking. The tempered body is unambiguous (linear) while still capturing a
-# literal ``]`` and any other inner ``[`` inside an option ("Fix [x] logging",
-# "a[1]"). This parser runs over untrusted LLM/relayed text before Slack, the
-# dashboard, Discord, Telegram, and WeCom render it.
+# Body: a TEMPERED greedy repetition. No alternative in it may consume a ``[``
+# that begins a fresh ``[OPTIONS:`` — both bracket forms carry that guard. This
+# matters for ReDoS (py/polynomial-redos): a plain greedy ``.*`` body can itself
+# consume a ``[`` that also starts the outer ``[OPTIONS:`` literal, so over
+# untrusted text with many ``[OPTIONS:`` prefixes ``search()``/``findall()``
+# re-explore the body from each position — polynomial backtracking. The tempered
+# body is unambiguous (linear) while still capturing an inner ``[`` inside an
+# option ("Fix [x] logging", "a[1]"). A CLOSER is admitted CONDITIONALLY, not
+# freely: only where an earlier ``[`` in the same label matches it or the label
+# list continues after it (#9284 — see :data:`_MARKER_LABEL_CONTINUES` for why
+# an unconditional ``]`` made the body run past the marker and delete prose).
+# This parser runs over untrusted LLM/relayed text before Slack, the dashboard,
+# Discord, Telegram, and WeCom render it.
 #
 # LINE (``re.MULTILINE``, ``$`` anchor) — for Slack/dashboard, where the marker
 # ends a LINE (not necessarily the whole message). The negated class EXCLUDES
@@ -155,9 +159,14 @@ SUBAGENT_TIMEOUT_MAX = 86400
 #: character happens to appear in the tail.
 #:
 #: ReDoS profile is unchanged from the previous literal ``\]``. The class shares
-#: no character with the trailing ``[ \t]*`` / ``\s*``, and the tempered body
-#: already admitted ``]`` via ``[^[\n]``, so adding these three codepoints
-#: introduces no new ambiguity.
+#: no character with the trailing ``[ \t]*`` / ``\s*``, and the body excludes it
+#: from its negated class and readmits it in exactly TWO places, both of which a
+#: widening of this constant has to be re-audited against: as the final atom of
+#: :data:`_MARKER_LABEL_PAIR`, and via :data:`_MARKER_LABEL_CONTINUES`. Those two
+#: are what the disjointness argument is about (see :data:`_MARKER_BODY_LINE`),
+#: so the pair form -- which is where the deciding lookahead lives -- is the one
+#: NOT to skip. Both readmit all four codepoints at once, which is why adding
+#: these three introduces no ambiguity that ASCII ``]`` did not already have.
 MARKER_CLOSERS = "]\u3011\uff3d\u3015"
 _MARKER_CLOSE_CLASS = "[" + re.escape(MARKER_CLOSERS) + "]"
 
@@ -191,21 +200,139 @@ _MARKER_CLOSE_CLASS = "[" + re.escape(MARKER_CLOSERS) + "]"
 MARKER_WRAPPERS = "`*_"
 _MARKER_WRAP_CLASS = "[" + re.escape(MARKER_WRAPPERS) + "]"
 
+#: A closer may stay INSIDE a label only where it CONTINUES the label list
+#: (#9284). A label may legitimately carry a closer -- ``[OPTIONS: Alpha ] |
+#: Bravo ]]`` is a supported shape -- so the body has to admit one. Admitting it
+#: UNCONDITIONALLY (the old ``[^[\n]``, which includes ``]``) made the body run to
+#: the LAST closer in range instead of the first plausible one, so an ordinary
+#: final line that mentions a bracket after the marker matched across BOTH:
+#:
+#:     Use [OPTIONS: A | B] then check arr[0]
+#:
+#: matched whole, and since every consumer removes the whole match -- ``slack.
+#: format`` and ``messaging.renderer`` cut the visible text at ``match.start()``,
+#: and ``whatsapp.turn_renderer`` PERSISTS the cut turn -- the sentence vanished
+#: from the message and came back as a pill label. Under TRAILER (``DOTALL``) the
+#: body crossed blank lines too, so the whole final paragraph went with it.
+#:
+#: This is the SAME discriminator the streaming probe already applies
+#: (``CONTINUES_LABELS_RE`` in ``website/src/app-sdk/protocol/optionMarker.ts``)
+#: to decide whether an arriving closer ended the marker, so the regex and the
+#: probe now answer that question the same way instead of two different ways.
+#:
+#: Continuation ALONE is too strict, though: ``[OPTIONS: Fix [x] logging |
+#: Skip]`` is a first-class supported shape (pinned by
+#: ``test_options_buttons.py`` and ``test_parse_options.py``, whose comments say
+#: so outright), and there the closer is followed by an ordinary word. So the
+#: body admits a closer under EITHER of two conditions -- it is MATCHED by a
+#: ``[`` earlier in the same label (:data:`_MARKER_LABEL_PAIR`), or the list
+#: CONTINUES after it (:data:`_MARKER_LABEL_CONTINUES`). Neither test alone
+#: separates the three shapes; the union does:
+#:
+#:     [OPTIONS: Fix [x] logging | Skip]   matched pair      -> parses
+#:     [OPTIONS: Alpha ] | Bravo ]]        list continues    -> parses
+#:     Use [OPTIONS: A | B] then check arr[0]   neither      -> declined
+#:
+#: The two alternatives are made disjoint by what FOLLOWS the closer -- the pair
+#: form requires that its closer NOT be followed by a separator or another
+#: closer, which is exactly when the continuation form applies. So no span of
+#: input ever has two parses, which is what keeps the body linear despite two
+#: bracket alternatives (see :data:`_MARKER_BODY_LINE`).
+#:
+#: RESIDUAL COST. Every shape the union gives up is a closer that satisfies
+#: NEITHER half and has ordinary words after it, so at that closer the input is
+#: genuinely indistinguishable from "marker ended, prose followed on the same
+#: line". There is more than one way to be that closer, and all of them parsed
+#: on the old body:
+#:
+#:     [OPTIONS: Fix ]x logging | Skip]            unmatched -- no ``[`` at all
+#:     [OPTIONS: Fix list[dict[str, Any]] now | S] nesting deeper than one level
+#:     [OPTIONS: 【重要】修复 | 跳过】               a lookalike PAIR: ``【`` is not
+#:                                                 an opener, only ``[`` is
+#:     [OPTIONS: Fix [multi\nline] now | Skip]     TRAILER only -- the pair
+#:                                                 interior excludes ``\n`` even
+#:                                                 under DOTALL
+#:
+#: All four fail toward a VISIBLE marker, not toward deleted prose, and that
+#: asymmetry is what makes them affordable: the user sees the marker they were
+#: already seeing for the broken shapes, and nothing is removed from the
+#: message. Making them parse means matching brackets to arbitrary depth and
+#: over an opener set this grammar does not have, which a regex is the wrong
+#: tool for; the cost is bounded instead by the direction it fails in.
+#:
+#: A declined marker leaves the text intact only because every partial-cut gate
+#: downstream tests for a closer over :data:`MARKER_CLOSERS` rather than ASCII
+#: ``]`` -- see the gate in ``messaging.renderer.split_options_trailer``, which
+#: this rule is what made load-bearing.
+#:
+#: NOT reachable by this rule, and deliberately unchanged: the separator-tail
+#: form (``Done. [OPTIONS: Merge | Wait], details in CHANGELOG[1]``). ``], ``
+#: DOES continue the list, by the very rule that makes ``[OPTIONS: Alpha ],
+#: Bravo]`` legal, so no guard applied at the internal closer can tell them
+#: apart. Resolving it means deciding which shape loses -- a separate call.
+_MARKER_LABEL_CONTINUES = rf"(?=[ \t]*[|,]|{_MARKER_CLOSE_CLASS})"
+
+#: A closer MATCHED by a ``[`` earlier in the same label. One level deep, and its
+#: interior excludes ``[`` and EVERY closer (not just ASCII ``]``, so a lookalike
+#: cannot be swallowed into the interior and escape the rule), which makes its
+#: match from any given ``[`` unique. The trailing negative lookahead is what
+#: makes this disjoint from :data:`_MARKER_LABEL_CONTINUES` rather than an
+#: alternative spelling of it.
+#:
+#: The opening ``\[`` carries the SAME ``(?!OPTIONS:)`` guard as the bare-``[``
+#: alternative, and for the same reason: without it this form is the one place
+#: the union rule is LOOSER than the body it replaced, because it can open on a
+#: nested head and pair it with that head's own closer. ``Note [OPTIONS: see
+#: [OPTIONS: x] below | Skip]`` then matches from the OUTER head -- where the
+#: old body matched nothing at all -- and renders a pill whose label is a raw
+#: protocol marker, echoed back as the user's reply when tapped. The guard
+#: restores "no bracket form may consume a ``[`` that begins a fresh
+#: ``[OPTIONS:``" as an absolute property of the body rather than one that holds
+#: only for sibling heads.
+_MARKER_LABEL_PAIR = (
+    rf"\[(?!OPTIONS:)[^[{re.escape(MARKER_CLOSERS)}\n]*{_MARKER_CLOSE_CLASS}"
+    rf"(?![ \t]*[|,]|{_MARKER_CLOSE_CLASS})"
+)
+
+#: Label body, spelled once per regex so LINE and TRAILER cannot drift. LINE
+#: stops at a newline; TRAILER spans them (``DOTALL``, as the old ``.*`` did).
+#: The one body-shaped pattern NOT derived from these is
+#: :data:`_OPTIONS_TAIL_PREFIX_RE`, which is a prefix closure and has to stay
+#: looser -- see the reason there before "fixing" it to match.
+#:
+#: ReDoS: the four alternatives are mutually exclusive at every position. The
+#: two bracket forms both begin at ``[`` (and both refuse a fresh ``[OPTIONS:``)
+#: but cannot consume the same span -- the pair form's lookahead and the
+#: continuation form's are each other's negation -- an unmatched ``[`` is left to
+#: the bare-``[`` form, and the negated class excludes both ``[`` and every
+#: closer. So there is never more than one way to consume a character, and each
+#: lookahead is entered only at a bracket and bounded by the run it scans.
+_MARKER_BODY_LINE = (
+    rf"(?:{_MARKER_LABEL_PAIR}|\[(?!OPTIONS:)"
+    rf"|{_MARKER_CLOSE_CLASS}{_MARKER_LABEL_CONTINUES}"
+    rf"|[^[{re.escape(MARKER_CLOSERS)}\n])*"
+)
+_MARKER_BODY_TRAILER = (
+    rf"(?:{_MARKER_LABEL_PAIR}|\[(?!OPTIONS:)"
+    rf"|{_MARKER_CLOSE_CLASS}{_MARKER_LABEL_CONTINUES}"
+    rf"|[^[{re.escape(MARKER_CLOSERS)}])*"
+)
+
 # The ``labels`` group is NAMED because the ``lwrap`` conditional group
 # necessarily precedes it, shifting positional numbering: consumers read
 # ``group("labels")`` (and iterate with ``finditer``, since ``findall`` on a
 # multi-group pattern yields tuples).
 OPTIONS_RE_LINE = re.compile(
     rf"(?:^[ \t]*(?P<lwrap>{_MARKER_WRAP_CLASS}{{1,3}}))?"
-    rf"\[OPTIONS:(?P<labels>(?:[^[\n]|\[(?!OPTIONS:))*){_MARKER_CLOSE_CLASS}"
+    rf"\[OPTIONS:(?P<labels>{_MARKER_BODY_LINE}){_MARKER_CLOSE_CLASS}"
     rf"(?:\([^\s()]*\))?(?(lwrap){_MARKER_WRAP_CLASS}{{0,3}})[ \t]*$",
     re.MULTILINE,
 )
 
 # TRAILER (``re.DOTALL``, ``\Z`` anchor) — for the Discord/Telegram/WeCom
 # renderers, which match the marker only at the very END of the message and
-# allow it to span newlines (the body keeps ``[^[]`` because the old ``.*``
-# already spanned newlines under DOTALL). Trailing ``\s*`` before ``\Z``. Carries
+# allow it to span newlines (the body omits ``\n`` from its negated class, as the
+# old ``.*`` spanned newlines under DOTALL). Trailing ``\s*`` before ``\Z``. Carries
 # the same optional markdown-link close as LINE (same ``[^\s()]`` inner class, so it
 # shares no character with the trailing ``\s*`` — ReDoS-safe) so the grammar stays
 # identical.
@@ -214,7 +341,7 @@ OPTIONS_RE_LINE = re.compile(
 # ``\Z`` is unaffected by the flag, so nothing else changes.
 OPTIONS_RE_TRAILER = re.compile(
     rf"(?:^[ \t]*(?P<lwrap>{_MARKER_WRAP_CLASS}{{1,3}}))?"
-    rf"\[OPTIONS:(?P<labels>(?:[^[]|\[(?!OPTIONS:))*){_MARKER_CLOSE_CLASS}"
+    rf"\[OPTIONS:(?P<labels>{_MARKER_BODY_TRAILER}){_MARKER_CLOSE_CLASS}"
     rf"(?:\([^\s()]*\))?(?(lwrap){_MARKER_WRAP_CLASS}{{0,3}})\s*\Z",
     re.DOTALL | re.MULTILINE,
 )
@@ -349,9 +476,18 @@ def strip_control_comments(text: str) -> str:
 #: Prefix closures of the marker grammars, for
 #: :func:`split_trailing_protocol_suffix`'s unfinished-marker probe: a tail is
 #: a STILL-STREAMING marker only when every byte it holds so far could extend
-#: into a complete marker. ``[OPTIONS`` must be followed by ``:`` and then
-#: :data:`OPTIONS_RE_TRAILER`'s body (DOTALL; ``[`` admitted only when not
-#: opening a nested ``[OPTIONS:``). ``[STEERING`` follows the steer-ack
+#: into a complete marker. ``[OPTIONS`` must be followed by ``:`` and then a
+#: PREFIX CLOSURE of :data:`OPTIONS_RE_TRAILER`'s body (DOTALL; ``[`` admitted
+#: only when not opening a nested ``[OPTIONS:``) -- deliberately LOOSER than
+#: that body, and the one place the "spelled once" rule in
+#: :data:`_MARKER_BODY_LINE` does not apply. It has to be: a prefix of a legal
+#: body need not itself be a legal body. ``[OPTIONS: A ]`` mid-stream holds a
+#: closer that satisfies neither half of the #9284 rule YET, and becomes legal
+#: the moment ``| B]`` arrives, so a probe spelled as the real body would call
+#: that tail dead and publish the marker as raw text. Widening this to the
+#: grammar is what ``test_options_marker_closers.py``'s
+#: ``test_closer_inside_an_unfinished_label_is_still_unfinished`` forbids.
+#: ``[STEERING`` follows the steer-ack
 #: grammar (``messaging/driver.py``): whitespace gap, literal ``steer-``, a
 #: nonempty hex/dash id, then an optional ``:`` summary -- spelled as nested
 #: optionals so every cut point of the literal run is admitted, while a tail

@@ -70,8 +70,13 @@ class TestClosersNotOverlyBroad:
         assert OPTIONS_RE_LINE.search("[OPTIONS: A | B\u3011 and then more") is None
 
     def test_label_may_contain_a_closer_block_ends_at_the_last_one(self):
-        # Tempered-body property: the block ends at the LAST closer that ends the
-        # line, not the first, so a label may itself contain one.
+        # Tempered-body property: a label may itself contain a closer, so the block
+        # does not necessarily end at the FIRST one. It ends at the last closer
+        # reachable through closers that are MATCHED by an earlier ``[`` or that
+        # CONTINUE the label list -- here the ``]`` after ``a`` is followed by ``|``,
+        # so it stays inside the label. An UNMATCHED closer followed by ordinary
+        # words ends the block instead (#9284); see
+        # ``test_options_marker_label_closers.py``.
         match = OPTIONS_RE_LINE.search("[OPTIONS: a] | b\u3011")
         assert match is not None
         assert [s.strip() for s in match.group("labels").split("|")] == ["a]", "b"]

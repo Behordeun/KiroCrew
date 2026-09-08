@@ -892,8 +892,20 @@ describe('parseOptions', () => {
   // adversarial input still parses to no options — is asserted directly below.
   it('does not catastrophically backtrack on adversarial `[OPTIONS:` input', () => {
     const src = OPTION_MARKER_RE.source
-    // The label body: tempered alternation, NOT a nested quantifier.
-    expect(src).toContain('(?:[^[\\n]|\\[(?!OPTIONS?:))*')
+    // The label body: tempered alternation, NOT a nested quantifier. Spelled with
+    // `\uXXXX` escapes because that is how the SOURCE spells the closer class —
+    // `.source` is the literal pattern text, so a literal `】` here would not match.
+    const C = '\\]\\u3011\\uFF3D\\u3015'
+    const CONT = `[ \\t]*[|,]|[${C}]`
+    // Four alternatives, mutually exclusive at every position. The two bracket
+    // forms both begin at `[` but are each other's negation on what FOLLOWS the
+    // closer, so no span of input ever has two parses — that disjointness is what
+    // the linearity rests on, so it is pinned here character for character. BOTH
+    // bracket forms carry `(?!OPTIONS?:)`: that is what keeps a nested head out of
+    // a label, and dropping it from the pair form is a widening, not a tidy-up.
+    expect(src).toContain(
+      `(?:\\[(?!OPTIONS?:)[^[${C}\\n]*[${C}](?!${CONT})|\\[(?!OPTIONS?:)|[${C}](?=${CONT})|[^[${C}\\n])*`,
+    )
     // No `(x+)+` / `(x*)*` anywhere: that is the shape that backtracks
     // exponentially, and it is what the tempered body above replaced.
     expect(src).not.toMatch(/\([^)]*[+*]\)[+*]/)

@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from kiro_crew.constants import (
+    MARKER_CLOSERS,
     OPTIONS_RE_TRAILER,
     _leading_wrapper_start,
     strip_control_comments,
@@ -469,7 +470,25 @@ def split_options_trailer(text: str, *, hide_partial: bool = False) -> tuple[str
         return text[: match.start()].rstrip(), choices
     if hide_partial:
         idx = text.rfind("[OPTIONS")
-        if idx != -1 and "]" not in text[idx:]:
+        # "Holds no CLOSER at all", over the whole ``MARKER_CLOSERS`` set rather
+        # than ASCII ``]`` alone. A tail that already holds a closer is not in
+        # flight: either it reads as a marker, in which case the search above
+        # took it, or the grammar declined it and it is PROSE -- which is the
+        # rule ``test_hide_partial_does_not_touch_a_closed_bracket_elsewhere``
+        # already pins for ASCII. Spelling it ASCII-only made that rule miss a
+        # marker whose only closers are lookalikes (``[OPTIONS: 【重要】修复 |
+        # 跳过】``), and the cut there is the permanent kind described below:
+        # WeCom's sealed frame and its persisted history entry, and the Discord
+        # and Telegram ``self._buf = [body]`` reseat, would show the leading
+        # prose with the entire option list deleted and no pills to recover it
+        # from. Widening here can only ever KEEP more text, never cut more.
+        #
+        # Not the same question as ``split_trailing_protocol_suffix``'s probe,
+        # which asks "is this tail COMPLETE?" and must stay ASCII-only (see the
+        # comment there): presence of a closer is not completeness, but it is
+        # conclusive evidence of not-in-flight, and only the latter is asked
+        # here. The two checks differ because the questions differ.
+        if idx != -1 and not any(c in text[idx:] for c in MARKER_CLOSERS):
             # Judge the fragment against the grammar it would have to satisfy,
             # not by substring presence alone. :data:`OPTIONS_RE_TRAILER` opens
             # ``[OPTIONS:`` -- once any byte other than ``:`` follows the
