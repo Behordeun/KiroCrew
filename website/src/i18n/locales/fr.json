@@ -8201,6 +8201,7 @@
       "cycle_approval_mode": "Faire défiler les modes d’approbation",
       "cycle_model": "Faire défiler les modèles",
       "cycle_reasoning_effort": "Faire défiler les efforts de raisonnement",
+      "focus_pending_approval": "Placer le focus sur l’approbation en attente",
       "focus_text_input": "Placer le focus sur la zone de saisie",
       "group_actions": "Actions",
       "group_chat_navigation": "Navigation dans les chats",
