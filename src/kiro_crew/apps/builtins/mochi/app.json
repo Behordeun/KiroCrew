@@ -28,6 +28,14 @@
   "platform": {
     "requiresDesktopApp": true
   },
+  "platform": {
+    "os": [
+      "macos",
+      "linux",
+      "windows"
+    ],
+    "requiresDesktopApp": true
+  },
   "permissions": {
     "api": [
       "/api/apps/mochi",

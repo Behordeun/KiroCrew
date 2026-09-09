@@ -26,6 +26,13 @@
       "linux"
     ]
   },
+  "platform": {
+    "os": [
+      "macos",
+      "linux",
+      "windows"
+    ]
+  },
   "agents": [
     "agents/meetings-note-taker.json",
     "agents/meetings-sketch-artist.json",

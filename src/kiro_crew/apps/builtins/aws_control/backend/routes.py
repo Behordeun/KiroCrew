@@ -2276,6 +2276,18 @@ async def _handle_backup_run(request: web.Request) -> web.Response:
     kind = str(body.get("kind", ""))
     if kind not in backup_mod.JOB_KINDS:
         return _bad_request("kind must be snapshot or sessions", "invalid_kind")
+    # A kind this HOST cannot run is refused HERE, before a run record exists.
+    # The worker would refuse too -- `run_sessions_backup` fail-closes without
+    # `openat` rather than walking agent-writable directories by name -- but it
+    # would do so as a `failed` record carrying a raised exception, which reads
+    # like a broken backup rather than a platform that never offered the feature.
+    # 501 and not 400: the request is well-formed and would be honoured on
+    # another host, so it is this server that does not implement it.
+    unavailable = backup_mod.kind_unavailable_reason(kind)
+    if unavailable is not None:
+        return web.json_response(
+            {"error": unavailable, "code": "kind_unavailable_on_platform"}, status=501
+        )
     sdk = get_job_sdk(backup_mod.APP_NAME)
     if sdk is None:
         # Enabled, but no SDK was published for it: the `jobs` grant is missing
