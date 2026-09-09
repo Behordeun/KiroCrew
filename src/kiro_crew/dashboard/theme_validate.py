@@ -260,7 +260,7 @@ _THEME_TOTAL_BYTES_BY_LEVEL = {0: 256 * 1024, 1: 2 * 1024 * 1024, 2: 5 * 1024 * 
 # binding limit stays the per-level total-byte ceiling, not this count.
 _THEME_MAX_FONTS = 6
 # Which Font Family option a face feeds. An entry with no (or an unknown) role
-# is proportional, so a pack written before roles existed keeps its meaning.
+# is proportional.
 _THEME_FONT_ROLES = frozenset({"sans", "mono"})
 _THEME_FONT_DEFAULT_ROLE = "sans"
 # Font tokens a pack must NOT declare in overrides.css. Declaring them there
@@ -356,9 +356,9 @@ _THEME_HTML_DENY_RE = re.compile(
 
 # ── Overlay / topbar theme.json declarations (§3.1) ──
 # Declarations are OPTIONAL: a theme.json with no ``overlays``/``topbar`` keys
-# still validates and behaves exactly as before (filesystem-derived placement).
-# When present, they let a pack pin placement/behaviour instead of inheriting
-# the hardcoded defaults below.
+# still validates and falls back to filesystem-derived placement. When present,
+# they let a pack pin placement/behaviour instead of inheriting the hardcoded
+# defaults below.
 _THEME_OVERLAY_ID_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 # Closed position enum (LOCKED — doc gives examples only).
 _THEME_OVERLAY_POSITIONS = frozenset(
@@ -687,11 +687,11 @@ def _iter_css_rules(text: str):
 
     The tokenizer is a string-aware state machine: it splits on real top-level
     braces only, treating ``{``/``}``/``;`` inside quoted strings and ``url()``
-    (e.g. data-URIs) as opaque — so a value like ``content:"}"`` no longer
-    truncates a rule, and legit values containing braces are not false-rejected.
+    (e.g. data-URIs) as opaque — so a value like ``content:"}"`` does not
+    truncate a rule, and legit values containing braces are not false-rejected.
     At-rule groups whose body contains nested rules (``@media``) are flattened:
-    their inner rules are yielded and the group prelude itself is not (matching
-    the prior naive parser, which only ever surfaced leaf rules).
+    their inner rules are yielded and the group prelude itself is not, so a
+    consumer only ever sees leaf rules.
     """
     stripped = _CSS_COMMENT_RE.sub(" ", text)
     yield from _iter_css_rules_level(stripped)
@@ -701,7 +701,7 @@ def _iter_css_rules_level(text: str):
     for prelude, body in _scan_css_blocks(text):
         if _css_has_top_level_brace(body):
             # At-rule group (e.g. @media): recurse into its nested rules and do
-            # not emit the group prelude, mirroring the old flat parser.
+            # not emit the group prelude, so a consumer only sees leaf rules.
             yield from _iter_css_rules_level(body)
             continue
         selectors = [s.strip().lower() for s in _css_split_top_level(prelude, ",") if s.strip()]
@@ -1208,12 +1208,11 @@ def _validate_theme_dir(
     # already-installed pack is re-read by the theme-detail route) stays
     # lenient and coerces an unknown role to "sans" -- only an absent `role`
     # is the deliberate default case; an explicit ``null`` is rejected.
-    # Rejecting it only at install
-    # keeps a pack that predates this rule loading, matching the font-pin
-    # check below. "monospace" (the CSS keyword) is the likeliest typo for
-    # exactly the role most likely to be mistyped, and the failure is
-    # otherwise silent: the mono face quietly renders as Sans while Mono keeps
-    # the built-in JetBrains Mono (#2750).
+    # Rejecting it only at install keeps an already-installed pack loading,
+    # matching the font-pin check below. "monospace" (the CSS keyword) is the
+    # likeliest typo for exactly the role most likely to be mistyped, and the
+    # failure is otherwise silent: the mono face quietly renders as Sans while
+    # Mono keeps the built-in JetBrains Mono.
     if installing:
         fonts_manifest = manifest.get("fonts")
         if isinstance(fonts_manifest, list):

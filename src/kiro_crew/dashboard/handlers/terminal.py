@@ -295,9 +295,9 @@ def _resolve_cwd(cfg: dict, requested: str | None) -> str:
 def _resolve_shell(cfg: dict) -> tuple[str, str | None]:
     """Resolve the shell program the terminal launches.
 
-    Resolution order is unchanged from the historical one — the configured
-    ``dashboard.terminal.shell``, else ``$SHELL`` (POSIX only), else the
-    platform default (``/bin/bash`` / ``powershell.exe``) — but each candidate
+    Resolution order is the configured ``dashboard.terminal.shell``, else
+    ``$SHELL`` (POSIX only), else the platform default (``/bin/bash`` /
+    ``powershell.exe``). Each candidate
     must now resolve to an executable (``shutil.which`` handles both absolute
     paths and bare names on ``PATH``). A configured value that does not resolve
     falls back rather than failing the open: a typo'd setting must never leave
@@ -320,7 +320,7 @@ def _resolve_shell(cfg: dict) -> tuple[str, str | None]:
 
     When no candidate resolves at all, the platform default is returned
     unvalidated so the spawn's own error — not a silent substitution — is what
-    the user sees, matching the historical behavior on such a host.
+    the user sees on such a host.
     """
     configured = str(cfg.get("shell") or "").strip()
     if configured:
@@ -629,14 +629,14 @@ def _bash_ready_env(token: str) -> dict[str, str]:
 
     Bash reads an ``--init-file`` only when it is *not* a login shell, so the
     marker cannot ride an injected rc file without giving up ``-l`` — and giving
-    up ``-l`` is the bug in #5885: ``shopt -q login_shell`` is then false, so
+    up ``-l`` breaks the profile chain: ``shopt -q login_shell`` is then false, so
     every profile stanza guarded on login-ness silently no-ops and the user's
     environment never loads. Sourcing the same files from an rc file cannot
     substitute, because that option is read-only and stays off.
 
     A login shell does honour a ``PROMPT_COMMAND`` inherited from its
     environment, and runs it after the profile chain returns and before the first
-    prompt — the point the injected marker used to occupy.
+    prompt — exactly where the readiness marker has to fire.
 
     The snippet is single-shot and self-removing: it emits only while the token
     variable is still set, unsets that token so neither a later prompt nor a
@@ -666,8 +666,7 @@ def _bash_ready_env(token: str) -> dict[str, str]:
     guard: every carrier a login shell inherits is visible to the profile chain,
     and the carriers that are invisible to it (``BASH_ENV``, non-interactive only;
     ``ENV``, POSIX mode only; ``INPUTRC``, cannot run commands) do not run at the
-    post-profile point a readiness marker needs. Tracked with the alternatives in
-    #7657.
+    post-profile point a readiness marker needs.
     An operator who EXPORTED ``PROMPT_COMMAND`` into the gateway's own
     environment keeps it: the exported value is the readiness hook followed by
     the inherited command, and the withdrawal restores the inherited command
@@ -1089,13 +1088,13 @@ async def api_terminal_ws(request: web.Request) -> web.WebSocketResponse | web.R
             # because the kernel can't find the foreground process group.
             #
             # This is the one async spawn that deliberately keeps preexec_fn
-            # rather than moving to the post-exec shim (see issue #935). The
-            # shim exists to deliver RESOURCE LIMITS, and this spawn carries
-            # none: it is the user's own interactive shell, not agent-executed
-            # code, so it has no rlimits and no OOM bias to apply. Routing it
-            # through the shim therefore bought nothing and cost an interpreter
-            # startup on every terminal open -- measurably doubling the wall time
-            # of the terminal test file, and slowing a user-facing surface.
+            # rather than using the post-exec shim. The shim exists to deliver
+            # RESOURCE LIMITS, and this spawn carries none: it is the user's own
+            # interactive shell, not agent-executed code, so it has no rlimits
+            # and no OOM bias to apply. Routing it through the shim therefore
+            # buys nothing and costs an interpreter startup on every terminal
+            # open -- doubling the wall time of the terminal test file, and
+            # slowing a user-facing surface.
             #
             # Residual risk, stated plainly: this still forks the threaded
             # gateway. It is the smallest such fork in the codebase -- one
@@ -1159,8 +1158,8 @@ async def api_terminal_ws(request: web.Request) -> web.WebSocketResponse | web.R
         )
         if ready_marker is None:
             # The reliable injection above intentionally targets Bash, the
-            # reported shell. Preserve the historical transport-ready behavior
-            # for configured shells whose startup protocol we cannot control.
+            # reported shell. Configured shells whose startup protocol we cannot
+            # control fall back to transport-ready.
             sess.shell_ready = True
             try:
                 async with sess.send_lock:
@@ -1754,7 +1753,7 @@ async def api_terminal_complete(request: web.Request) -> web.Response:
     Two mutually exclusive tiers, chosen by the CLIENT because only the client can
     see the screen row:
 
-    * **path** (no ``argv`` in the body) — the historical behaviour. Body
+    * **path** (no ``argv`` in the body) — the default tier. Body
       ``{session_id, token, folders_only?}`` where ``token`` is the DEQUOTED
       literal path the cursor sits in (``"../Kiro"``, ``"src/"``, ``""``); the
       client decodes backslash escapes before asking, so an on-screen ``my\\ dir/``

@@ -519,9 +519,9 @@ async def delete_item(request: web.Request) -> web.Response:
     await asyncio.to_thread(_delete_and_audit)
     # A now-empty source is reclaimed by the store's own orphan rule on the next
     # open, which checks the document-state tables, in-flight jobs and the location
-    # table first. Deleting the row here instead raised on the foreign keys those
-    # tables hold -- after the item delete had already committed -- and dropped a
-    # source that still held documents by location.
+    # table first. Deleting the row here instead raises on the foreign keys those
+    # tables hold -- after the item delete has already committed -- and drops a
+    # source that still holds documents by location.
     return web.json_response({"ok": True})
 
 
@@ -569,15 +569,15 @@ async def get_entity_graph(request: web.Request) -> web.Response:
     except ValueError:
         return web.json_response({"error": "invalid depth"}, status=400)
     # Materialise the graph off-loop before touching it. The store defers the
-    # load to its first reader (#8329), and every `.graph` read below runs on
+    # load to its first reader, and every `.graph` read below runs on
     # the event loop, where the loop-stall watchdog is armed -- so the scan has
     # to happen on a worker thread, the same way this module already offloads
     # the store's SQL.
     await asyncio.to_thread(store.ensure_graph_loaded)
     # get_entity_subgraph pins one graph reference internally and does the
     # existence check against it, so the 404 decision and the walk read the SAME
-    # snapshot even if a worker-thread mutation swaps in a rebuilt graph (#8692);
-    # it returns None when the entity is absent.
+    # snapshot even if a worker-thread mutation swaps in a rebuilt graph; it
+    # returns None when the entity is absent.
     result = store.get_entity_subgraph(entity_id, depth)
     if result is None:
         return web.json_response({"error": "entity not found"}, status=404)
@@ -661,13 +661,12 @@ async def get_full_graph(request: web.Request) -> web.Response:
         return web.json_response({"error": "invalid limit"}, status=400)
 
     # Materialise the graph off-loop before any `.graph` read below. The store
-    # defers the load to its first reader (#8329); this handler already offloads
-    # its SQL for the same reason, and the graph reads were only safe inline
-    # while the graph was built during construction.
+    # defers the load to its first reader; this handler already offloads its SQL
+    # for the same reason, and an inline graph read would stall the event loop.
     await asyncio.to_thread(store.ensure_graph_loaded)
 
     # Pin one graph reference for every read below. ``_load_graph`` publishes a
-    # rebuilt graph by swapping ``store._graph`` (#8692); re-reading
+    # rebuilt graph by swapping ``store._graph``; re-reading
     # ``store.graph`` at each step (degree ranking, then per-node attribute
     # reads, then edges) could otherwise mix an old and a new graph and drop a
     # node between steps. One capture means this response is a single snapshot.
@@ -1534,10 +1533,9 @@ async def ingest_file(request: web.Request) -> web.Response:
     try:
         # The signature gate (CWE-434) and the byte ceiling are both enforced by
         # the shared streaming path, which judges the leading bytes while they
-        # are still in memory. That is stricter than this call site used to be:
-        # it wrote the whole file first and only then sniffed, so rejected
-        # content did reach the filesystem. Cleanup on cancellation is the
-        # helper's, not this function's -- see part_stream's docstring.
+        # are still in memory, so rejected content never reaches the filesystem.
+        # Cleanup on cancellation is the helper's, not this function's -- see
+        # part_stream's docstring.
         await part_stream.stream_part_to_file(
             field,  # type: ignore[arg-type]
             staged,

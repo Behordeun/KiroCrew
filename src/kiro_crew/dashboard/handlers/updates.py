@@ -1200,8 +1200,7 @@ async def api_update_auto(request: web.Request) -> web.Response:
 
     # `update_config_locked` holds the advisory lock across the READ and the write, so no
     # other process can land between them -- the whole point, since the in-process
-    # `_get_config_lock()` this endpoint used to rely on does not serialize against the CLI
-    # or a second gateway.
+    # `_get_config_lock()` does not serialize against the CLI or a second gateway.
     #
     # Offloaded because that lock is blocking: called inline from this coroutine it would
     # stall every session and the liveness heartbeat while contended, which is what the
@@ -1385,10 +1384,10 @@ async def _venv_pip_install(proj: str, state: DashboardState) -> bool:
             Path(proj),
             Path(sys.executable),
             _emit,
-            # 600s, not the 120s this endpoint used to put on `pip install -e .`.
-            # The bound now covers a dependency install that may be resolving and
-            # downloading a set this venv has never seen — and building a wheel for
-            # one of them — where 120s is a routine, not an exceptional, overrun.
+            # 600s rather than 120s on `pip install -e .`: the bound covers a
+            # dependency install that may be resolving and downloading a set this
+            # venv has never seen — and building a wheel for one of them — where
+            # 120s is a routine, not an exceptional, overrun.
             # It is a real bound either way: dep_sync kills the pip child on
             # expiry rather than letting the step hang on a wedged index.
             timeout=600,
@@ -1769,7 +1768,7 @@ async def api_log_level(request: web.Request) -> web.Response:
     # write of the one key this endpoint owns, inside a single sidecar-flock
     # hold (update_config_locked), dispatched off the loop with both config
     # locks via run_config_write -- the transaction shape run_config_write's
-    # docstring prescribes (#4767). A whole-document save() here would publish
+    # docstring prescribes. A whole-document save() here would publish
     # a snapshot that can revert a concurrent writer's unrelated settings.
     def _set_level(doc: dict) -> dict:
         coerce_dict_section(doc, "agent")["log_level"] = level_name
@@ -2008,16 +2007,15 @@ async def api_stream(request: web.Request) -> web.StreamResponse:
                         # and the WebSocket arm in state.py are fed the same
                         # note by `_broadcast()`, and rebuilding the frame here
                         # is how `meta` (the row's `meta.mid` dedup identity)
-                        # went missing on this transport after #7981 fixed the
-                        # other one (#8045).
+                        # goes missing on one transport while the other keeps it.
                         #
                         # `include_metadata` is NOT True unconditionally. This
                         # queue has no per-app filtering — `_broadcast()` fans
                         # the raw note to every registered SSE client — so
                         # `meta` (tool_input, a live oauth_url, approval_id)
                         # would reach any app token granted this route whatever
-                        # its `slots:*` scope. Same class as GPT #6789, which
-                        # leaked public-repo status onto this endpoint. The WS
+                        # its `slots:*` scope. Same class as leaking public-repo
+                        # status onto this endpoint. The WS
                         # door may pass True because it filters downstream; this
                         # one must decide here.
                         payload = json.dumps(
@@ -2249,8 +2247,8 @@ def _loopback_peer(request: web.Request) -> bool:
 
     The NONCE is the authority — it proves the caller read the gateway host's
     filesystem. This check just refuses the obviously-remote shape early, and
-    is knowingly imperfect behind same-host proxies (issue #1762), which is
-    exactly why it is not the boundary.
+    is knowingly imperfect behind same-host proxies, which is exactly why it is
+    not the boundary.
 
     Composed from the SHARED predicates rather than a bespoke IP list: an
     AF_UNIX caller has an EMPTY ``request.remote`` (token_auth documents

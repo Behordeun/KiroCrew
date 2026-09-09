@@ -118,11 +118,10 @@ def _serialize_monitor(loop: Any) -> dict[str, Any]:
 def _autonudge_loop_reading(loop: Any) -> dict[str, Any]:
     """Project a plain auto-nudge loop into a bounded, agent-oriented status.
 
-    This is the reading #9194 asks for: enough to answer "is a loop armed on
-    this session, and is it firing" from inside the session, which
-    ``monitor_inspect`` previously could not do for an auto-nudge loop (it only
-    ever described the structured monitor, so an armed auto-nudge loop and no
-    loop at all both read as ``monitor: None``).
+    The reading answers "is a loop armed on this session, and is it firing" from
+    inside the session, which the structured-monitor projection cannot: it
+    describes only the structured monitor, so an armed auto-nudge loop and no loop
+    at all both read as ``monitor: None`` there.
 
     Only presence, cadence and progress fields are surfaced. The loop's
     ``message`` is agent-controlled free text and is NOT included — it is not
@@ -160,7 +159,7 @@ async def _audit_monitor_access(
     """Record a monitor authorization decision (best-effort).
 
     A bare enqueue: the SEL singleton is warmed at gateway startup
-    (``sel.warm_sel_singleton``), so no per-site thread hop is needed (#8608).
+    (``sel.warm_sel_singleton``), so no per-site thread hop is needed.
     Guarded because a FAILED warm leaves construction to retry here.
     """
     try:
@@ -330,10 +329,10 @@ async def api_session_monitor_get(request: web.Request) -> web.Response:
     loop = svc.get_by_slot(binding)
     if loop is None:
         # Nothing is armed on this session. This is the ONLY case that reads as
-        # "not armed", and it is now DISTINCT from an armed auto-nudge loop below
-        # — the two were previously collapsed into an identical ``monitor: None``,
-        # which is the observability gap #9194 reports: a caller could not tell an
-        # accepted-and-armed loop from an accepted-and-dropped request.
+        # "not armed", and it is DISTINCT from an armed auto-nudge loop below.
+        # Collapsing the two into an identical ``monitor: None`` would leave a
+        # caller unable to tell an accepted-and-armed loop from an
+        # accepted-and-dropped request.
         return web.json_response({"enabled": True, "monitor": None, "autonudge_loop": None})
     if not is_structured_monitor_loop(loop):
         # A plain auto-nudge loop IS armed. ``monitor`` stays None because a
@@ -611,8 +610,8 @@ async def api_autonudge_start(request: web.Request) -> web.Response:
     # an instruction routinely mentions one anyway ("keep driving PR #42"), and
     # gating on that mention throttles the task to the quiet-streak floor and, when
     # that PR is closed or merged, DEACTIVATES a recurring task that had nothing to
-    # do with it. The evidence for gating by default is about monitor_start, whose
-    # directive sets `gate: true` itself; extending it here was reach, twice.
+    # do with it. Gating by default belongs to monitor_start, whose directive sets
+    # `gate: true` itself; it does not extend to this route.
     #
     # A non-boolean is still refused rather than coerced: `"false"` is truthy and
     # would silently gate a loop that asked not to be.
@@ -792,12 +791,12 @@ async def api_autonudge_fire(request: web.Request) -> web.Response:
       shape this subsystem's own ``autonudge_authz`` uses for ``monitor_update``
       and ``monitor_stop``, and the 503 mirrors ``handlers/cron.py``'s
       ``audit_unavailable`` refusal for a grant it could not record.
-    * The **refusals** stay best-effort. An earlier revision audited only after
-      ``fire_now`` returned, so the four guards below denied requests and left no
-      SEL event at all -- that was a real hole and is fixed. But making them
-      critical would trade an audit-sink problem for a different failure while
-      preventing nothing: the request is refused either way, so availability must
-      not hinge on SEL disk health. That is the disposition
+    * The **refusals** stay best-effort, but they are audited BEFORE
+      ``fire_now`` returns: a guard below that denied a request and left no SEL
+      event at all would be a real hole. Making them critical would trade an
+      audit-sink problem for a different failure while preventing nothing: the
+      request is refused either way, so availability must not hinge on SEL disk
+      health. That is the disposition
       ``messaging/identity`` states for a deny and ``azure_client`` states for a
       post-action outcome.
     * The **terminal** event after ``fire_now`` is best-effort for the same

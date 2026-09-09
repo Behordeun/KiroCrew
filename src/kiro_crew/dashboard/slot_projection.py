@@ -213,8 +213,8 @@ class SlotProjection:
             # = it can, null = not known yet. Carried so the frontend reads the
             # answer instead of inferring it from whether the pin appears in
             # `GET /api/models` -- a list every unrelated filter (deprecation,
-            # curation) narrows, which silently turned those filters into
-            # entitlement signals (#1819). DISPLAY only; never a write source.
+            # curation) narrows, which would silently turn those filters into
+            # entitlement signals. DISPLAY only; never a write source.
             "model_withheld": slot.model_withheld,
             "reasoning_effort": slot.reasoning_effort,
             "mode": slot.mode,
