@@ -2457,6 +2457,34 @@ def _parse_controls(
 # ──────────────────────────────────────────────────────────────────────────
 # Loader
 # ──────────────────────────────────────────────────────────────────────────
+def _coerce_boot_flag(
+    boot_raw: Mapping[str, object], key: str, *, default: bool, closed: bool
+) -> bool:
+    """Strict read of one ``boot`` gate flag.
+
+    A real boolean is honoured and an absent key takes the documented
+    default. Anything else (including explicit null) is warned about and
+    read in the fail-closed direction: a bare ``bool()`` would read a
+    ``"false"`` string as true, which is the fail-open direction.
+    """
+    if key not in boot_raw:
+        return default
+    value = boot_raw[key]
+    if isinstance(value, bool):
+        return value
+    # Log the TYPE, never the value: a mis-typed flag can carry a secret
+    # (a credential pasted into the policy), and this warning lands in the
+    # persistent gateway log. The key names the misconfiguration; the type
+    # is all an operator needs to fix it.
+    logger.warning(
+        "security policy boot flag %r must be a boolean, got %s — reading fail-closed as %s",
+        key,
+        type(value).__name__,
+        closed,
+    )
+    return closed
+
+
 def parse_policy(
     data: Mapping[str, object], *, signature_state: str = SIGNATURE_UNCHECKED
 ) -> GovernanceCeiling:
@@ -2480,9 +2508,9 @@ def parse_policy(
     if not isinstance(boot_raw, dict):
         raise PlatformCompositionError("security policy requires a 'boot' object")
     boot = BootControls(
-        require_sandbox=bool(boot_raw.get("require_sandbox", True)),
-        allow_terminal=bool(boot_raw.get("allow_terminal", False)),
-        fail_closed=bool(boot_raw.get("fail_closed", True)),
+        require_sandbox=_coerce_boot_flag(boot_raw, "require_sandbox", default=True, closed=True),
+        allow_terminal=_coerce_boot_flag(boot_raw, "allow_terminal", default=False, closed=False),
+        fail_closed=_coerce_boot_flag(boot_raw, "fail_closed", default=True, closed=True),
     )
     controls = _parse_controls(data, is_policy=True)
     composed_posture = _apply_agentcore_posture(data, controls, boot)
