@@ -82,11 +82,18 @@ class TestClientSpawnOffLoop:
         # thread identity alone does not name the regressing call site.
         mkdir_stacks: list[str] = []
 
-        def _rec_mkdir(*a, **kw):
+        # ``patch("pathlib.Path.mkdir")`` installs a plain MagicMock, which is not
+        # a descriptor, so the recorder never receives ``self`` and cannot create
+        # anything. autospec hands it the Path; calling through keeps the
+        # directories the spawn prelude promises to create.
+        real_mkdir = Path.mkdir
+
+        def _rec_mkdir(self, *a, **kw):
             t = threading.current_thread()
             mkdir_threads.append(t)
             if t is loop_thread:
                 mkdir_stacks.append("".join(traceback.format_stack()))
+            return real_mkdir(self, *a, **kw)
 
         client = AcpClient(work_dir=tmp_path / "workspace", session_key="k")
 
@@ -144,8 +151,10 @@ class TestClientSpawnOffLoop:
                 "inject_xdist_auto_cap",
                 side_effect=lambda env: xdist_threads.append(threading.current_thread()),
             ),
-            patch(
-                "pathlib.Path.mkdir",
+            patch.object(
+                Path,
+                "mkdir",
+                autospec=True,
                 side_effect=_rec_mkdir,
             ),
         ):
@@ -274,6 +283,15 @@ class TestRuntimeSpawnOffLoop:
             cgroup_threads.append(threading.current_thread())
             return argv
 
+        # See the note in TestClientSpawnOffLoop: the recorder must receive
+        # ``self`` and call through, or the work dir it claims to observe is
+        # never created and the macOS-only spawn guard stats a missing path.
+        real_mkdir = Path.mkdir
+
+        def _rec_mkdir(self, *a, **kw):
+            mkdir_threads.append(threading.current_thread())
+            return real_mkdir(self, *a, **kw)
+
         monkeypatch.setattr(runtime_mod, "_resolve_kiro_bin_for_spawn", resolve_bin)
         monkeypatch.setattr(runtime_mod, "ensure_agent_materialized", lambda agent: None)
         monkeypatch.setattr(
@@ -294,9 +312,11 @@ class TestRuntimeSpawnOffLoop:
 
         runtime = AcpRuntime(work_dir=tmp_path / "workspace")
         with (
-            patch(
-                "pathlib.Path.mkdir",
-                side_effect=lambda *a, **kw: mkdir_threads.append(threading.current_thread()),
+            patch.object(
+                Path,
+                "mkdir",
+                autospec=True,
+                side_effect=_rec_mkdir,
             ),
             pytest.raises(_StopSpawn),
         ):
