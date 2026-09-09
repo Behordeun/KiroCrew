@@ -312,6 +312,24 @@ def _effective_min_version() -> str:
     return governance_floor or feed_floor
 
 
+def _downgrade_target_below_min_version(version: str, channel: str) -> bool:
+    """Whether *version* is a downgrade that crosses the enterprise floor.
+
+    A host already below the floor may still move upward toward compliance when
+    its followed lane lags the pin. Target versions may carry prerelease stamps,
+    so use this module's update comparator. A Stable feed's promoted candidate
+    is the final release despite retaining its RC stamp, so fold only that lane
+    for the floor comparison; compare direction against the raw running bytes.
+    """
+    floor = min_version()
+    if not floor:
+        return False
+    target_for_floor = base_version(version) if channel == "stable" else version
+    target_below_floor = _is_newer(floor, target_for_floor) is True
+    target_below_running = _is_newer(_local_version, version) is True
+    return target_below_floor and target_below_running
+
+
 def status_update_fields() -> dict[str, object]:
     """The update fields ``/api/status`` and the WebSocket push both carry.
 
@@ -2268,14 +2286,53 @@ def _loopback_peer(request: web.Request) -> bool:
     return is_loopback(request.remote or "")
 
 
+async def _audit_update_event(
+    request: web.Request,
+    *,
+    operation: str,
+    outcome: str,
+    error: str = "",
+    resources: str = "",
+    required: bool = False,
+) -> None:
+    """Write one update event to SEL without blocking the gateway loop.
+
+    A granted approval is audit-or-deny when ``required`` is true. Denials stay
+    best-effort: failure to record a refusal must never turn it into permission.
+    """
+
+    def _write() -> None:
+        # Function-local: keep SEL initialization/import work off the boot path.
+        from kiro_crew.sel import sel as _sel
+
+        try:
+            _sel().log_api_access(
+                caller="host-cli" if request.get("internal_auth") else (request.remote or "unix"),
+                operation=operation,
+                outcome=outcome,
+                source="dashboard",
+                resources=resources,
+                error=error,
+                critical=True,
+            )
+        except Exception:
+            if required:
+                raise
+            logger.debug("SEL audit for %s failed", operation, exc_info=True)
+
+    # A CRITICAL SEL write flushes inline on its calling thread by design.
+    await asyncio.to_thread(_write)
+
+
 async def api_update_arm(request: web.Request) -> web.Response:
     """POST /api/update/arm — arm a pending in-app update (SPA-callable).
 
     Arming grants nothing: it records the request and writes the approval
     nonce to a file only the host can read. The response NEVER carries the
-    nonce. Refused for every shape except the managed venv, and refused when
-    no update-available verdict is cached — an arm must name the version the
-    check reported, not whatever the feed happens to serve later (the apply
+    nonce. Refused for every shape except the managed venv, when a downgrade
+    would cross below the active minimum-version floor, and when neither a
+    newer update nor a pending channel move is cached — an arm must name the
+    version the check reported, not whatever the feed happens to serve later (the apply
     re-verifies against the signed manifest anyway).
     """
     # Function-local: boot-path rule, same as _restart_gateway's import.
@@ -2299,13 +2356,31 @@ async def api_update_arm(request: web.Request) -> web.Response:
             status=409,
         )
     available = _update_info.get("update_available")
+    move_pending = _update_info.get("channel_move_pending")
     version = str(_update_info.get("latest_version") or "")
     channel = str(_update_info.get("channel") or "")
-    if available is not True or not version:
+    if (available is not True and move_pending is not True) or not version:
         return web.json_response(
             {
                 "error": "no update-available verdict — run a check first",
                 "code": "arm_no_verdict",
+            },
+            status=409,
+        )
+    if _downgrade_target_below_min_version(version, channel):
+        error = "selected release is below the required minimum version"
+        await _audit_update_event(
+            request,
+            operation="update.arm",
+            outcome="denied",
+            error=error,
+            resources=f"v{version} ({channel})",
+        )
+        return web.json_response(
+            {
+                "error": error,
+                "code": "arm_below_min_version",
+                "governance": True,
             },
             status=409,
         )
@@ -2388,48 +2463,43 @@ async def api_update_approve(request: web.Request) -> web.Response:
             {"error": "CDN base URL contains disallowed characters", "code": "approve_bad_cdn"},
             status=409,
         )
+
     # SEL-audited at every verdict: an approval is a code-install
     # authorization, which is exactly the class of event the audit chain
     # exists to reconstruct. `caller` is the transport identity — the nonce
     # proves host-locality, not a person.
-    from kiro_crew.sel import sel as _sel
-
-    def _audit_sync(
-        outcome: str, error: str = "", resources: str = "", required: bool = False
-    ) -> None:
-        try:
-            _sel().log_api_access(
-                caller="host-cli" if request.get("internal_auth") else (request.remote or "unix"),
-                operation="update.approve",
-                outcome=outcome,
-                source="dashboard",
-                resources=resources,
-                error=error,
-                critical=True,
-            )
-        except Exception:
-            # A GRANTED verdict is a code-install authorization: if its audit
-            # record cannot be written, the install must not proceed — an
-            # unwritable SEL would otherwise let approvals happen unaudited
-            # (fail-open on the exact event the audit chain exists for).
-            # Denials stay best-effort: a failed denial audit still refuses.
-            if required:
-                raise
-            logger.debug("SEL audit for update.approve failed", exc_info=True)
-
     async def _audit(
         outcome: str, error: str = "", resources: str = "", required: bool = False
     ) -> None:
-        # Offloaded: a CRITICAL SEL write flushes inline on the calling thread
-        # by design (fail-closed audit), and this handler's thread is the
-        # event loop (no-blocking-call-on-event-loop).
-        await asyncio.to_thread(_audit_sync, outcome, error, resources, required)
+        await _audit_update_event(
+            request,
+            operation="update.approve",
+            outcome=outcome,
+            error=error,
+            resources=resources,
+            required=required,
+        )
 
     try:
         pending = await asyncio.to_thread(update_stepup.consume, body["nonce"])
     except update_stepup.StepUpError as exc:
         await _audit("denied", error=str(exc))
         return web.json_response({"error": str(exc), "code": "approve_refused"}, status=403)
+    if _downgrade_target_below_min_version(pending.version, pending.channel):
+        error = "selected release is below the required minimum version"
+        await _audit(
+            "denied",
+            error=error,
+            resources=f"v{pending.version} ({pending.channel})",
+        )
+        return web.json_response(
+            {
+                "error": error,
+                "code": "approve_below_min_version",
+                "governance": True,
+            },
+            status=409,
+        )
     try:
         await _audit("granted", resources=f"v{pending.version} ({pending.channel})", required=True)
     except Exception:
