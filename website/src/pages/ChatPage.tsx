@@ -328,12 +328,9 @@ import type { ChatMessage } from '../types'
 
 import { shouldMountSidePanel, isSidePanelHidden, sidePanelDockMotion } from './chat/sidePanelMount'
 import type { ParsedSubagentCompletion } from './chat/subagentCompletion'
-import { renderMcpOAuthMessage } from './chat/McpOAuthBanner'
 import { useConnectionsUiEnabled } from '../hooks/useConnectionsUi'
 import TurnBlock from './chat/TurnBlock'
 import Clickable from '../components/Clickable'
-import StopEventCard from './chat/StopEventCard'
-import NoticeCard from './chat/NoticeCard'
 import WorkflowProgressBar from './chat/WorkflowProgressBar'
 import { tryQuickSend } from '../lib/quickSend'
 import { rewindWithRollback } from '../lib/rewindCall'
@@ -5642,12 +5639,14 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
   // is the page's precedence order, unchanged from the if-chain it replaces:
   // the shared dashboard set (sub-agent completion, launch cards, tool,
   // thinking, file, nudge, recovery inject, workflow completion, error), then
-  // stop_event, notice, permission, undrawn, mcp_oauth, hidden invisible
-  // assistant, and the conversational bubble. Roles none of these
-  // claim fall to the registry defaults (`undrawn` for queued/system/done and
-  // the reasoning roles; `tool_lifecycle` for raw wire shapes the store
-  // normalizes away), and a role NOBODY claims renders as the bubble, which is
-  // what the if-chain's fall-through did.
+  // permission, undrawn, hidden invisible assistant, and the conversational
+  // bubble. Roles none of these claim fall to the registry defaults (`undrawn`
+  // for queued/system/done and the reasoning roles; `tool_lifecycle` for raw
+  // wire shapes the store normalizes away; the stop-event card, the notice
+  // card and the MCP OAuth banner -- P5-c deleted the page's copies of those
+  // three, which drew the same component from the same inputs), and a role
+  // NOBODY claims renders as the bubble, which is what the if-chain's
+  // fall-through did.
   //
   // Memoized with the deps the old renderMessage carried: UI-state deps
   // (chatConfig, linkPreviewsOn, disclosure, pin state, ...) deliberately STAY
@@ -5765,7 +5764,12 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
     // tool lines and launch cards, thinking block, nudge, recovery inject, the
     // two completion cards, the error card with Continue), wired with this
     // page's behaviours through its options; ChatPane calls the same factory
-    // with fewer. Only rows that are genuinely page-specific follow it.
+    // with fewer. Only rows that are genuinely page-specific follow it. The
+    // stop-event card, the notice card and the MCP OAuth banner are NOT among
+    // them: the SDK defaults draw each from the same component and the same
+    // inputs (`ctx.hideCardOwnedOAuth` is this page's `connectionsUiOn`), and
+    // this page's `ctx.row` is a keyed passthrough, so the page reads those
+    // three rows from the registry exactly as every pane does (P5-c).
     const shared = createTranscriptRenderers({
       slot: activeSlot || undefined,
       // An unparseable file row has always fallen through to the bubble on
@@ -5797,13 +5801,6 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
     const renderers = mergeRenderers([
       ...shared,
       {
-        id: 'stop_event',
-        roles: ['*'],
-        match: m => m.kind === 'stop_event' || m.meta?.kind === 'stop_event',
-        render: (m, ctx) => <StopEventCard key={m.meta?.id as string ?? ctx.key} message={m} />,
-      },
-      { id: 'notice', roles: ['notice'], render: (m, ctx) => <NoticeCard key={ctx.key} content={m.content} /> },
-      {
         // Approval flow: the permission cards own it; grouped, never a standalone row.
         id: 'permission',
         roles: ['permission'],
@@ -5821,15 +5818,6 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
         render: () => null,
       },
       {
-        id: 'mcp_oauth',
-        roles: ['mcp_oauth'],
-        render: (m, ctx) => {
-          const key = ctx.key
-      const banner = renderMcpOAuthMessage(m, connectionsUiOn)
-      return banner ? <div key={key}>{banner}</div> : null
-        },
-      },
-      {
         // A quiet monitor-loop cycle replies with a bare zero-width space
         // (U+200B): the content is truthy but renders as nothing, so the row
         // would draw as an empty bubble -- one per quiet cycle, historical
@@ -5843,7 +5831,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
       bubble,
     ])
     return { renderers, fallback: bubble }
-  }, [slotRunning, handleFileOpen, handleArtifactOpen, selectSessionTab, sessionTitles, connected, handleFork, handleQuote, handleAsk, chatConfig, activeSlot, regenerating, handleRegenerate, handleEditResend, slotHasMore, loadingOlder, cursorIsForActiveSlot, slotOldestIndex, handleLoadEarlier, renderUserContentCb, highlightTs, activeSlotTitle, mode, embedded, popout, handleOpenDiff, handlePlanFromHere, planTaskId, artifactPaths, autoNudgeLoop, toolDisclosure, setToolDisclosureFor, linkPreviewsOn, socialShareOn, voiceRecoverySlot, handleSubagentPanelOpen, isPinned, handleTogglePinForMessage, connectionsUiOn, showRefusedPress, transcriptHot, revealAppInPanel, continuable, interrupted, continuing, handleContinue, handleFolderOpen, handleSpeak, handleApplyPlan, mcpAppPanel])
+  }, [slotRunning, handleFileOpen, handleArtifactOpen, selectSessionTab, sessionTitles, connected, handleFork, handleQuote, handleAsk, chatConfig, activeSlot, regenerating, handleRegenerate, handleEditResend, slotHasMore, loadingOlder, cursorIsForActiveSlot, slotOldestIndex, handleLoadEarlier, renderUserContentCb, highlightTs, activeSlotTitle, mode, embedded, popout, handleOpenDiff, handlePlanFromHere, planTaskId, artifactPaths, autoNudgeLoop, toolDisclosure, setToolDisclosureFor, linkPreviewsOn, socialShareOn, voiceRecoverySlot, handleSubagentPanelOpen, isPinned, handleTogglePinForMessage, showRefusedPress, transcriptHot, revealAppInPanel, continuable, interrupted, continuing, handleContinue, handleFolderOpen, handleSpeak, handleApplyPlan, mcpAppPanel])
 
   const renderMessage = useCallback((i: number, m: ChatMessage) => {
     // Key identity rules (clientTs preference + streaming->assistant role

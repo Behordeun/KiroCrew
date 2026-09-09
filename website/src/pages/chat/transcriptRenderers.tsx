@@ -4,8 +4,12 @@
  * This is the ONE dashboard row set (chat-core P5-b): the single-chat surface
  * (ChatPage) spreads this factory into its host list and adds only its
  * page-only entries (the conversational bubble with fork/pin/footer chrome,
- * the undrawn/permission rows, the stop-event and OAuth banners); ChatPane
- * calls it with fewer options. Behaviour a surface cannot supply is an
+ * the undrawn/permission rows); ChatPane calls it with fewer options. Rows the
+ * SDK default registry already draws from the same component and the same
+ * inputs -- the stop-event card, the notice card, the MCP OAuth banner -- are
+ * registered NOWHERE else: not here (a second copy is what the "leaves the
+ * stop row to the SDK default" test pins shut) and, since P5-c, not on the
+ * page either. Behaviour a surface cannot supply is an
  * OPTION with the pane's default -- the tool row's disclosure key, its
  * "animating" rule, the hot-transcript hint, the completion cards' session
  * hand-offs -- so the two surfaces differ only in what they wire, never in
