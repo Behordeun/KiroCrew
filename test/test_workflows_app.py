@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import os
 
+import pytest
+
 from kiro_crew.apps.builtins.workflows.server import (
     handle_examples,
     handle_run,
@@ -196,6 +198,22 @@ def test_redact_obj_scrubs_credentials_and_exfil_urls_in_run_payload() -> None:
     assert out["events"][0]["type"] == "log"
 
 
+def test_redact_obj_routes_every_string_through_platform_context(monkeypatch) -> None:
+    """Responses must use the composed credential policy, including mapping keys."""
+    from kiro_crew.apps.builtins.workflows import server
+
+    seen: list[str] = []
+
+    def _redact(value: str) -> str:
+        seen.append(value)
+        return f"context:{value}"
+
+    monkeypatch.setattr(server, "redact_via_context", _redact)
+
+    assert server._redact_obj({"key": ["value"]}) == {"context:key": ["context:value"]}
+    assert seen == ["key", "value"]
+
+
 def test_handler_send_redacts_before_writing_to_the_wire() -> None:
     """The fix is wired centrally in _Handler._send, so EVERY response surface is
     redacted. Drive _send with fakes (no socket bound) and assert the bytes
@@ -224,3 +242,55 @@ def test_handler_send_redacts_before_writing_to_the_wire() -> None:
     assert _PLANTED_URL not in wire
     assert "[REDACTED: credential]" in wire
     assert "[REDACTED: suspicious URL" in wire
+
+
+# --------------------------------------------------------------------------- #
+# Process entrypoint
+# --------------------------------------------------------------------------- #
+
+
+def test_main_boots_platform_before_binding_server(monkeypatch) -> None:
+    """The app process must compose security before accepting workflow requests."""
+    from types import SimpleNamespace
+
+    from kiro_crew.apps.builtins.workflows import server
+
+    calls: list[str] = []
+
+    def _boot(_cfg) -> None:
+        calls.append("boot")
+
+    class _FakeServer:
+        def __init__(self, *args, **kwargs) -> None:
+            calls.append("bind")
+
+        def serve_forever(self) -> None:
+            calls.append("serve")
+
+    monkeypatch.setattr(server, "boot_platform", _boot)
+    monkeypatch.setattr(server.KiroCrewConfig, "load", classmethod(lambda cls: SimpleNamespace()))
+    monkeypatch.setattr(server, "ThreadingHTTPServer", _FakeServer)
+
+    assert server.main() is None
+    assert calls == ["boot", "bind", "serve"]
+
+
+def test_main_fails_closed_when_platform_cannot_compose(monkeypatch) -> None:
+    """A failed composition must not expose the backend with baseline policy."""
+    from kiro_crew.apps.builtins.workflows import server
+    from kiro_crew.platform.context import PlatformCompositionError
+
+    def _boom(_cfg) -> None:
+        raise PlatformCompositionError("companion missing")
+
+    served: list[str] = []
+    monkeypatch.setattr(server, "boot_platform", _boom)
+    monkeypatch.setattr(
+        server,
+        "ThreadingHTTPServer",
+        lambda *args, **kwargs: served.append("bind"),
+    )
+
+    with pytest.raises(PlatformCompositionError):
+        server.main()
+    assert served == []
