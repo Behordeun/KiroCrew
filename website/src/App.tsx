@@ -92,6 +92,7 @@ import AppIcon from './components/AppIcon'
 import Clickable from './components/Clickable'
 import MarkdownRenderer, { Lightbox } from './components/MarkdownRenderer'
 import NotificationsPage from './pages/NotificationsPage'
+const SessionsPage = lazy(() => import('./pages/SessionsPage'))
 import NotificationDetailPanel from './components/notifications/NotificationDetailPanel'
 import NotificationFeed from './components/notifications/NotificationFeed'
 import LogsPage from './pages/LogsPage'
@@ -4428,8 +4429,12 @@ export default function App() {
             <Route path="/chat/:slug?" element={<ErrorBoundary><ChatPage /></ErrorBoundary>} />
             <Route path="/orchestrated/:slug?" element={<OrchestratedRedirect />} />
             <Route path="/notifications" element={<ErrorBoundary><NotificationsPage /></ErrorBoundary>} />
+            {/* Bookmarkable session chooser: neutral list, no auto-select; rows
+                open the full /chat/<key> experience inside this same shell. */}
+            <Route path="/sessions" element={<ErrorBoundary><Suspense fallback={null}><SessionsPage /></Suspense></ErrorBoundary>} />
             {/* Knowledge moved into Agent Capabilities; old bookmarks land on its tab. */}
             <Route path="/knowledge" element={<Navigate to="/capabilities?tab=knowledge" replace />} />
+
             <Route path="/members" element={<ErrorBoundary><Suspense fallback={null}><MembersPage /></Suspense></ErrorBoundary>} />
             <Route path="/overview" element={<Navigate to="/settings/overview" replace />} />
             <Route path="/schedule" element={<SchedulePage />} />
