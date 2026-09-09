@@ -14270,7 +14270,6 @@
       "patrol_error": "इस सदस्य की पेट्रोल स्थिति लोड नहीं हो सकी।",
       "patrol_error_roster": "रोस्टर की पेट्रोल स्थिति लोड नहीं हो सकी।",
       "patrol_badge": "पेट्रोल पर · {{cycle}}",
-      "patrol_badge_stopped": "पेट्रोल रुक गया",
       "patrol_next_in": "{{time}} में बाकी",
       "wake_patrol_every": "हर {{every}}",
       "filter_starred": "तारांकित",

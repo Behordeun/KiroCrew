@@ -14454,7 +14454,6 @@
       "patrol_error": "No se pudo cargar el estado de patrulla de este miembro.",
       "patrol_error_roster": "No se pudo cargar el estado de patrulla de la lista.",
       "patrol_badge": "En patrulla · {{cycle}}",
-      "patrol_badge_stopped": "Patrulla detenida",
       "patrol_next_in": "Dentro de {{time}}",
       "wake_patrol_every": "Cada {{every}}",
       "filter_starred": "Destacados",

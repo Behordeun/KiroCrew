@@ -14085,7 +14085,6 @@
       "patrol_error": "このメンバーのパトロール状態を読み込めませんでした。",
       "patrol_error_roster": "メンバー一覧のパトロール状態を読み込めませんでした。",
       "patrol_badge": "パトロール中 · {{cycle}}",
-      "patrol_badge_stopped": "パトロール停止",
       "patrol_next_in": "あと{{time}}",
       "wake_patrol_every": "{{every}}ごと",
       "filter_starred": "スター付き",

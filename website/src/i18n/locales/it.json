@@ -14453,7 +14453,6 @@
       "patrol_error": "Impossibile caricare lo stato di pattuglia di questo membro.",
       "patrol_error_roster": "Impossibile caricare lo stato di pattuglia dell'elenco.",
       "patrol_badge": "In pattuglia · {{cycle}}",
-      "patrol_badge_stopped": "Pattuglia fermata",
       "patrol_next_in": "Tra {{time}}",
       "wake_patrol_every": "Ogni {{every}}",
       "filter_starred": "Preferiti",

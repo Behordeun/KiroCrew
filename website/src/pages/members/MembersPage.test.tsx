@@ -973,7 +973,7 @@ describe('MembersPage auto patrol (monitor loop status)', () => {
     expect(screen.queryByTestId('member-patrol-dot')).toBeNull()
   })
 
-  it('the roster badge is accent on an active loop and warn on a stopped one, beside — not instead of — the presence dot', async () => {
+  it('the roster badge renders only for an ACTIVE loop — a stopped loop shows no badge, beside — not instead of — the presence dot', async () => {
     ;(api.autonudgeList as ReturnType<typeof vi.fn>).mockResolvedValue({
       enabled: true,
       loops: [
@@ -987,18 +987,38 @@ describe('MembersPage auto patrol (monitor loop status)', () => {
       row({ name: 'scribe', slug: 'scribe', bound: true, slot_key: 'member-scribe' }),
     ])
     await rosterRow('radar')
-    // Two badges: radar's (active, accent) and scout's (stopped, warn — the
-    // dead patrol must show at the roster, not only in the drawer). scribe
-    // never armed one and shows nothing. The active badge carries the wake
-    // readout for AT; the stopped one names the state.
+    // ONE badge: radar's (active, accent, carrying the wake readout for AT).
+    // scout's loop has stopped and scribe never armed one — both show
+    // nothing at the roster: "not patrolling" is a member's resting state,
+    // and a standing mark on it read as an error. The stopped loop's reason
+    // lives in the drawer block (tested above), not on the avatar.
     const badges = await screen.findAllByTestId('member-patrol-dot')
-    expect(badges).toHaveLength(2)
-    const byState = Object.fromEntries(badges.map((b) => [b.getAttribute('data-state'), b]))
-    expect(byState.active).toHaveAttribute('aria-label', expect.stringMatching(/3 of 24/))
-    expect(byState.stopped).toHaveAttribute('aria-label', expect.stringMatching(/patrol stopped/i))
+    expect(badges).toHaveLength(1)
+    expect(badges[0]).toHaveAttribute('data-state', 'active')
+    expect(badges[0]).toHaveAttribute('aria-label', expect.stringMatching(/3 of 24/))
+    expect(badges[0].closest('li')).toHaveTextContent('radar')
+    expect(screen.queryByTitle(/patrol stopped/i)).toBeNull()
     // Both signals on one avatar: patrol badge (top-right) AND presence dot
     // (bottom-right) — neither replaces the other.
     expect(screen.getAllByTestId('member-presence-dot')).toHaveLength(1)
+  })
+
+  it('a loop that stops in place (registry re-read flips active to false) drops the badge instead of recolouring it', async () => {
+    ;(api.autonudgeList as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true, loops: [loop()] })
+    const { queryClient } = await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
+    await rosterRow('oncall')
+    expect(await screen.findByTestId('member-patrol-dot')).toHaveAttribute('data-state', 'active')
+    ;(api.autonudgeList as ReturnType<typeof vi.fn>).mockResolvedValue({
+      enabled: true,
+      loops: [loop({ active: false, stopped_reason: 'manual' })],
+    })
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['autonudge-loops'] })
+    })
+    // AnimatePresence keeps the badge for its exit tween — wait for removal.
+    // No 'stopped' badge ever appears in between.
+    await waitFor(() => expect(screen.queryByTestId('member-patrol-dot')).toBeNull())
+    expect(screen.queryByTitle(/patrol stopped/i)).toBeNull()
   })
 
   it('the registry is a live React Query read: invalidating it (what the websocket hook does on every frame and reconnect) arms and disarms the badge', async () => {

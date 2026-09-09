@@ -29,7 +29,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Circle, Clock, ExternalLink, Goal, Pause, Pencil, Star, UserPlus, Users, Webhook } from 'lucide-react'
+import { ArrowLeft, Circle, Clock, ExternalLink, Goal, Pencil, Star, UserPlus, Users, Webhook } from 'lucide-react'
 import { PanelRightSolid } from '../../components/icons/panels'
 import { useTranslation } from 'react-i18next'
 import { api, type MemberRosterRow, type WebhookTokenEntry } from '../../api/client'
@@ -66,7 +66,7 @@ import ErrorNotice from '../../components/ErrorNotice'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useConnected } from '../../hooks/useConnected'
 import { SearchInput } from '../../components/ui'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { sidePanelDockMotion } from '../chat/sidePanelMount'
 import { CHAT_PANE_MIN_W } from '../chat/SidePanel'
 import ResizeHandle from '../../components/ResizeHandle'
@@ -685,15 +685,16 @@ export default function MembersPage() {
     },
     [slotKeyOf, patrol.loops],
   )
-  /** Roster-level reading of a member's loop record: `active` while it
-   *  patrols, `stopped` for a record that went inactive (any reason), and
-   *  nothing for a member that never armed one. The stopped state is the
-   *  incident's at-a-glance case — a dead patrol must show at the roster,
-   *  not only once someone opens the drawer. */
-  const patrolBadgeOf = useCallback(
-    (m: MemberRosterRow): 'active' | 'stopped' | null => {
+  /** Roster-level reading of a member's loop record: the loop while it is
+   *  ACTIVE, nothing otherwise. A stopped record and a member that never
+   *  armed one look the same at the roster — "not patrolling" is the resting
+   *  state of a member, not an incident that needs a placeholder mark; the
+   *  drawer's block is where a stopped loop keeps its reason. The badge's
+   *  presence IS the signal, the way the presence dot and unread dot work. */
+  const activePatrolOf = useCallback(
+    (m: MemberRosterRow): AutoNudgeLoop | undefined => {
       const lp = patrolLoopOf(m)
-      return lp ? (lp.active ? 'active' : 'stopped') : null
+      return lp?.active ? lp : undefined
     },
     [patrolLoopOf],
   )
@@ -720,6 +721,9 @@ export default function MembersPage() {
     const timer = setInterval(() => setNowTs(Date.now() / 1000), PATROL_TICK_MS)
     return () => clearInterval(timer)
   }, [patrolTicking])
+  // The roster badge's mount/unmount tween honours the OS motion preference:
+  // the state change still happens, it just cuts instead of fading.
+  const reduceMotion = useReducedMotion()
 
   // The thread open. A mutation, not a query: the endpoint is a write (the
   // idempotent creator/repairer of member slots), so it is issued on EVERY
@@ -1125,59 +1129,51 @@ export default function MembersPage() {
                       data-testid="member-presence-dot"
                     />
                   )}
-                  {/* Patrol badge — the member has an auto-nudge loop on its
-                      own thread. Accent while it patrols; warn once the loop
-                      has STOPPED, because a dead patrol is the thing this
-                      page exists to make visible at a glance, not only after
-                      the drawer opens. Top-right corner of the avatar, the
-                      composer's goal-chip glyph on a solid fill (the presence
-                      dot's own idiom — an outline read as nothing at a
-                      glance): a different corner from the presence dot (bottom-right, ok-green, "working now") and
-                      a different edge from the row's right-side markers, so
-                      all of them can show at once without covering each
-                      other. Mount/unmount and the colour flip are animated:
-                      a badge that pops in or changes mid-glance is what a
-                      state change looks like when it is not a glitch. */}
+                  {/* Patrol badge — the member has an ACTIVE auto-nudge loop
+                      on its own thread. Rendered only while the loop patrols:
+                      a stopped loop and a never-armed member both show
+                      nothing, because "not patrolling" is a member's resting
+                      state, not an incident — a standing warn mark on an
+                      idle avatar read as "something is broken", and the
+                      drawer's block already spells a stopped loop's reason.
+                      Top-right corner of the avatar, the composer's goal-chip
+                      glyph on a solid accent fill (the presence dot's own
+                      idiom — an outline read as nothing at a glance): a
+                      different corner from the presence dot (bottom-right,
+                      ok-green, "working now") and a different edge from the
+                      row's right-side markers, so all of them can show at
+                      once without covering each other. Mount/unmount is
+                      animated (the badge fades out when the loop ends rather
+                      than vanishing): a badge that pops in or out mid-glance
+                      is what a state change looks like when it is not a
+                      glitch. Under prefers-reduced-motion the tween is
+                      skipped and the badge cuts straight to its new state. */}
                   <AnimatePresence initial={false}>
                     {(() => {
-                      const badge = patrolBadgeOf(m)
-                      if (!badge) return null
-                      const lp = patrolLoopOf(m)
+                      const lp = activePatrolOf(m)
+                      if (!lp) return null
                       // The tooltip spells the count the drawer's way ("3 of 24"
                       // / "61 · no limit"): the compact "3/24" alone read as a date.
-                      const cycle = lp
-                        ? lp.max_cycles > 0
+                      const cycle =
+                        lp.max_cycles > 0
                           ? t('pages.membersPage.patrol_cycles_of', { n: lp.cycle_count, max: lp.max_cycles })
                           : t('pages.membersPage.patrol_cycles_unlimited', { n: lp.cycle_count })
-                        : ''
-                      const label =
-                        badge === 'active'
-                          ? t('pages.membersPage.patrol_badge', { cycle })
-                          : t('pages.membersPage.patrol_badge_stopped')
+                      const label = t('pages.membersPage.patrol_badge', { cycle })
                       return (
                         <motion.span
                           key="patrol"
-                          initial={{ opacity: 0, scale: 0.6 }}
+                          initial={reduceMotion ? false : { opacity: 0, scale: 0.6 }}
                           animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.6 }}
-                          transition={{ duration: 0.15, ease: [0.2, 0, 0, 1] }}
-                          className={`absolute -right-1 -top-1 w-4 h-4 rounded-full border-2 border-bg flex items-center justify-center transition-colors duration-150 ${
-                            badge === 'active' ? 'bg-accent text-accent-fg' : 'bg-warn text-warn-fg'
-                          }`}
+                          exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.6 }}
+                          transition={reduceMotion ? { duration: 0 } : { duration: 0.15, ease: [0.2, 0, 0, 1] }}
+                          className="absolute -right-1 -top-1 w-4 h-4 rounded-full border-2 border-bg flex items-center justify-center bg-accent text-accent-fg"
                           role="img"
                           aria-label={label}
                           title={label}
                           data-testid="member-patrol-dot"
-                          data-state={badge}
+                          data-state="active"
                         >
-                          {/* Distinct glyph per state, not colour alone: the
-                              goal target while patrolling, a pause mark once
-                              stopped, so the two read apart without the hover. */}
-                          {badge === 'active' ? (
-                            <Goal size={10} aria-hidden="true" />
-                          ) : (
-                            <Pause size={9} aria-hidden="true" strokeWidth={3} />
-                          )}
+                          <Goal size={10} aria-hidden="true" />
                         </motion.span>
                       )
                     })()}

@@ -14454,7 +14454,6 @@
       "patrol_error": "Impossible de charger l'état de patrouille de ce membre.",
       "patrol_error_roster": "Impossible de charger l'état de patrouille de la liste.",
       "patrol_badge": "En patrouille · {{cycle}}",
-      "patrol_badge_stopped": "Patrouille arrêtée",
       "patrol_next_in": "Dans {{time}}",
       "wake_patrol_every": "Toutes les {{every}}",
       "filter_starred": "Favoris",

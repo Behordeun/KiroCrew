@@ -14270,7 +14270,6 @@
       "patrol_error": "এই সদস্যের পেট্রোল অবস্থা লোড করা যায়নি।",
       "patrol_error_roster": "তালিকার পেট্রোল অবস্থা লোড করা যায়নি।",
       "patrol_badge": "পেট্রোলে · {{cycle}}",
-      "patrol_badge_stopped": "পেট্রোল বন্ধ হয়েছে",
       "patrol_next_in": "{{time}} পরে",
       "wake_patrol_every": "প্রতি {{every}}",
       "filter_starred": "তারকাচিহ্নিত",

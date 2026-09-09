@@ -14638,7 +14638,6 @@
       "patrol_error": "Не удалось загрузить состояние патруля этого участника.",
       "patrol_error_roster": "Не удалось загрузить состояние патруля для списка.",
       "patrol_badge": "Патрулирует · {{cycle}}",
-      "patrol_badge_stopped": "Патруль остановлен",
       "patrol_next_in": "Через {{time}}",
       "wake_patrol_every": "Каждые {{every}}",
       "filter_starred": "Избранные",

@@ -7005,7 +7005,6 @@
       "patrol_error": "Couldn't load this member's patrol status.",
       "patrol_error_roster": "Couldn't load patrol status for the roster.",
       "patrol_badge": "On patrol · {{cycle}}",
-      "patrol_badge_stopped": "Patrol stopped",
       "patrol_next_in": "Due in {{time}}",
       "wake_patrol_every": "Every {{every}}",
       "filter_starred": "Starred",

@@ -14453,7 +14453,6 @@
       "patrol_error": "Não foi possível carregar o status de patrulha deste membro.",
       "patrol_error_roster": "Não foi possível carregar o status de patrulha da lista.",
       "patrol_badge": "Em patrulha · {{cycle}}",
-      "patrol_badge_stopped": "Patrulha parada",
       "patrol_next_in": "Daqui a {{time}}",
       "wake_patrol_every": "A cada {{every}}",
       "filter_starred": "Favoritos",

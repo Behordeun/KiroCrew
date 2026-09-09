@@ -14269,7 +14269,6 @@
       "patrol_error": "Patrouillenstatus dieses Mitglieds konnte nicht geladen werden.",
       "patrol_error_roster": "Patrouillenstatus für die Liste konnte nicht geladen werden.",
       "patrol_badge": "Auf Patrouille · {{cycle}}",
-      "patrol_badge_stopped": "Patrouille gestoppt",
       "patrol_next_in": "Fällig in {{time}}",
       "wake_patrol_every": "Alle {{every}}",
       "filter_starred": "Markiert",

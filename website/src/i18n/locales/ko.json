@@ -14085,7 +14085,6 @@
       "patrol_error": "이 멤버의 순찰 상태를 불러오지 못했습니다.",
       "patrol_error_roster": "멤버 목록의 순찰 상태를 불러오지 못했습니다.",
       "patrol_badge": "순찰 중 · {{cycle}}",
-      "patrol_badge_stopped": "순찰 중지됨",
       "patrol_next_in": "{{time}} 후 예정",
       "wake_patrol_every": "{{every}}마다",
       "filter_starred": "즐겨찾기",

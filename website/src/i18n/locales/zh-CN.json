@@ -14085,7 +14085,6 @@
       "patrol_error": "无法加载此成员的巡逻状态。",
       "patrol_error_roster": "无法加载成员列表的巡逻状态。",
       "patrol_badge": "巡逻中 · {{cycle}}",
-      "patrol_badge_stopped": "巡逻已停止",
       "patrol_next_in": "还有 {{time}}",
       "wake_patrol_every": "每 {{every}}",
       "filter_starred": "已收藏",
