@@ -164,7 +164,6 @@ src/kiro_crew/builtin_skills/kirocrew-dev/prepare-pr/scripts/local_review.py
 src/kiro_crew/changelog.py
 src/kiro_crew/channel_history.py
 src/kiro_crew/channel_transcript_migration.py
-src/kiro_crew/cli_bench.py
 src/kiro_crew/cli_cloud.py
 src/kiro_crew/cli_desktop.py
 src/kiro_crew/cli_server.py
