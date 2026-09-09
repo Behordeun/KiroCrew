@@ -11101,11 +11101,9 @@
         "workflow_description": "Beschreibung"
       },
       "agentCfgTab": {
-        "after_saving_use": "Verwenden Sie nach dem Speichern",
         "agent_config_file": "Agenten-Konfiguration ({{file}})",
         "agent_config_json": "Agenten-Konfigurations-JSON",
         "agent_config_tip": "Die {{process}}-Agentendefinition — Prompt, Tools, MCP-Server, Modelleinstellungen. Dies ist die Konfiguration der Ausführungsebene, getrennt von den Betriebsbindungen von {{productName}}.",
-        "apply_restart_sessions_at_the_top_to_apply_chang": "„Anwenden & Sitzungen neu starten“ oben, um Änderungen anzuwenden.",
         "invalid_json": "Ungültiges JSON",
         "loading": "Wird geladen…",
         "save": "Speichern",

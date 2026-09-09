@@ -7054,9 +7054,7 @@
     },
     "overview": {
       "agentCfgTab": {
-        "after_saving_use": "After saving, use",
         "agent_config_json": "Agent config JSON",
-        "apply_restart_sessions_at_the_top_to_apply_chang": "Apply & Restart Sessions at the top to apply changes.",
         "invalid_json": "Invalid JSON",
         "loading": "Loading…",
         "save_failed": "Save failed",

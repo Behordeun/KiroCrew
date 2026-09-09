@@ -11423,11 +11423,9 @@
         "workflow_description": "Описание"
       },
       "agentCfgTab": {
-        "after_saving_use": "После сохранения нажмите",
         "agent_config_file": "Конфигурация агента ({{file}})",
         "agent_config_json": "JSON конфигурации агента",
         "agent_config_tip": "Определение агента {{process}} — промпт, инструменты, серверы MCP, настройки модели. Это конфигурация слоя выполнения, отдельная от рабочих привязок {{productName}}.",
-        "apply_restart_sessions_at_the_top_to_apply_chang": "«Применить и перезапустить сессии» вверху, чтобы применить изменения.",
         "invalid_json": "Некорректный JSON",
         "loading": "Загрузка…",
         "save": "Сохранить",

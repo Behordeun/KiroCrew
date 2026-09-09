@@ -11262,11 +11262,9 @@
         "workflow_description": "Description"
       },
       "agentCfgTab": {
-        "after_saving_use": "Après l'enregistrement, utilisez",
         "agent_config_file": "Config de l'agent ({{file}})",
         "agent_config_json": "JSON de configuration de l'agent",
         "agent_config_tip": "La définition de l’agent {{process}} : prompt, outils, serveurs MCP, paramètres du modèle. Il s’agit de la configuration de la couche d’exécution, distincte des liaisons opérationnelles de {{productName}}.",
-        "apply_restart_sessions_at_the_top_to_apply_chang": "Appliquer et redémarrer les sessions, en haut, pour appliquer les modifications.",
         "invalid_json": "JSON non valide",
         "loading": "Chargement…",
         "save": "Enregistrer",

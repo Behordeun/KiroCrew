@@ -11101,11 +11101,9 @@
         "workflow_description": "বিবরণ"
       },
       "agentCfgTab": {
-        "after_saving_use": "সেভ করার পরে, ব্যবহার করুন",
         "agent_config_file": "এজেন্ট কনফিগ ({{file}})",
         "agent_config_json": "এজেন্ট কনফিগ JSON",
         "agent_config_tip": "{{process}} এজেন্ট সংজ্ঞা — প্রম্পট, টুল, MCP সার্ভার, মডেল সেটিংস। এটি এক্সিকিউশন লেয়ারের কনফিগ, {{productName}}-এর অপারেশনাল বাইন্ডিং থেকে পৃথক।",
-        "apply_restart_sessions_at_the_top_to_apply_chang": "পরিবর্তনগুলো প্রয়োগ করতে উপরে থাকা “প্রয়োগ করুন ও সেশন রিস্টার্ট”।",
         "invalid_json": "অবৈধ JSON",
         "loading": "লোড হচ্ছে…",
         "save": "সেভ করো",

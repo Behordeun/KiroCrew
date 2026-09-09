@@ -11101,11 +11101,9 @@
         "workflow_description": "विवरण"
       },
       "agentCfgTab": {
-        "after_saving_use": "सहेजने के बाद, उपयोग करें",
         "agent_config_file": "एजेंट कॉन्फ़िग ({{file}})",
         "agent_config_json": "एजेंट कॉन्फ़िग JSON",
         "agent_config_tip": "{{process}} एजेंट परिभाषा — प्रॉम्प्ट, टूल, MCP सर्वर, मॉडल सेटिंग्स। यह एक्ज़ीक्यूशन लेयर कॉन्फ़िग है, जो {{productName}} की ऑपरेशनल बाइंडिंग से अलग है।",
-        "apply_restart_sessions_at_the_top_to_apply_chang": "बदलाव लागू करने के लिए ऊपर दिया गया लागू करें और सत्र रीस्टार्ट करें बटन।",
         "invalid_json": "अमान्य JSON",
         "loading": "लोड हो रहा है…",
         "save": "सहेजें",

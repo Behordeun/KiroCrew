@@ -11262,11 +11262,9 @@
         "workflow_description": "Descrição"
       },
       "agentCfgTab": {
-        "after_saving_use": "Após salvar, use",
         "agent_config_file": "Configuração do agente ({{file}})",
         "agent_config_json": "JSON de configuração do agente",
         "agent_config_tip": "A definição do agente {{process}} — prompt, ferramentas, servidores MCP e configurações do modelo. Esta é a configuração da camada de execução, separada dos vínculos operacionais do {{productName}}.",
-        "apply_restart_sessions_at_the_top_to_apply_chang": "Aplicar e reiniciar sessões no topo para aplicar as alterações.",
         "invalid_json": "JSON inválido",
         "loading": "Carregando…",
         "save": "Salvar",

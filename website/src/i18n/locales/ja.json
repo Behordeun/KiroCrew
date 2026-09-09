@@ -10940,11 +10940,9 @@
         "workflow_description": "説明"
       },
       "agentCfgTab": {
-        "after_saving_use": "保存後、使用",
         "agent_config_file": "エージェント設定 ({{file}})",
         "agent_config_json": "エージェント設定 JSON",
         "agent_config_tip": "{{process}} エージェント定義 — プロンプト、ツール、MCP サーバー、モデル設定。これは {{productName}} の運用バインディングとは別の実行層の設定です。",
-        "apply_restart_sessions_at_the_top_to_apply_chang": "変更を適用するには、上部の「適用してセッションを再起動」をクリックします。",
         "invalid_json": "無効な JSON",
         "loading": "読み込み中…",
         "save": "保存",

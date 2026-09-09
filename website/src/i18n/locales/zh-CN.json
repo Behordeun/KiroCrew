@@ -10940,11 +10940,9 @@
         "workflow_description": "说明"
       },
       "agentCfgTab": {
-        "after_saving_use": "保存后，使用",
         "agent_config_file": "代理配置 ({{file}})",
         "agent_config_json": "代理配置 JSON",
         "agent_config_tip": "{{process}} 代理定义——提示词、工具、MCP 服务器、模型设置。这是执行层配置，与 {{productName}} 的运行绑定相互独立。",
-        "apply_restart_sessions_at_the_top_to_apply_chang": "顶部的“应用并重启会话”使更改生效。",
         "invalid_json": "JSON 格式无效",
         "loading": "正在加载…",
         "save": "保存",
