@@ -532,11 +532,31 @@ export default function MembersPage() {
   // live slots and therefore this list, which is the honest reading of
   // "driving right now".
   const activeMemberKey = activeSlot || active?.slot_key || ''
+  // The ORDER is committed per DRIVEN SET, not per frame. `liveSlots` refreshes
+  // on every WS slots frame and `lastActivityEpoch` advances whenever a worker
+  // does anything, so sorting per render moves rows under the cursor mid-click —
+  // and each row is a jump into a session, so a shifted row navigates into the
+  // WRONG one. It also decides which rows sit behind the DRIVING_VISIBLE fold,
+  // so a live re-sort can pull a row out from under the pointer entirely.
+  // Row CONTENT still updates from every frame (status dot, title, timestamp);
+  // only the positions hold, until the driven set changes (a worker opens or
+  // closes) or the member does, either of which re-sorts from scratch by
+  // recency. Same rule as the roster order above, and the same reason.
+  const committedDrivingRef = useRef<{ member: string; keys: string[] }>({ member: '', keys: [] })
   const drivingSessions = useMemo(() => {
     if (!activeMemberKey) return []
-    return liveSlots
-      .filter((s) => !!s.created_by && s.created_by === activeMemberKey)
-      .sort((a, b) => lastActivityEpoch(b) - lastActivityEpoch(a))
+    const mine = liveSlots.filter((s) => !!s.created_by && s.created_by === activeMemberKey)
+    const byKey = new Map(mine.map((s) => [s.key, s]))
+    const prev = committedDrivingRef.current
+    const sameSet =
+      prev.member === activeMemberKey &&
+      prev.keys.length === byKey.size &&
+      prev.keys.every((k) => byKey.has(k))
+    const keys = sameSet
+      ? prev.keys
+      : [...mine].sort((a, b) => lastActivityEpoch(b) - lastActivityEpoch(a)).map((s) => s.key)
+    committedDrivingRef.current = { member: activeMemberKey, keys }
+    return keys.map((k) => byKey.get(k)).filter((s): s is (typeof mine)[number] => !!s)
   }, [liveSlots, activeMemberKey])
   // Collapsed past DRIVING_VISIBLE rows. Keyed to the member: the fold is a
   // reading position in ONE member's list, so switching members starts the

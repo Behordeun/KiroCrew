@@ -784,6 +784,50 @@ describe('MembersPage drawer — driving sessions', () => {
     expect(navigateSpy).toHaveBeenCalledWith('/chat?sid=chat-1-w')
   })
 
+  it('a slots frame never reorders the list; a change to the driven set re-sorts it', async () => {
+    // Each row navigates, so a row that moves between aim and click sends the
+    // reader into a DIFFERENT session — and `lastActivityEpoch` advances on
+    // every frame from a worker that is merely working.
+    const { store } = await openDrawer([
+      worker('chat-1-a', { last_turn_ts: '2026-09-04T12:00:00Z' }),
+      worker('chat-1-b', { last_turn_ts: '2026-09-04T11:00:00Z' }),
+    ])
+    // `textContent` concatenates the title with the status words, so read the
+    // key off the row's title attribute ("Worker <key>" + separator + label).
+    const keys = () =>
+      screen
+        .getAllByTestId('member-driving-row')
+        .map((r) => r.getAttribute('title')?.split(' ')[1])
+    expect(keys()).toEqual(['chat-1-a', 'chat-1-b'])
+    // b becomes the most recently active AND starts running: the status dot must
+    // update in place while the row stays where the reader last saw it.
+    act(() => {
+      store.dispatch(
+        sseSlots([
+          worker('chat-1-a', { last_turn_ts: '2026-09-04T12:00:00Z' }),
+          worker('chat-1-b', { running: true, last_turn_ts: '2026-09-04T13:30:00Z' }),
+        ] as never),
+      )
+    })
+    await waitFor(() =>
+      expect(screen.getAllByTestId('member-driving-row')[1]).toHaveAttribute('data-status', 'running'),
+    )
+    expect(keys()).toEqual(['chat-1-a', 'chat-1-b'])
+    // A new worker opens — the driven set changed, so the whole list re-sorts by
+    // recency at once rather than appending out of order.
+    act(() => {
+      store.dispatch(
+        sseSlots([
+          worker('chat-1-a', { last_turn_ts: '2026-09-04T12:00:00Z' }),
+          worker('chat-1-b', { running: true, last_turn_ts: '2026-09-04T13:30:00Z' }),
+          worker('chat-1-c', { last_turn_ts: '2026-09-04T13:00:00Z' }),
+        ] as never),
+      )
+    })
+    await waitFor(() => expect(screen.getAllByTestId('member-driving-row')).toHaveLength(3))
+    expect(keys()).toEqual(['chat-1-b', 'chat-1-c', 'chat-1-a'])
+  })
+
   it('folds past five rows behind a Show-all toggle that expands and collapses', async () => {
     await openDrawer(Array.from({ length: 7 }, (_, i) => worker(`chat-1-w${i}`)))
     expect(screen.getAllByTestId('member-driving-row')).toHaveLength(5)
