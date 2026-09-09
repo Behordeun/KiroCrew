@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from typing import Any
 
 from aiohttp import web
@@ -113,6 +113,137 @@ def _serialize(loop: Any) -> dict[str, Any]:
 
 def _serialize_monitor(loop: Any) -> dict[str, Any]:
     return _serialize(loop)
+
+
+#: Legacy loop fields WITHHELD from a structured monitor's legacy projection.
+#:
+#: The legacy reads carry no owner gate, so what they may publish is decided by
+#: ENTITLEMENT, not by convenience: a caller already reaching them is entitled to
+#: know that something is monitoring this session, roughly how often, how far in
+#: and in what state. It is not entitled to know WHAT is being watched. Each name
+#: below is withheld for one of two reasons, and no withheld field is replaced by
+#: a null, an empty string or a plausible default -- an absent field reads as
+#: "this surface does not carry that", where a faked one reads as fact.
+#:
+#: OWNER-SCOPED, because it describes the subject or the evidence:
+#:
+#: * ``monitor`` -- the whole ``monitor_state_public_dict``: target URL,
+#:   objective, kind, budgets, wake instructions, the provider-controlled
+#:   observation payload and every fingerprint. Published only by
+#:   ``/api/monitors`` and its per-slot sibling, both behind
+#:   ``_require_monitor_owner``, and to owners only on the ``autonudge_state``
+#:   websocket frame via ``broadcast_ws_owners``.
+#: * ``message`` -- for a structured monitor this IS the wake instructions.
+#:   Both arming paths set ``message=monitor.wake_instructions or "structured
+#:   monitor"``, so returning the legacy field verbatim would publish
+#:   owner-scoped text through a field that looks innocuous.
+#: * ``banner`` -- the same class of agent-authored display text, and a monitor
+#:   has no banner to describe.
+#: * ``stop_sentinel_path`` -- a filesystem path, and the structured branch of
+#:   ``_timer`` returns before the sentinel is ever tested.
+#:
+#: UNMAINTAINED on the structured path -- but two of these three have a TRUTHFUL
+#: equivalent in the monitor's own state, so they are MAPPED (below) rather than
+#: withheld. Withholding them was worse than an imprecise truth: the component
+#: defaults an absent ``max_cycles`` to 0, whose label reads "0 = infinity", so
+#: the panel asserted that a budget-bounded monitor runs forever. A default that
+#: lies is a stronger falsehood than a slightly coarse number.
+#:
+#: ``stop_sentinel_path`` has no equivalent and stays withheld: the structured
+#: branch of ``_timer`` returns before the sentinel is ever tested, and a
+#: filesystem path is owner-scoped regardless.
+#:
+#: A GATED prompt loop is in NEITHER case: it carries probe state but still
+#: delivers down the legacy path, so its message and its cycle accounting are
+#: real, and ``is_structured_monitor_loop`` already excludes it.
+_MONITOR_WITHHELD_LEGACY_FIELDS = frozenset(
+    {
+        "monitor",
+        "message",
+        "banner",
+        "stop_sentinel_path",
+        "max_cycles",
+        "cycle_count",
+        "last_fire_ts",
+    }
+)
+
+#: Legacy field -> the monitor attribute path carrying its truthful value.
+#:
+#: Each is the automation's OWN accounting, not a fact about its subject, so none
+#: crosses the entitlement boundary -- and this route already publishes
+#: ``max_runtime_secs`` straight from ``budgets``, so a second budget is the same
+#: class rather than a new one.
+#:
+#: * ``max_cycles`` <- ``budgets.max_agent_turns``. A legacy "cycle" IS a
+#:   delivered turn, which is exactly what that budget bounds.
+#: * ``cycle_count`` <- ``agent_turns``, the numerator of the same reading.
+#:   Carrying the bound alone would render "0 of 8" for a monitor that has spent
+#:   turns, replacing one falsehood with another.
+#: * ``last_fire_ts`` <- ``last_completed_at``, which ``autonudge.py`` writes in
+#:   the same step as ``wake_count += 1``, so it is when this automation last
+#:   delivered; 0.0 means none has, which renders "never" truthfully. NOT
+#:   ``last_probe_at`` -- a probe that woke nothing is not a fire, and mapping it
+#:   would invent an event.
+_MONITOR_MAPPED_LEGACY_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("max_cycles", ("budgets", "max_agent_turns")),
+    ("cycle_count", ("agent_turns",)),
+    ("last_fire_ts", ("last_completed_at",)),
+)
+
+#: The ONE thing a reduced row does NOT carry that a reader may want: how far in
+#: the monitor is. `cycle_count` is withheld above because for a monitor it is
+#: false, and nothing replaces it here.
+#:
+#: A `monitor_presence` object (`probe_count`, `wake_count`, `outcome`) was
+#: prepared for exactly that and is deliberately NOT shipped on this route. It
+#: would have had no reader: the popover rendering that would display it is
+#: sequenced separately, and this route's one unproven claim is precisely whether
+#: a consumer handles what it is sent. A field whose arrival AND display can be
+#: tested in one change belongs in that change. So the liveness gap is REAL and
+#: recorded, not silently filled.
+#:
+#: Consequence a reader must know: a reduced row carries no positive marker
+#: saying "this is a monitor". It is told apart by the ABSENCE of the withheld
+#: fields, which is weaker than a marker and is the other half of what the
+#: rendering change should add.
+
+
+def _serialize_for_legacy_reader(loop: Any) -> dict[str, Any]:
+    """Project ANY loop, structured monitor included, into the legacy shape.
+
+    A structured monitor belongs on these reads: the goal popover is the only
+    place a person can see what is armed on a session, so withholding the record
+    leaves it reporting nothing armed while a monitor is probing, and hides that
+    from a caller entitled to know it.
+
+    Returning the record verbatim is the opposite and worse fault: these routes
+    have no owner gate, and the structured record is owner-scoped everywhere else
+    it is published. So a structured monitor is reduced HERE, by what the caller
+    is entitled to, and the reduction is enforced by never assembling the
+    withheld fields rather than by assembling them and deleting them -- no
+    intermediate payload holds the monitor for a later edit to leak.
+
+    A plain or gated loop is untouched and still goes through ``_serialize``.
+    """
+    if not is_structured_monitor_loop(loop):
+        return _serialize(loop)
+    # Every field that survives the filter is a scalar, which is what keeps this
+    # projection JSON-safe without ``asdict``'s recursive copy -- the only nested
+    # field on the dataclass is ``monitor``, and it is withheld. A test pins the
+    # surviving key set so a new field cannot silently join or skip this route.
+    payload = {
+        field.name: getattr(loop, field.name)
+        for field in fields(loop)
+        if field.name not in _MONITOR_WITHHELD_LEGACY_FIELDS
+    }
+    monitor = loop.monitor
+    for name, path in _MONITOR_MAPPED_LEGACY_FIELDS:
+        value: Any = monitor
+        for attr in path:
+            value = getattr(value, attr)
+        payload[name] = value
+    return payload
 
 
 def _autonudge_loop_reading(loop: Any) -> dict[str, Any]:
@@ -286,23 +417,41 @@ def _monitor_config(body: dict[str, Any]) -> MonitorState:
 
 
 async def api_autonudge_list(request: web.Request) -> web.Response:
-    """GET /api/autonudge — list all active loops."""
+    """GET /api/autonudge — list every loop, structured monitors included.
+
+    A structured monitor appears as an armed row, so a reader of this list cannot
+    mistake a running monitor for nothing armed. It is REDUCED rather than
+    returned verbatim -- this route has no owner gate, so it publishes presence,
+    cadence, liveness and state, and never what is being watched. See
+    ``_serialize_for_legacy_reader`` for the field-by-field reasoning, and
+    ``/api/monitors`` for the owner-gated full record.
+    """
     svc = _autonudge_get()
     if svc is None:
         return web.json_response({"enabled": False, "loops": []})
-    loops = [_serialize(lp) for lp in svc.list_all() if not is_structured_monitor_loop(lp)]
+    loops = [_serialize_for_legacy_reader(lp) for lp in svc.list_all()]
     return web.json_response({"enabled": True, "loops": loops})
 
 
 async def api_autonudge_get(request: web.Request) -> web.Response:
-    """GET /api/autonudge/{slot_key} — loop bound to this slot (or null)."""
+    """GET /api/autonudge/slot/{slot_key} — loop bound to this slot (or null).
+
+    ``null`` means exactly one thing: nothing is armed on this slot. A structured
+    monitor bound here is returned, under the same entitlement-scoped reduction as
+    the list route above, so "armed but withheld" is not a second reading of the
+    same answer.
+    """
     svc = _autonudge_get()
     slot_key = request.match_info["slot_key"]
     if svc is None:
         return web.json_response({"enabled": False, "loop": None})
     loop = svc.get_by_slot(slot_key)
-    legacy = loop if loop is not None and not is_structured_monitor_loop(loop) else None
-    return web.json_response({"enabled": True, "loop": _serialize(legacy) if legacy else None})
+    return web.json_response(
+        {
+            "enabled": True,
+            "loop": _serialize_for_legacy_reader(loop) if loop is not None else None,
+        }
+    )
 
 
 async def api_session_monitor_get(request: web.Request) -> web.Response:
@@ -752,8 +901,10 @@ async def api_autonudge_fire(request: web.Request) -> web.Response:
 
     * A **structured monitor** is refused with the same 409 code ``PATCH`` uses.
       Those records are driven by ``_on_monitor_tick`` and owned by the monitor
-      API; the goal popover never sees one, since ``api_autonudge_get`` filters
-      them out.
+      API, so a manual cycle here would deliver a legacy prompt for a record that
+      never takes that path. The goal popover DOES see one -- the read routes
+      above return it -- which is why this refusal has to be stated rather than
+      left to the reader being unable to reach it.
     * A **busy session** is refused rather than queued, and that is not a fresh
       product decision — the fire path this route arms already made it, with its
       reason written down at the site: queueing "would stack identical 3KB+

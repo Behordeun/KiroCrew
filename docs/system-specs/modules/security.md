@@ -1299,7 +1299,11 @@ authentication middleware and the handler require the internal-secret trust
 marker before the supplied `X-Session-Key` is resolved, with no browser-cookie
 fallback. Allow and deny decisions are best-effort SEL audited with operation and
 coarse reason only.
-Legacy AutoNudge reads exclude structured records, and structured WebSocket
+Legacy AutoNudge reads return a structured record REDUCED to what a caller with
+no owner gate is entitled to -- presence, cadence, liveness and state, with the
+monitor record itself plus `message` (which on a structured monitor holds the wake
+instructions), `banner` and the sentinel path all withheld -- so the full record
+stays readable only through the owner-gated monitor routes. Structured WebSocket
 state is sent only to the owner-authorized client set. If a structured id is
 presented to the legacy DELETE route, that route applies the same owner gate
 before delegating to the monitor stop authorizer.
