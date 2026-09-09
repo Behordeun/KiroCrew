@@ -1342,6 +1342,13 @@ export default function App() {
   const mobileConnectKinds = (mobileConnectQuery.data?.methods ?? [])
     .map(m => m.kind)
     .filter(canRenderMobileConnectKind)
+  const hasRenderableMobileConnect = mobileConnectKinds.length > 0
+  // A methods refresh can revoke or replace every previously renderable kind
+  // while the overlay is open. Close it rather than preserving state that would
+  // remount the dialog if a future refresh happens to add a method back.
+  useEffect(() => {
+    if (!hasRenderableMobileConnect) setMobileConnectOpen(false)
+  }, [hasRenderableMobileConnect])
   // Selected session's project directory: a terminal opened from the nav row
   // starts there (server default when no session is selected or it has none).
   const activeSlotProject = useAppSelector(selectActiveSlotProject)
@@ -3850,7 +3857,7 @@ export default function App() {
           />
         </Suspense>
       )}
-      {mobileConnectOpen && (
+      {mobileConnectOpen && hasRenderableMobileConnect && (
         <Suspense fallback={null}>
           <MobileConnectModal kinds={mobileConnectKinds} onClose={() => setMobileConnectOpen(false)} />
         </Suspense>
@@ -4227,7 +4234,7 @@ export default function App() {
                   onClickOverride={() => { if (terminalPoppedOut) focusTerminalPopout(); else toggleBottomTerminal(activeSlotProject) }}
                 />
               )}
-              {mobileConnectKinds.length > 0 && (
+              {hasRenderableMobileConnect && (
                 <NavItem
                   path="#"
                   label={i18nT('app.connect_your_phone')}
