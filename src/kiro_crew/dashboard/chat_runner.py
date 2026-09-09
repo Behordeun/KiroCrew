@@ -2864,8 +2864,69 @@ def _audit_name_grant_refusal(
     )
 
 
+def _authorize_recipient(
+    transport: Any,
+    channel_type: str,
+    conversation_id: str,
+    thread_id: str | None,
+    *,
+    principal: str,
+    session_key: str,
+    audit_allowed: bool = False,
+) -> bool:
+    """Decide and SEL-audit RECIPIENT authorization for one proactive target.
+
+    The ONE spelling of the recipient decision, shared by the ladder's own
+    recipient leg and the mirror-link creation handler's post-resolve
+    re-decision, so the two cannot drift: hardening the check (principal
+    derivation, thread semantics, audit shape) lands on both paths at once,
+    and a caller that opts out of the ladder leg is handed the exact function
+    it is obligated to call against the resolved id.
+
+    Fails closed on a raising transport — an allow-list check that errored has
+    authorized nobody, and this feeds a network egress boundary. A denial is
+    always SEL-audited (``channel.proactive_send_authorize`` / ``denied``): a
+    revoked recipient silently losing its messages looks exactly like an idle
+    agent. ``audit_allowed=True`` records the ALLOWED outcome too — the
+    mirror-link creation contract, where the decision sits beside the
+    resolver's both-outcome audit and admits a recipient once per link. The
+    per-send ladder legs keep denial-only, deliberately: they run per delivered
+    unit (a mirror backfill re-enters the ladder for every message), so an
+    allowed record there would write an audit row per mirrored message.
+
+    The SEL write itself is guarded: an audit-log failure must not turn a
+    decided outcome into a crashed send path, and the miss is logged.
+    """
+    try:
+        permitted = bool(transport.may_send_to(conversation_id, thread_id, principal=principal))
+    except Exception:
+        logger.warning(
+            "outbound recipient authorization check failed for %s; refusing (fail-closed)",
+            channel_type,
+            exc_info=True,
+        )
+        permitted = False
+    if not permitted or audit_allowed:
+        try:
+            sel().log_api_access(
+                caller=str(conversation_id or "unknown"),
+                operation="channel.proactive_send_authorize",
+                outcome="allowed" if permitted else "denied",
+                source=channel_type,
+                resources=f"{session_key} -> {channel_type}",
+            )
+        except Exception:
+            logger.debug("SEL logging failed for outbound authz decision", exc_info=True)
+    return permitted
+
+
 def _resolve_channel_target(
-    state: Any, session_key: str, link: Any, *, principal: str | None = None
+    state: Any,
+    session_key: str,
+    link: Any,
+    *,
+    principal: str | None = None,
+    check_recipient: bool = True,
 ) -> Any:
     """Resolve ``(link, transport)`` through the cross-surface send ladder.
 
@@ -2877,6 +2938,20 @@ def _resolve_channel_target(
     Deriving from that key would yield no principal and refuse a send whose
     recipient came off the transport's own allow-list. ``None`` means derive;
     a string is used verbatim.
+
+    *check_recipient* lets the ONE caller whose link does not yet name a
+    conversation opt out of the recipient leg: the mirror-link creation
+    pre-check (``chat_mirror.api_chat_slot_mirror_link``) runs this ladder on the
+    CONFIGURED-TARGET spelling (``user:<id>``) because channel-scope governance
+    must precede ``resolve_configured_target``'s possible network side effect —
+    but ``may_send_to`` is a recipient predicate over conversation ids, so that
+    spelling can never match a roster of bare ids and the leg would refuse
+    every allow-listed recipient. ``False`` skips ONLY the recipient leg;
+    governance and transport capability still gate the resolve, and the caller
+    MUST re-decide recipient authorization against the resolved conversation id
+    via :func:`_authorize_recipient` — the same function this leg runs — or
+    revocation stops being enforced on that path.
+    Every persisted-link caller keeps the default.
 
     This is the shared capability/governance seam for both actual mirror
     delivery and the dashboard's read-only ``links[].live`` projection.  It
@@ -2952,34 +3027,22 @@ def _resolve_channel_target(
     #
     # Fail closed on a raising transport: an allow-list check that errored has not
     # authorized anybody, and this is a network egress boundary.
-    try:
-        permitted = transport.may_send_to(
-            link.channel_id,
-            link.thread_id,
-            principal=(_session_principal(session_key) if principal is None else principal),
-        )
-    except Exception:
-        logger.warning(
-            "cross-surface: outbound authorization check failed for %s; refusing send",
-            link.channel_type,
-            exc_info=True,
-        )
-        permitted = False
-    if not permitted:
-        # Audited: a revoked recipient silently losing its notices looks exactly
-        # like an idle agent, so the refusal has to be observable.
-        try:
-            sel().log_api_access(
-                caller=str(link.channel_id or "unknown"),
-                operation="channel.proactive_send_authorize",
-                outcome="denied",
-                source=link.channel_type,
-                resources=f"{session_key} -> {link.channel_type}",
-            )
-        except Exception:
-            logger.debug("SEL logging failed for outbound authz denial", exc_info=True)
+    #
+    # Skipped only under check_recipient=False (see the docstring): a link that
+    # carries a configured-target id instead of a conversation id cannot be
+    # judged here, and its caller re-decides against the resolved id.
+    if not check_recipient:
+        return link, transport
+    if not _authorize_recipient(
+        transport,
+        link.channel_type,
+        link.channel_id,
+        link.thread_id,
+        principal=(_session_principal(session_key) if principal is None else principal),
+        session_key=session_key,
+    ):
         logger.info(
-            "cross-surface: outbound to %s refused - recipient no longer allow-listed",
+            "cross-surface: outbound to %s refused - recipient not allow-listed",
             link.channel_type,
         )
         return None

@@ -776,6 +776,24 @@ Four properties are load-bearing:
   and a raising implementation fails **closed**, because an allow-list check that
   errored has authorized nobody.
 
+  One caller opts out of this leg — and only this leg — with
+  `check_recipient=False`: the mirror-link creation pre-check
+  (`chat_mirror.api_chat_slot_mirror_link`), whose link carries the
+  configured-target SPELLING (`user:<id>`) rather than a conversation id, because
+  channel-scope governance must run before `resolve_configured_target`'s possible
+  network side effect. `may_send_to` judges conversation ids, so the prefixed
+  spelling can never match a roster of bare ids and every allow-listed recipient
+  was refused (#9414). The handler re-decides the recipient against the RESOLVED
+  conversation id immediately after resolution, through `_authorize_recipient` —
+  the ONE shared spelling of the recipient decision, the exact function this
+  ladder leg runs — with the same 403 contract and the principal from the target
+  spelling as `_deliver_channel_dm` does, so the decision moves later on that one
+  path; it is never skipped and the two copies cannot drift. That call passes
+  `audit_allowed=True`, so the admission is SEL-recorded on both outcomes (it
+  admits a recipient once per link); the per-send ladder legs keep denial-only,
+  because they run per delivered unit and an allowed record there would write an
+  audit row per mirrored message. Every persisted-link caller keeps the default.
+
   The check gets two inputs, because one alone cannot serve every channel. The
   **conversation id** answers it wherever that id already IS the roster identity:
   **Telegram** (a private `chat_id` IS the `user_id`; a Topic routes through the
