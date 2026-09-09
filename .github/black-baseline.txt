@@ -305,7 +305,6 @@ src/kiro_crew/mcp_tools/apps.py
 src/kiro_crew/mcp_tools/artifacts.py
 src/kiro_crew/mcp_tools/knowledge.py
 src/kiro_crew/mcp_tools/skills.py
-src/kiro_crew/mcp_utils.py
 src/kiro_crew/metrics/http_metrics.py
 src/kiro_crew/metrics/provider.py
 src/kiro_crew/metrics/recorder.py
@@ -314,7 +313,6 @@ src/kiro_crew/notifications/resource_pressure.py
 src/kiro_crew/notifications/settings.py
 src/kiro_crew/perf_sampler.py
 src/kiro_crew/platform/admission.py
-src/kiro_crew/platform/capability_bound.py
 src/kiro_crew/platform/update_layout.py
 src/kiro_crew/pod/config.py
 src/kiro_crew/pod/launchd.py
