@@ -778,7 +778,7 @@
     "test/test_builtin_projects_manifest.py": 2,
     "test/test_builtin_skill_sync_safety.py": 3,
     "test/test_capability_ledger.py": 3,
-    "test/test_catalog_inventory.py": 4,
+    "test/test_catalog_inventory.py": 2,
     "test/test_cc_models_endpoint.py": 3,
     "test/test_chained_full_rotation_overlap.py": 1,
     "test/test_channel_activation.py": 1,
