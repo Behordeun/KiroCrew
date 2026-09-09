@@ -1344,6 +1344,20 @@ SKILL_FETCH_SCHEMA = ToolSchema(
     ],
 )
 
+# kiro_cli_logs reads kiro-cli's own log files (never the fenced identity
+# stores) and returns a redacted tail. ``tail`` is a line count bounded by the
+# reader's own hard BYTE cap — the schema ceiling only guards against an absurd
+# value; the byte cap is what actually bounds the output. ``since`` is a leading
+# slice of a log line's own timestamp, matched lexically, so it is a short
+# string, not a parsed datetime.
+KIRO_CLI_LOGS_SCHEMA = ToolSchema(
+    tool_name="kiro_cli_logs",
+    fields=[
+        FieldSpec("tail", int, min_val=1, max_val=100000),
+        FieldSpec("since", str, max_len=MAX_SHORT_STRING),
+    ],
+)
+
 # Absolute filesystem path. Empty string is allowed (clears the project) —
 # the validator skips the pattern check on empty values, so the regex only
 # needs to cover the non-empty case.
