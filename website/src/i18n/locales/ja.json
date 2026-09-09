@@ -5283,6 +5283,7 @@
       "this_app_provides_agents_and_skills_but_no_visua": "このアプリはエージェントとスキルを提供しますが、ビジュアルインターフェースはありません。\n            チャットからそのエージェントを使用します。"
     },
     "approvalCard": {
+      "actions_group": "承認アクション",
       "approval_no_longer_pending": "この承認は期限切れか、すでに決定済みです — エージェントはもう待機していません。",
       "approve": "承認",
       "approved": "承認済み",

@@ -4034,6 +4034,7 @@
       "this_app_provides_agents_and_skills_but_no_visua": "This app provides agents and skills but no visual interface.\n            Use its agents from chat."
     },
     "approvalCard": {
+      "actions_group": "Approval actions",
       "approve": "Approve",
       "approved": "Approved",
       "reject": "Reject",

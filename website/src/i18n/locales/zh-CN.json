@@ -5301,6 +5301,7 @@
       "this_app_provides_agents_and_skills_but_no_visua": "此应用提供代理和技能，但没有可视界面。\n            请在聊天中使用它的代理。"
     },
     "approvalCard": {
+      "actions_group": "审批操作",
       "approval_no_longer_pending": "这条审批已过期或已被处理 — 代理不再等待它。",
       "approve": "批准",
       "approved": "已批准",
