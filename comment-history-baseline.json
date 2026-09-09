@@ -1134,7 +1134,6 @@
     "test/test_jsonl_util.py": 9,
     "test/test_kas_agents.py": 1,
     "test/test_kas_display_mapping.py": 1,
-    "test/test_kas_spawn.py": 2,
     "test/test_kiro_prerequisite.py": 12,
     "test/test_kiro_spawn_readiness_gate.py": 2,
     "test/test_kiro_usage_api.py": 2,
