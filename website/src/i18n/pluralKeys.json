@@ -117,6 +117,7 @@
   "pages.appsPage.app",
   "pages.appsPage.cron_job",
   "pages.appsPage.skill",
+  "pages.appsPage.show_disabled",
   "pages.appsPage.update",
   "pages.appsPage.updated_app",
   "pages.appsPage.updates_hint",
