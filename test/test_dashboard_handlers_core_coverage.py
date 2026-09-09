@@ -1444,6 +1444,7 @@ class TestSttTranscribe:
         with the ``voice`` extra installed than on one without.
         """
         monkeypatch.setattr(core_mod, "availability_detail", lambda _cfg: _availability(True))
+        monkeypatch.setattr(core_mod, "audio_exceeds_secs", AsyncMock(return_value=False))
 
     @pytest.mark.asyncio
     async def test_unavailable_backend_is_503_naming_the_reason(self, monkeypatch) -> None:
@@ -1501,6 +1502,45 @@ class TestSttTranscribe:
         body = json.loads(resp.body)
         assert body["error"] == "audio too large"
         assert body["code"] == "stt_audio_too_large"
+
+    @pytest.mark.asyncio
+    async def test_over_duration_upload_is_refused_before_transcription(self, monkeypatch) -> None:
+        monkeypatch.setattr(core_mod, "batch_duration_cap_secs", lambda _cfg: 3600)
+        probe = AsyncMock(return_value=True)
+        monkeypatch.setattr(core_mod, "audio_exceeds_secs", probe)
+        transcribe = AsyncMock()
+        monkeypatch.setattr("kiro_crew.transcribe.transcribe_audio", transcribe)
+        field = SimpleNamespace(
+            name="audio",
+            filename="recording.webm",
+            read_chunk=AsyncMock(side_effect=[b"audio-bytes", b""]),
+        )
+
+        resp = await core_mod.api_stt_transcribe(_multipart_req(field))
+
+        assert resp.status == 422
+        body = json.loads(resp.body)
+        assert body["code"] == "stt_audio_too_long"
+        assert "60-minute" in body["error"]
+        transcribe.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_unverified_duration_is_retryable_and_not_transcribed(self, monkeypatch) -> None:
+        monkeypatch.setattr(core_mod, "batch_duration_cap_secs", lambda _cfg: 3600)
+        monkeypatch.setattr(core_mod, "audio_exceeds_secs", AsyncMock(return_value=None))
+        transcribe = AsyncMock()
+        monkeypatch.setattr("kiro_crew.transcribe.transcribe_audio", transcribe)
+        field = SimpleNamespace(
+            name="audio",
+            filename="recording.webm",
+            read_chunk=AsyncMock(side_effect=[b"audio-bytes", b""]),
+        )
+
+        resp = await core_mod.api_stt_transcribe(_multipart_req(field))
+
+        assert resp.status == 503
+        assert json.loads(resp.body)["code"] == "stt_audio_duration_unverified"
+        transcribe.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_transcript_is_returned_and_redacted(self, monkeypatch) -> None:
