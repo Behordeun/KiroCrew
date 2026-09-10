@@ -392,7 +392,7 @@
     "src/kiro_crew/knowledge/retrieval.py": 1,
     "src/kiro_crew/knowledge/store.py": 21,
     "src/kiro_crew/learn.py": 4,
-    "src/kiro_crew/llm_helpers.py": 4,
+    "src/kiro_crew/llm_helpers.py": 3,
     "src/kiro_crew/log_redaction.py": 1,
     "src/kiro_crew/loop_lock.py": 3,
     "src/kiro_crew/mcp_apps_render.py": 1,
