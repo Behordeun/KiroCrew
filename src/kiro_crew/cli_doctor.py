@@ -45,6 +45,7 @@ from kiro_crew.config.loader import (
     normalize_agent_model,
     resolve_agent_bindings,
     resolve_effective_model,
+    unsandboxed_exec_declared,
 )
 from kiro_crew.config.paths import (
     LEGACY_CONFIG_DIR_NAME,
@@ -1637,7 +1638,60 @@ def _doctor_sandbox(issues: list[str]) -> None:
         return
     # Platforms with no OS-level backend to offer (Windows; macOS builds without
     # sandbox-exec) — a fact about the platform, not a fault of this install.
+    # Report what that MEANS for spawns, not just that the backend is absent: with
+    # no backend the configured posture is either "refuse every agent subprocess"
+    # or "run them unconfined", and an operator reading this line needs to know
+    # which.
+    #
+    # Stated as the POSTURE, not as what will happen. A governance
+    # sandbox.min_level floor is resolved per spawn against the mode that spawn
+    # requested, so it is not foldable into one host-level answer — and on a
+    # governed host it makes wrap_argv refuse the very spawns a bare "they run
+    # unconfined" would promise. Each permitting branch therefore names the floor
+    # as the thing that overrides it.
     print("  backend:     ⏭  no OS-level sandbox backend on this platform")
+    permitted_by = sandbox.unsandboxed_exec_permitted_by()
+    if permitted_by == sandbox.UNSANDBOXED_BY_PLATFORM:
+        print("  exec:        ⚠️  configured to run agent subprocesses UNCONFINED")
+        _print_wrapped(
+            "This is the default for a platform with no backend to install: "
+            "~/.aws, ~/.ssh and the rest of your home directory are readable by "
+            "an agent subprocess, and only the bypassable app-level checks "
+            "remain. Every such spawn is audited. To refuse them instead, set "
+            "agent.sandbox_allow_unsandboxed_exec=false. A governance "
+            "sandbox.min_level floor overrides this and makes such spawns fail "
+            "closed, so a managed host refuses them despite this line."
+        )
+    elif permitted_by == sandbox.UNSANDBOXED_BY_OPERATOR:
+        print("  exec:        ⚠️  unconfined by declaration — sandbox_allow_unsandboxed_exec=true")
+        _print_wrapped(
+            "The operator declared this opt-in, so agent subprocesses run "
+            "without OS-level isolation and every such spawn is audited. Remove "
+            "the key to fall back to this platform's default. A governance "
+            "sandbox.min_level floor overrides the declaration and makes such "
+            "spawns fail closed."
+        )
+    else:
+        print("  exec:        ⛔ agent subprocesses are REFUSED on this host")
+        if unsandboxed_exec_declared():
+            _print_wrapped(
+                "agent.sandbox_allow_unsandboxed_exec is set to false, so MCP "
+                "servers, app backends and the provider CLIs will report a "
+                "sandbox error. Remove the key to accept this platform's "
+                "default, or set it to true to allow unconfined execution."
+            )
+        else:
+            # Undeclared AND fail-closed: a platform with no backend whose default
+            # is still refuse (a macOS build without sandbox-exec). Telling this
+            # operator the key "is set to false" would send them to change
+            # something they never wrote.
+            _print_wrapped(
+                "No backend is available and no opt-in is declared, so MCP "
+                "servers, app backends and the provider CLIs will report a "
+                "sandbox error. Set agent.sandbox_allow_unsandboxed_exec=true to "
+                "allow unconfined execution, or run `kirocrew setup` to be walked "
+                "through the decision."
+            )
 
 
 def _linger_enabled(user: str) -> bool | None:
