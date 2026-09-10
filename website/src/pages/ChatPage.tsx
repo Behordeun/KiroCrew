@@ -98,11 +98,26 @@ import { useChatPageResourcesController } from './chat/useChatPageResourcesContr
 import EarlierMessagesBar from './chat/EarlierMessagesBar'
 import TranscriptScrollShell from './chat/TranscriptScrollShell'
 import { devLog, devWatchMessages, inspectorOn } from '../dev/scrollInspector'
+import TurnNavigationMinimap from './chat/TurnNavigationMinimap'
 import { useVirtualChat } from '../hooks/virtualizer/useVirtualChat'
 import { addPendingFile, prepareSendPayload, buildRelMap, hasExactRelMention, normalizeWindowsPath, parseDirTokens, serializeDirTokens, spliceDirTokens } from '../utils/fileTokens'
 import { makeRelative } from '../components/FilePickerMenu'
 import { type PasteBlock, expandAll as expandPasteTokens, pruneBlocks as pruneBlocksUtil, remapCarriedBlocks, saveStoredPaste } from '../utils/pasteTokens'
 import { extractPromptFromToken, extractSlackContextFromToken } from '../utils/tokenPrompt'
+/** Map message index → displayItems index, for scroll-to-match and the turn minimap. */
+function buildMessageToDisplayIdx(items: DisplayItem[]): Map<number, number> {
+  const map = new Map<number, number>()
+  items.forEach((item, di) => {
+    if (item.kind === 'turn') {
+      for (const ti of item.items) {
+        if (ti.kind === 'single') map.set(ti.idx, di)
+        else if (ti.kind === 'group') ti.msgs.forEach((_, mi) => map.set(ti.startIdx + mi, di))
+      }
+    } else if (item.kind === 'single') map.set(item.idx, di)
+    else if (item.kind === 'group') item.msgs.forEach((_, mi) => map.set(item.startIdx + mi, di))
+  })
+  return map
+}
 /** Delay (ms) before scrolling to bottom after a state update, giving React time to commit. */
 const SCROLL_AFTER_RENDER_MS = 100
 /** Min gap between scroll-gesture-driven retries of a failed older-history
@@ -4685,7 +4700,12 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
   // new chat's first send briefly showed the previous session's messages
   // (#8526). Only same-slot updates (streaming flushes, history landings) are
   // deferred; a switch renders the right transcript in its first commit.
-  const renderedDisplayItems = useSlotDeferredValue(activeSlot, displayItems)
+  // One deferred frame carries both the rows the virtualizer draws and the
+  // messages they came from, so every deferred reader (the transcript, the
+  // turn minimap, the Navigation tab) sees the same snapshot by construction.
+  const liveTranscript = useMemo(() => ({ messages, displayItems }), [messages, displayItems])
+  const renderedTranscript = useSlotDeferredValue(activeSlot, liveTranscript)
+  const renderedDisplayItems = renderedTranscript.displayItems
 
   // Keep the ref in sync so handleRangeChanged / updatePinnedPrompt
   // read the latest displayItems. useLayoutEffect (not useEffect): the DOM's
@@ -5362,21 +5382,25 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
 
 
   // Search: map message index → displayItems index for scroll-to-match
-  const messageToDisplayIdx = useMemo(() => {
-    const map = new Map<number, number>()
-    displayItems.forEach((item, di) => {
-      if (item.kind === 'turn') {
-        for (const ti of item.items) {
-          if (ti.kind === 'single') map.set(ti.idx, di)
-          else if (ti.kind === 'group') ti.msgs.forEach((_, mi) => map.set(ti.startIdx + mi, di))
-        }
-      } else if (item.kind === 'single') map.set(item.idx, di)
-      else if (item.kind === 'group') item.msgs.forEach((_, mi) => map.set(item.startIdx + mi, di))
-    })
-    return map
-  }, [displayItems])
+  const messageToDisplayIdx = useMemo(() => buildMessageToDisplayIdx(displayItems), [displayItems])
 
-  const chatNav = useChatNavigation(messages, messageToDisplayIdx)
+  const navigateToTurn = useCallback((displayIndex: number) => {
+    navToDisplayIndex(displayIndex, { behavior: 'smooth', align: 'start', offset: -24 })
+  }, [navToDisplayIndex])
+
+  // The transcript renders the deferred `renderedTranscript` snapshot; while a
+  // history page lands, live indexes lead the rows on screen. The minimap's
+  // items and index map come from that same frame, so a marker's display index
+  // always names the row the virtualizer is actually showing.
+  const renderedMessageToDisplayIdx = useMemo(
+    () => buildMessageToDisplayIdx(renderedTranscript.displayItems),
+    [renderedTranscript.displayItems],
+  )
+  // One per-turn derivation: `sections` feeds the turn minimap; `links` feeds the
+  // Navigation tab. Both read the deferred snapshot, so the link list trails a
+  // landing history page by one deferred commit -- deliberate, and harmless for
+  // a side panel.
+  const chatNav = useChatNavigation(renderedTranscript.messages, renderedMessageToDisplayIdx)
 
   // ── Chat Pins ──────────────────────────────────────────────────────────────
   const {
@@ -5981,7 +6005,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
     // nothing for them, and the bare wrapper would still stack py-1 spacers,
     // one per quiet monitor cycle.
     if (it.kind === 'single' && isHiddenInvisibleAssistantRow(it.msg)) return null
-    return <div key={turnLeadKey(it, stableMsgKey)} className={`px-4 mx-auto w-full py-1`} style={{ maxWidth: 'var(--mc-content-width, 900px)' }}>
+    return <div key={turnLeadKey(it, stableMsgKey)} data-content-column="" className={`px-4 mx-auto w-full py-1`} style={{ maxWidth: 'var(--mc-content-width, 900px)' }}>
       {it.kind === 'group' ? (() => {
         const unresolvedPerms = it.msgs.filter(m => m.role === 'permission' && !m.meta?.resolved)
         // Skip group entirely if it only contains unresolved permissions (handled by ApprovalBar)
@@ -6019,7 +6043,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
       return <TurnBlock turn={item} renderItem={renderTurnItem} collapseAll={chatConfig.collapseAllSteps} appToolCallIds={appToolCallIds} disclosure={undefined} disclosureKey={`farm-${i}`} onDisclosureChange={() => {}} />
     }
     return (
-      <div className={`px-4 mx-auto w-full py-1`} style={{ maxWidth: 'var(--mc-content-width, 900px)' }}>
+      <div data-content-column="" className={`px-4 mx-auto w-full py-1`} style={{ maxWidth: 'var(--mc-content-width, 900px)' }}>
         {item.kind === 'group' ? (() => {
           if (item.msgs.every(m => m.role === 'permission')) return null
           return (
@@ -7206,6 +7230,17 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
                 />
               </motion.div>
             ) : (
+            <>
+            <TurnNavigationMinimap
+              items={chatNav.sections}
+              scrollerRef={scrollerRef}
+              onNavigate={navigateToTurn}
+              // The rail maps loaded turns only; while the server holds older
+              // rows it wears an end-cap that says so and loads them (#8221).
+              earlier={slotHasMore && cursorIsForActiveSlot
+                ? { loading: loadingOlder, onLoad: handleLoadEarlier }
+                : undefined}
+            />
             <TranscriptScrollShell
               scrollerRef={scrollerRef}
               onScroll={onScrollPin}
@@ -7359,6 +7394,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
               })}
               
             </TranscriptScrollShell>
+            </>
             )}
             {/* Restore cover. A session left mid-history reopens on a transcript
                 that hydrates in chunks and is only positioned once its anchored

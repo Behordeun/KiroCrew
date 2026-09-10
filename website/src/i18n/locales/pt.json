@@ -9933,6 +9933,11 @@
       }
     },
     "chatPage": {
+      "turn_minimap": "Navegar pelos turnos da conversa",
+      "turn_minimap_active": "Turno {{current}} de {{count}}: {{prompt}}",
+      "turn_minimap_active_windowed": "Turno {{current}} de {{count}} carregados: {{prompt}}",
+      "turn_minimap_earlier": "Os turnos anteriores ainda não foram carregados. Carregar mensagens mais antigas",
+      "turn_minimap_landmark": "Turnos da conversa",
       "agent_list": "Lista de agentes",
       "agent_selector": "Seletor de agentes",
       "autopilot_plans_before_executing_each_stage_need": "O Autopilot planeja antes de executar. Cada etapa precisa da sua aprovação (ou selecione 'Go All' para executar de forma autônoma). Subagentes são delegados automaticamente. As lições do plano persistem entre sessões.",
