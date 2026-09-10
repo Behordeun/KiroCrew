@@ -101,7 +101,11 @@ from kiro_crew.acp.types import (
     JsonRpcRequest,
     backends_retired_by_host_logout,
 )
-from kiro_crew.agent import ensure_agent_materialized
+from kiro_crew.agent import (
+    ForkGovernanceUnresolved,
+    ensure_agent_materialized,
+    require_fork_governance,
+)
 from kiro_crew.browser_cli.launch import browser_session_env, browser_socket_env
 from kiro_crew.config.paths import kiro_agents_dir
 from kiro_crew.constants import KIROCREW_SPAWNED_ENV, KIROCREW_SPAWNED_VALUE
@@ -122,6 +126,7 @@ from kiro_crew.sandbox import (
     bind_voice_safe_agent_workspace_async,
     cgroup_scope_argv,
     create_subprocess_limited,
+    delegated_workspace_exposes_agents_dir,
     release_bound_agent_workspace,
     resolve_bound_session_workspace,
     scrub_agent_subprocess_env,
@@ -1178,6 +1183,26 @@ class AcpRuntime:
             await asyncio.to_thread(ensure_agent_materialized, self._agent)
         except Exception:
             logger.warning("pre-spawn agent materialization failed", exc_info=True)
+
+        # NOT best-effort: a fork-backed agent may not spawn until fork
+        # governance is re-projected, and a failed or timed-out refresh ABORTS
+        # the spawn — its on-disk allowedTools/autoApprove bypass the
+        # PreToolUse gate, so proceeding would run ungoverned grants. The work
+        # dir is the cwd kiro-cli resolves --agent against first, so the gate
+        # also refuses a fork shadowed by a project-local spec. Same gate as
+        # the legacy client spawn path (THIS is the live path).
+        try:
+            await asyncio.to_thread(require_fork_governance, self._agent, self._work_dir)
+        except ForkGovernanceUnresolved as exc:
+            raise AcpRuntimeError(str(exc)) from exc
+        # The agents-tree seal is a launcher rule, and a spawn delegated to
+        # kiro-cli's internal sandbox never sees the launcher — so on those
+        # paths a workspace overlapping the agents directory is the one way left
+        # to rewrite a spec. Refused before the spawn; off-loop because the
+        # delegation predicate reads the kiro settings file.
+        overlap = await asyncio.to_thread(delegated_workspace_exposes_agents_dir, self._work_dir)
+        if overlap:
+            raise AcpRuntimeError(overlap)
 
         argv: list[str] = [kiro_bin, KIRO_CLI_SUBCMD, "--agent", self._agent]
         if self._model:
@@ -3029,6 +3054,15 @@ class AcpRuntime:
         if self._acp_backend == ACP_BACKEND_KAS and agent:
 
             def _build() -> list[dict[str, Any]]:
+                # NOT best-effort, same gate as the --agent spawn path: the
+                # projection READS the on-disk spec and transmits its grants
+                # into the KAS session, so a fork whose governance refresh is
+                # pending or failed would project stale allowedTools /
+                # autoApprove over the wire. Raises ForkGovernanceUnresolved,
+                # mapped below alongside the translation failure — both mean
+                # "do not create this session". getattr like the shutdown
+                # path above: projection-only callers construct bare runtimes.
+                require_fork_governance(agent, getattr(self, "_work_dir", None))
                 try:
                     ensure_agent_materialized(agent)
                 except Exception:
@@ -3068,6 +3102,10 @@ class AcpRuntime:
 
             try:
                 return await asyncio.to_thread(_build)
+            except ForkGovernanceUnresolved as exc:
+                # Fail loud for the same reason as the translation error below:
+                # continuing would hand the session ungoverned grants.
+                raise AcpRuntimeError(str(exc)) from exc
             except KasAgentTranslationError as exc:
                 # Fail loud: continuing would create a session on KAS's own default
                 # mode, which for a restricted agent means running a BROADER agent

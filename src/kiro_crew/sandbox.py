@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Literal
 
 from kiro_crew import platform_compat
 from kiro_crew.atomic_write import refuse_linked_parent
-from kiro_crew.config.paths import config_dir
+from kiro_crew.config.paths import config_dir, kiro_agents_dir
 from kiro_crew.constants import KIROCREW_SPAWNED_ENV, KIROCREW_SPAWNED_VALUE
 from kiro_crew.identity_stores import AUTH_SQLITE_DB, AUTH_SQLITE_SIDECAR_SUFFIXES
 from kiro_crew.pinned_fs import fd_real_path
@@ -373,6 +373,31 @@ _CREW_READONLY_LEAVES: tuple[str, ...] = (
     # fence how a command SPELLS this path, and the kernel denial is what still
     # holds when a spelling is built at runtime (``$(printf ...)``).
     "settings_seeds.json",
+    # The fork-lineage / model-state sidecar (agent_state.py). Same
+    # input-to-an-authorization-decision class as the ceilings above:
+    # ``forked_from`` / ``private_to`` decide whether the fork endpoint treats
+    # a template as one crew's private copy, so a forged entry makes the
+    # owner's next PATCH mutate a SHARED template. The tool gate and the bash
+    # text matcher fence the spelled paths, but a spawned interpreter's
+    # ``open()`` or a split-string shell path reaches the file by constructed
+    # runtime paths no text gate can see — only an OS disposition closes that.
+    # Read-only, not hidden: in-sandbox readers (a script cron's fork-info
+    # reads) must keep working, and every legitimate WRITER (the dashboard
+    # fork/publish/reset handlers, the CLI) runs in the unsandboxed gateway or
+    # user process. Absent-file coverage differs per backend: the seatbelt
+    # denies by literal path (creation IS a write), while the Linux mount seal
+    # needs a file to bind — so this leaf is ALSO in
+    # ``_CREW_PRECREATE_READONLY_FILE_LEAVES`` and gets materialised as ``{}``
+    # before every namespace spawn.
+    "agent_model_state.json",
+    # The sidecar's cross-process advisory lock. Unsealed, a sandboxed process
+    # can unlink and recreate it, so concurrent writers lock DIFFERENT inodes
+    # and the loser's stale read-modify-write erases lineage the winner just
+    # recorded — the lock file's identity is what makes the lock a lock. No
+    # sandboxed process legitimately takes it: every locker (agent_state's
+    # mutators via the dashboard/CLI) runs unsandboxed. Absent-file coverage
+    # mirrors the sidecar's own entry via the pre-create list.
+    "agent_model_state.json.lock",
 )
 
 #: Crew-home leaves that MUST stay read-write for a sandboxed process. Every entry is
@@ -409,6 +434,29 @@ def _crew_home_entries(leaves: tuple[str, ...]) -> list[str]:
 _CREW_HIDDEN_DIRS: list[str] = _crew_home_entries(_CREW_HIDDEN_LEAVES)
 #: Exposed read-only in every mode.
 _CREW_READONLY_TARGETS: list[str] = _crew_home_entries(_CREW_READONLY_LEAVES)
+
+
+def _resolved_kiro_agents_targets() -> list[str]:
+    """The RESOLVED kiro agents tree — fork/template specs AND their advisory
+    lock — sealed read-only as a directory.
+
+    The specs are what fork governance sanitizes (allowedTools ceiling,
+    autoApprove strip), so a sandboxed process that can rewrite one hands its
+    next spawn forged grants — the seal is the enforcement the governance
+    passes rely on. Read stays open (kiro-cli resolves its own spec here);
+    every legitimate WRITER (fork/publish/reset handlers, the fork refresh,
+    CLI setup) runs unsandboxed.
+
+    Resolved per spawn through :func:`kiro_agents_dir` — never a hard-coded
+    home-relative literal — so a relocated data home is covered by the same
+    entry. Same contract as :func:`_relocated_crew_targets`: ``normpath``
+    never ``realpath`` (event-loop safety), and never raises.
+    """
+    try:
+        return [os.path.normpath(str(kiro_agents_dir()))]
+    except Exception:
+        return []
+
 
 #: Hidden crew-home leaves one app's OWN backend must read and write.
 #:
@@ -683,6 +731,24 @@ _CREW_PRECREATE_READONLY_FILE_LEAVES: tuple[str, ...] = (
     # (criterion 2).
     "file_delivery_consent.json",
     "settings_seeds.json",
+    # The fork-lineage sidecar satisfies both criteria the way
+    # ``file_delivery_consent.json`` does: ``agent_state._read`` returns ``{}``
+    # for absent, unreadable, AND an empty document alike, so a pre-created
+    # ``{}`` means exactly "no lineage recorded" (criterion 1); the writer
+    # publishes through ``atomic_write`` (new inode), so a sandboxed reader
+    # frozen at ``{}`` under-reports fork status — which grants nothing, since
+    # the write seal is what withholds forgery and it applies regardless
+    # (criterion 2). Without this entry the Linux mount seal skips the absent
+    # sidecar — the DEFAULT state before any fork — leaving it creatable from
+    # inside the namespace sandbox.
+    "agent_model_state.json",
+    # The sidecar's advisory lock, same absent-file reasoning: the lock is
+    # created on first use, so without pre-creation a sandbox spawned before
+    # any lineage write finds it absent and creatable — and a sandbox-created
+    # lock is exactly the replaced-inode attack the read-only seal exists to
+    # stop. An empty lock file is absent-equivalent by definition: its content
+    # is never read, only its identity is locked.
+    "agent_model_state.json.lock",
 )
 
 #: The one masked leaf that carries its own argument (see the sibling-gap note
@@ -779,10 +845,22 @@ def _sealable_absent_ceilings() -> tuple[list[str], list[str]]:
     except Exception:  # pragma: no cover - defensive; a spawn must not fail on this
         logger.debug("could not resolve the crew data home for ceiling sealing", exc_info=True)
         return ([], [])
-    return (
-        [os.path.join(root, leaf) for leaf in _CREW_PRECREATE_READONLY_DIR_LEAVES],
-        [os.path.join(root, leaf) for leaf in _CREW_PRECREATE_READONLY_FILE_LEAVES],
-    )
+    file_targets = [os.path.join(root, leaf) for leaf in _CREW_PRECREATE_READONLY_FILE_LEAVES]
+    dir_targets = [os.path.join(root, leaf) for leaf in _CREW_PRECREATE_READONLY_DIR_LEAVES]
+    try:
+        # The kiro agents tree (fork governance's specs + their lock; see the
+        # readonly-target entry above): the Linux mount seal needs a directory
+        # to bind, and an install may not have created it yet — an unsealed
+        # absent dir would be creatable from inside the sandbox, placing
+        # forged specs where the next spawn resolves them. Gated on the crew
+        # data home existing so a host with no install at all is not
+        # scaffolded (the absent-data-home contract of the entries above).
+        agents_dir = kiro_agents_dir()
+        if os.path.isdir(root):
+            dir_targets.append(str(agents_dir))
+    except Exception:  # pragma: no cover - defensive, same posture as above
+        logger.debug("could not resolve the kiro agents dir for sealing", exc_info=True)
+    return (dir_targets, file_targets)
 
 
 class SandboxCeilingUnsealable(RuntimeError):
@@ -3854,6 +3932,10 @@ def _build_launcher_script(
     readonly_dirs.extend(
         path for path in _relocated_crew_targets(_CREW_READONLY_LEAVES) if path not in hidden_dirs
     )
+    # Same relocation hole for the kiro agents tree (fork governance's specs).
+    readonly_dirs.extend(
+        path for path in _resolved_kiro_agents_targets() if path not in hidden_dirs
+    )
     # A caller-supplied hidden path may be a FILE, and the two launcher loops hide
     # each kind differently: a directory gets an empty dir bind-mounted over it, a file
     # gets an empty temp file. The dir loop is guarded by `if os.path.isdir(target)`, so
@@ -5092,9 +5174,11 @@ def _build_seatbelt_profile(
     # READONLY_DIRS on Linux. Both spellings, because a ceiling may be a file
     # (``literal``) or a directory (``subpath``), and ``file-link`` stops the agent
     # minting a writable alias to the same inode.
-    readonly_targets = [
-        os.path.join(home, rel) for rel in _CREW_READONLY_TARGETS
-    ] + _relocated_crew_targets(_CREW_READONLY_LEAVES)
+    readonly_targets = (
+        [os.path.join(home, rel) for rel in _CREW_READONLY_TARGETS]
+        + _relocated_crew_targets(_CREW_READONLY_LEAVES)
+        + _resolved_kiro_agents_targets()
+    )
     for target in readonly_targets:
         escaped = target.replace('"', '\\"')
         rules.append(f'(deny file-write* (literal "{escaped}"))')
@@ -5260,6 +5344,118 @@ def kiro_internal_sandbox_enabled() -> bool:
         # decode; RuntimeError covers home-directory resolution failure.
         # Every failure resolves toward KiroCrew's own sandbox.
         return False
+
+
+def delegated_workspace_exposes_agents_dir(work_dir: "str | os.PathLike[str] | None") -> str | None:
+    """Reason a kiro-cli spawn must be refused because its workspace would leave
+    the sealed kiro agents tree writable, or ``None`` when it may proceed.
+
+    The agents-tree seal (:func:`_resolved_kiro_agents_targets`) is a rule of
+    Kiro Crew's OWN launcher. A spawn delegated to kiro-cli's internal sandbox
+    (macOS with that sandbox enabled, every first-party Windows spawn) never
+    passes through that launcher, and the delegated sandbox treats the
+    workspace as writable — so a workspace that IS, CONTAINS or sits INSIDE the
+    agents directory lets the child rewrite fork/template specs and hand its
+    next spawn forged grants. Refusing here, before the spawn, is the only
+    enforcement point left on those paths. Where Kiro Crew's launcher does
+    wrap the child the seal holds regardless of workspace, so this returns
+    ``None`` and keeps ``$HOME``-rooted workspaces working there.
+
+    Same three-layer comparison as :func:`assert_voice_runtime_outside_agent_workspace`:
+    the lexical spelling AND the canonical (``realpath``) spelling of both sides,
+    then filesystem identity (``st_dev``/``st_ino``) walked along each side's
+    ancestor chain — so a symlinked or junctioned workspace that resolves into
+    the agents tree (or that the agents tree resolves into) is caught, not just
+    the spelling the caller configured. Runs off the event loop (it stats). A
+    workspace or agents dir that cannot be stat'ed fails CLOSED with a reason:
+    "cannot verify" is not "does not overlap". Never raises.
+    """
+    if work_dir is None:
+        return None
+    delegated = (sys.platform == "darwin" and kiro_internal_sandbox_enabled()) or (
+        sys.platform == "win32"
+    )
+    if not delegated:
+        return None
+    targets = _resolved_kiro_agents_targets()
+    if not targets:
+        return None
+
+    def _reason(target: str, how: str) -> str:
+        return (
+            f"workspace '{os.fspath(work_dir)}' overlaps the kiro agents directory "
+            f"'{target}' ({how}); on this platform the spawn is delegated to kiro-cli's "
+            "internal sandbox, which treats the workspace as writable, so the agent "
+            "could rewrite template/fork specs and forge its next session's grants. "
+            "Choose a workspace outside the agents directory."
+        )
+
+    def _norm(path: str) -> str:
+        return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+
+    def _spellings(path: str) -> tuple[str, ...]:
+        # Lexical first, canonical second; de-duplicated when they coincide.
+        return tuple(dict.fromkeys((_norm(path), _norm(os.path.realpath(path)))))
+
+    def _lexically_overlaps(a: str, b: str) -> bool:
+        try:
+            return os.path.commonpath([a, b]) in (a, b)
+        except ValueError:
+            # Different drives (Windows): cannot overlap.
+            return False
+
+    def _identity_in_ancestor_chain(identity: tuple[int, int], path: str) -> bool:
+        current = os.path.abspath(path)
+        while True:
+            info = os.stat(current)
+            if (info.st_dev, info.st_ino) == identity:
+                return True
+            parent = os.path.dirname(current)
+            if parent == current:
+                return False
+            current = parent
+
+    try:
+        raw_work = os.fspath(work_dir)
+        work_spellings = _spellings(raw_work)
+    except Exception:
+        return _reason(targets[0], "workspace path could not be resolved")
+    for target in targets:
+        try:
+            agents_spellings = _spellings(target)
+        except Exception:
+            return _reason(target, "agents directory path could not be resolved")
+        # Layer 1+2: every spelling of one side against every spelling of the other.
+        for work in work_spellings:
+            for agents in agents_spellings:
+                if _lexically_overlaps(work, agents):
+                    return _reason(target, "path")
+        # Layer 3: filesystem identity, both directions. Only an EXISTING node can
+        # be an alias; a workspace the spawn is about to mkdir has no identity yet
+        # and its lexical spellings above are the whole story.
+        try:
+            if not os.path.exists(raw_work):
+                continue
+            work_ids = {(s.st_dev, s.st_ino) for s in (os.stat(p) for p in work_spellings)}
+            for work_id in work_ids:
+                for agents in agents_spellings:
+                    if os.path.exists(agents) and _identity_in_ancestor_chain(work_id, agents):
+                        return _reason(target, "alias")
+            for agents in agents_spellings:
+                if not os.path.exists(agents):
+                    continue
+                agents_stat = os.stat(agents)
+                for work in work_spellings:
+                    if _identity_in_ancestor_chain((agents_stat.st_dev, agents_stat.st_ino), work):
+                        return _reason(target, "alias")
+        except OSError as exc:
+            return _reason(
+                target,
+                "cannot verify: "
+                f"{getattr(exc, 'filename', None) or raw_work}: "
+                f"{getattr(exc, 'strerror', None) or exc}",
+            )
+    return None
 
 
 def _spawns_kiro_cli(argv: list[str]) -> bool:

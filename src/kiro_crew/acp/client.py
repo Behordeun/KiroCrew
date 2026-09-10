@@ -143,7 +143,11 @@ from kiro_crew.acp.types import (
     JsonRpcRequest,
     model_registry_namespace,
 )
-from kiro_crew.agent import ensure_agent_materialized
+from kiro_crew.agent import (
+    ForkGovernanceUnresolved,
+    ensure_agent_materialized,
+    require_fork_governance,
+)
 from kiro_crew.agent_sdk import host_auth
 from kiro_crew.atomic_write import atomic_write
 from kiro_crew.browser_cli.launch import browser_session_env, browser_socket_env
@@ -182,6 +186,7 @@ from kiro_crew.sandbox import (
     bind_voice_safe_agent_workspace_async,
     cgroup_scope_argv,
     create_subprocess_limited,
+    delegated_workspace_exposes_agents_dir,
     release_bound_agent_workspace,
     resolve_bound_session_workspace,
     scrub_agent_subprocess_env,
@@ -5281,6 +5286,26 @@ class AcpClient:
                 await asyncio.to_thread(ensure_agent_materialized, self._agent)
             except Exception:
                 logger.warning("pre-spawn agent materialization failed", exc_info=True)
+            # NOT best-effort: a fork-backed agent may not spawn until fork
+            # governance is re-projected, and a failed or timed-out refresh
+            # ABORTS the spawn — its on-disk allowedTools/autoApprove bypass
+            # the PreToolUse gate, so proceeding would run ungoverned grants.
+            # The work dir is the cwd kiro-cli resolves --agent against first,
+            # so the gate also refuses a fork shadowed by a project-local spec.
+            try:
+                await asyncio.to_thread(require_fork_governance, self._agent, self._work_dir)
+            except ForkGovernanceUnresolved as exc:
+                raise AcpError(str(exc)) from exc
+            # The agents-tree seal is a launcher rule, and a spawn delegated to
+            # kiro-cli's internal sandbox never sees the launcher — so on those
+            # paths a workspace overlapping the agents directory is the one way
+            # left to rewrite a spec. Refused before the spawn; off-loop because
+            # the delegation predicate reads the kiro settings file.
+            overlap = await asyncio.to_thread(
+                delegated_workspace_exposes_agents_dir, self._work_dir
+            )
+            if overlap:
+                raise AcpError(overlap)
             argv = [kiro_bin, KIRO_CLI_SUBCMD, "--agent", self._agent]
 
         # OS-level sandbox: wrap the command to hide sensitive paths.
