@@ -1621,7 +1621,7 @@ def _opens_comment(text: str, index: int) -> bool:
 def _in_command_position(text: str, index: int) -> bool:
     """True if a command could START at *index* -- the previous real character separates.
 
-    Used to tell the reserved word ``esac`` from the ordinary string ``esac``, which
+    Tells the reserved word ``esac`` from the ordinary string ``esac``, which
     a command may pass as an argument.
 
     A backslash-newline is a line CONTINUATION, not a separator: ``echo \\`` then a
