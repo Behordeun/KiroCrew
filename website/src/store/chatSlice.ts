@@ -2844,7 +2844,7 @@ export const createSlot = createAsyncThunk<
   { fulfilledMeta: { originActiveSlot: string | null; activate: boolean } }
 >(
   'chat/createSlot',
-  async (opts, { dispatch, getState, fulfillWithValue }) => {
+  async (opts, { getState, fulfillWithValue }) => {
     const agent = typeof opts === 'string' ? opts : opts?.agent
     const model = typeof opts === 'string' ? undefined : opts?.model
     const mode = typeof opts === 'string' ? undefined : opts?.mode
@@ -2931,7 +2931,8 @@ export const createSlot = createAsyncThunk<
     if (project) {
       slot.project = project
       // Await the scope on BOTH paths before publishing the slot. Publishing
-      // via addSlotOptimistic makes the slot selectable (and, when activated,
+      // (dashboardSlice's createSlot.fulfilled matcher) makes the slot
+      // selectable (and, when activated,
       // keys the agents-roster fetch to this optimistic project), so anything
       // that observes the slot before the server records the project runs
       // against the DEFAULT checkout: a turn would execute in the wrong
@@ -2947,7 +2948,10 @@ export const createSlot = createAsyncThunk<
         throw err
       }
     }
-    dispatch(addSlotOptimistic(slot))
+    // No `addSlotOptimistic` here: dashboardSlice registers the slot on this
+    // thunk's `fulfilled` action, so the row and the activation land in one
+    // commit. Everything that must precede publication (colour, project
+    // scope) has already been awaited above.
     // Carry the origin slot in the action meta (fulfillWithValue) rather than on
     // the payload, so it can never leak into the persisted slot object. The
     // fulfilled reducer reads action.meta.originActiveSlot to decide whether
@@ -6121,8 +6125,8 @@ const chatSlice = createSlice({
         state.creatingSlot = false
         // Switched-away guard: if the user moved to a different
         // session while this create was pending (a slow "Creating…" under memory
-        // pressure), do NOT hijack the view. The new slot is already registered
-        // via addSlotOptimistic; just leave the user where they are. Mirrors the
+        // pressure), do NOT hijack the view. The new slot is registered by
+        // dashboardSlice on this same action; just leave the user where they are. Mirrors the
         // guard switchSlot/refreshSlot/warmSlotCache already have. `send()`'s
         // forceNew path and welcome-screen New Chat both leave activeSlot equal
         // to the origin, so they still activate normally.

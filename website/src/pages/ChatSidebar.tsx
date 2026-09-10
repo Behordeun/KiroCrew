@@ -142,6 +142,28 @@ const RENAME_MAX_H = 120
  *  rect measurement) is disabled — the IssueList/PrList ANIM_CAP pattern. */
 const SIDEBAR_ANIM_CAP = 200
 
+/** Rows at or past this paint ordinal share ONE `orderStamp`, so an insertion
+ *  or reorder above them does not re-render them: they snap into their new
+ *  position instead of springing there.
+ *
+ *  `orderStamp` exists so a displaced row re-renders and framer measures it
+ *  (see SessionRowProps). Stamped as a plain ordinal, a New Chat landing at the
+ *  top of a 160-session sidebar shifts every ordinal by one and voids all 160
+ *  memo boundaries in one commit — 160 row bodies, 160 layout measurements and
+ *  a group-wide spring — for a change whose visible effect is a handful of rows
+ *  sliding down by one slot. The rows below the fold are displaced too, but
+ *  nobody sees them move, so their spring buys nothing.
+ *
+ *  48 rows is roughly two sidebar viewports of 56px rows: the visible
+ *  displacement stays continuous (the persistent-element rule in
+ *  website/AGENTS.md is about what the user can see move), while the per-insert
+ *  cost is bounded by this constant instead of growing with the session count.
+ *  The deliberate casualty: a user scrolled deep into the list sees rows beyond
+ *  the window snap rather than slide when something above them moves. The
+ *  ordinal-bump above the window still has its usual cost, so this is a bound,
+ *  not a fix for rows inside it. Pinned by ChatSidebar.rowMemo.test.tsx. */
+export const SIDEBAR_DISPLACEMENT_WINDOW = 48
+
 const ROW_META_CLS = 'text-[10px] leading-[12px]'
 const ROW_TITLE_CLS = 'text-[13px] leading-[20px]'
 const ROW_STATUS_CLS = 'text-[11px] leading-[16px]'
@@ -1408,12 +1430,13 @@ export const sessionRowRenderProbe: { current: ((slotKey: string) => void) | nul
 interface SessionRowProps {
   slot: Slot
   /** Render-order stamp: increments per row in paint order across the whole
-   *  sidebar. A row whose on-screen position moves (rows above it added,
-   *  removed or reordered) gets a changed stamp and re-renders — framer's
-   *  layout="position" spring only measures a component that re-renders, so
-   *  without this the memo boundary would swallow the re-render and displaced
-   *  rows would snap into place instead of animating. Rows above the change
-   *  keep their stamp and still bail out. */
+   *  sidebar, clamped at SIDEBAR_DISPLACEMENT_WINDOW. A row whose on-screen
+   *  position moves (rows above it added, removed or reordered) gets a changed
+   *  stamp and re-renders — framer's layout="position" spring only measures a
+   *  component that re-renders, so without this the memo boundary would
+   *  swallow the re-render and displaced rows would snap into place instead
+   *  of animating. Rows above the change keep their stamp and still bail out;
+   *  so do rows past the window, which snap by design. */
   orderStamp: number
   /** False above SIDEBAR_ANIM_CAP rows or under prefers-reduced-motion:
    *  the shell computes the gate once so every row's layout spring,
@@ -5448,12 +5471,22 @@ function ChatSidebar({
   const startsAutomaticSection = useCallback((list: readonly Slot[], index: number) => (
     !searchRanked && index > 0 && pinned.has(list[index - 1].key) && !pinned.has(list[index].key)
   ), [searchRanked, pinned])
+  // Read through a ref, not the dependency array: `slotFolders` and
+  // `pinnedOrder` are rebuilt whenever the slot list changes, so a callback
+  // closing over them takes a new identity on EVERY slots frame — and this
+  // callback is a prop of every SessionRow, so one unstable reference voids
+  // all N memo boundaries per frame and defeats both the row memo and the
+  // displacement window for any membership change. The handler runs only on
+  // a keypress, where the latest values are what it wants anyway.
+  const keyboardReorderInputsRef = useRef({ searchRanked, pinnedOrder, slotFolders, reorderPinned })
+  keyboardReorderInputsRef.current = { searchRanked, pinnedOrder, slotFolders, reorderPinned }
   const reorderPinnedByKeyboard = useCallback((
     key: string,
     container: string,
     delta: -1 | 1,
     row: HTMLElement,
   ) => {
+    const { searchRanked, pinnedOrder, slotFolders, reorderPinned } = keyboardReorderInputsRef.current
     if (searchRanked) return
     const rendered = new Set(sessionRowsInScope(row).map(el => el.dataset.sessionRow || ''))
     const peers = pinnedOrder.filter(candidate => rendered.has(candidate) && (container === 'flat'
@@ -5462,13 +5495,16 @@ function ChatSidebar({
     const target = peers[index + delta]
     if (index < 0 || !target) return
     reorderPinned(key, target)
-  }, [searchRanked, pinnedOrder, slotFolders, reorderPinned])
+  }, [])
 
   let sessionRowOrderStamp = 0
   const renderSessionRow = (s: Slot, _indent: number, showDivider: boolean, scope = 'list', navScope = scope, holdContainer = navScope) => {
     const renamingHere = renamingSlot === s.key && renameScope === scope
+    // Clamped, not raw: rows past the window share a stamp and bail out of a
+    // displacement above them (see SIDEBAR_DISPLACEMENT_WINDOW).
+    const orderStamp = Math.min(sessionRowOrderStamp++, SIDEBAR_DISPLACEMENT_WINDOW)
     return (
-      <SessionRow key={s.key} slot={s} orderStamp={sessionRowOrderStamp++}
+      <SessionRow key={s.key} slot={s} orderStamp={orderStamp}
         showDivider={showDivider} scope={scope} navScope={navScope} holdContainer={holdContainer}
         isActive={activeSlot === s.key} connected={connected} isOut={poppedOut.has(s.key)}
         isPinned={pinned.has(s.key)} isUnread={unreadSet.has(s.key)} isRunning={runningSet.has(s.key)}

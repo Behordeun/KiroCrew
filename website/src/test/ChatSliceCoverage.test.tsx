@@ -1425,6 +1425,44 @@ describe('chatSlice thunks', () => {
     expect(chat(store).creatingSlot).toBe(false)
   })
 
+  // The sidebar row and the activated empty transcript must land in ONE store
+  // update: a separate optimistic dispatch before `fulfilled` rendered the new
+  // row over the OLD chat for a frame and charged the sidebar its insertion
+  // render twice. Pinned by counting store notifications between the POST
+  // resolving and the thunk settling.
+  it('publishes and activates the created slot in a single store update', async () => {
+    apiMock.createChatSlot.mockResolvedValue({ key: 'one-shot' })
+    const store = makeStore()
+    store.dispatch(setActiveSlot('origin'))
+    const seen: Array<{ inList: boolean; active: string | null }> = []
+    const unsubscribe = store.subscribe(() => {
+      const state = root(store)
+      seen.push({
+        inList: state.dashboard.slots.some(s => s.key === 'one-shot'),
+        active: state.chat.activeSlot,
+      })
+    })
+    await store.dispatch(createSlot(undefined))
+    unsubscribe()
+    // The first notification in which the row exists is the one that activated
+    // it: no intermediate "row present, old chat still active" state.
+    const first = seen.find(s => s.inList)
+    expect(first).toEqual({ inList: true, active: 'one-shot' })
+    expect(root(store).dashboard.slots.filter(s => s.key === 'one-shot')).toHaveLength(1)
+  })
+
+  it('does not duplicate a slot the live slots frame announced before the create response', async () => {
+    apiMock.createChatSlot.mockImplementation(async () => {
+      // The broadcast beats the HTTP reply, the documented common case.
+      store.dispatch(sseSlots([{ key: 'announced', title: 'announced', running: false } as never]))
+      return { key: 'announced' }
+    })
+    const store = makeStore()
+    await store.dispatch(createSlot(undefined))
+    expect(root(store).dashboard.slots.filter(s => s.key === 'announced')).toHaveLength(1)
+    expect(chat(store).activeSlot).toBe('announced')
+  })
+
   it('resyncs the slots list when a delete fails on the server', async () => {
     apiMock.chatSlotDetail.mockResolvedValue({ messages: [], running: false })
     apiMock.deleteChatSlot.mockRejectedValue(new Error('500'))

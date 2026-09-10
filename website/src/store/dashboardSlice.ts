@@ -487,6 +487,23 @@ const dashboardSlice = createSlice({
         reconcileSlots(state, new Set(action.payload.map((s: { key: string }) => s.key)), fresh)
       })
       .addCase(changeApprovalMode.fulfilled, (state, action) => { state.approvalMode = action.payload })
+      // The created slot joins the list on the SAME action that activates it
+      // (chatSlice's createSlot.fulfilled), so the sidebar row and the empty
+      // transcript land in one commit. A separate optimistic dispatch ahead of
+      // `fulfilled` would render the new row over the OLD chat for a frame and
+      // charge the sidebar its insertion render twice. Matched by type string
+      // rather than importing the thunk: chatSlice imports this slice, and a
+      // cycle here breaks module init. Idempotent by key, because the live
+      // `slots` frame announcing the slot usually arrives before the create
+      // response, so the row is often already present.
+      .addMatcher(
+        (action): action is PayloadAction<ChatSlot> => action.type === 'chat/createSlot/fulfilled',
+        (state, action) => {
+          if (!state.slots.find(s => s.key === action.payload.key)) {
+            state.slots.push(action.payload)
+          }
+        },
+      )
   },
 })
 
