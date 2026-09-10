@@ -151,9 +151,13 @@ const RECONCILE_WINDOW = 50
 /** Reconcile a server echo (carrying both `sendId` and `mid`) against the
  *  optimistic user bubble that was appended client-side at send time.
  *
- *  Scans backward over non-steer user messages looking for a `sendId` match.
- *  On match: updates ts/meta, clears the `optimistic` flag, and strips the
- *  one-shot `sendId` from persisted meta (it served its correlation purpose).
+ *  Scans the bounded tail for an exact `sendId` match, including past newer
+ *  steers that may have been appended before this echo arrived.
+ *  A matching optimistic steer can have raced onto a new turn; the ordinary
+ *  user echo then also clears its provisional steer flag.
+ *  On match: updates ts/meta and clears the `optimistic` flag. Keep `sendId`
+ *  so a pending HTTP request can still recognize delivery if its receipt
+ *  times out or the connection resets after this echo.
  *
  *  Returns `true` if reconciliation succeeded (caller should `return` to skip
  *  the push), `false` if no match was found (caller falls through to push).
@@ -172,14 +176,15 @@ function reconcileOptimisticEcho(
   for (let i = msgs.length - 1; i >= reconcileFloor; i--) {
     const m = msgs[i]
     if (m.role !== 'user') continue
-    if (m.meta?.steer) break // steer boundary — stop scanning
     if (m.meta?.sendId === echoSendId) {
+      // Keep the rendered row's identity when the server supplies its timestamp.
+      if (ts && m.ts && ts !== m.ts) {
+        m.meta = { ...(m.meta || {}), clientTs: m.meta?.clientTs ?? m.ts }
+      }
       if (ts) m.ts = ts
       m.meta = { ...(m.meta || {}), ...meta }
-      // The sendId is a one-shot wire correlation ID — strip it from the
-      // persisted meta now that reconciliation succeeded (#3898 item 2).
-      delete (m.meta as Record<string, unknown>).sendId
       delete (m.meta as Record<string, unknown>).optimistic
+      if (!meta.steer) delete (m.meta as Record<string, unknown>).steer
       return true
     }
     // #3898 fix: continue scanning past non-matching user messages so
@@ -1298,6 +1303,10 @@ function applyNonActiveFrame(
 const EMPTY_MESSAGES: ChatMessage[] = []
 export const selectSlotMessages = (state: RootState, slot: string): ChatMessage[] =>
   slot === state.chat.activeSlot ? state.chat.messages : (state.chat.slotMessages[slot] ?? EMPTY_MESSAGES)
+/** Only a server-confirmed row for THIS send proves delivery, even if the POST
+ *  subsequently fails. An optimistic bubble or identical text proves nothing. */
+export const selectSendConfirmed = (state: RootState, slot: string, sendId: string): boolean =>
+  selectSlotMessages(state, slot).some(m => m.role === 'user' && m.meta?.sendId === sendId && !m.meta?.optimistic)
 export const selectSlotStreamState = (state: RootState, slot: string): SlotState =>
   slot === state.chat.activeSlot ? state.chat.slotState : (state.chat.slotRun[slot]?.state ?? 'idle')
 /** The turn-start count for `slot` (see `ChatState.runEpoch`): the identity a
@@ -3940,20 +3949,13 @@ const chatSlice = createSlice({
     },
     removeThinking(state) { state.messages = state.messages.filter(m => m.role !== 'thinking') },
     /** Retire a bubble's "pending confirmation" state once the send's own HTTP
-     *  response accepted it (`ok` or `queued`).
-     *
-     *  This is the PRIMARY confirmation path, not a fallback. The `chat_message`
-     *  echo that `reconcileOptimisticEcho` waits for is only broadcast for rows
-     *  the composer did NOT render — a message typed in a channel and replayed
-     *  into the slot (`channel_slots`, the sole `broadcast_user=True` caller).
-     *  `DashboardState.append` suppresses it for every dashboard send by design,
-     *  precisely BECAUSE the composer already rendered the bubble, so waiting on
-     *  it left every composer bubble optimistic forever and the 30s sweep flagged
-     *  all of them (#4131).
+     *  response accepted it as an immediate turn. A correlated user echo can
+     *  also confirm it; the receipt remains useful if that echo was missed.
+     *  Never insert here: the user echo supplies a skipped bubble before the
+     *  reply, independently of receipt timing.
      *
      *  Clears only the pending-confirmation flags and deliberately KEEPS
-     *  `sendId`: a channel-linked slot can still deliver a later echo, and
-     *  `reconcileOptimisticEcho` needs that id to update this row in place
+     *  `sendId`: a later echo needs that id to update this row in place
      *  instead of pushing a duplicate bubble.
      *
      *  Scans BOTH arrays rather than resolving the slot's own: `appendMessage`
@@ -3973,8 +3975,7 @@ const chatSlice = createSlice({
           delete meta.optimistic
           // Stamp the server-minted row id the receipt carried back. The bubble
           // was appended client-side with only a `sendId` (no server identity),
-          // and no `chat_message` echo carries the `mid` for a dashboard send,
-          // so this is the only point it can land before the chat_done refresh.
+          // so either the user echo or this receipt can supply its identity.
           // The message-pin control is gated on `meta.mid`, so without it the
           // just-sent message cannot be pinned for the whole turn. Only set when
           // the row has none yet — never overwrite a `mid` a refresh already

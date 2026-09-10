@@ -124,6 +124,7 @@ from kiro_crew.dashboard.state import (
     _normalize_slot_key,
     _slots_serialization_note,
     append_and_surface,
+    chat_message_frame,
     durable_row_count,
     is_stop_event_row,
     is_turn_interrupted,
@@ -796,18 +797,23 @@ async def api_chat(request: web.Request) -> web.StreamResponse:
     # agent itself decides whether to operate a browser or read with web_fetch
     # (the system prompt and the kirocrew-commands / web-browse skills tell it
     # how), so the backend injects nothing here.
-    # Capture the server-minted `meta.mid` off the appended row so the send
-    # receipt can carry it back (see the receipts below). The dashboard renders
-    # this user turn optimistically and no `chat_message` user echo is broadcast
-    # for it (`append` defaults `broadcast_user=False`), so the receipt is the
-    # ONLY channel that can hand the client this row's stable id before the
-    # `chat_done` refresh rebuilds the transcript from disk. Without it, the
-    # message-pin control (keyed on `meta.mid`) stays withheld for the whole
-    # turn.
+    # A dashboard's busy snapshot can suppress its optimistic user bubble even
+    # when this send starts a turn. Echo correlated sends BEFORE starting the
+    # reply so every pane sees the user row in order, independently of when the
+    # HTTP receipt arrives. sendId/mid reconcile an existing optimistic bubble;
+    # callers without a correlation id keep their existing delivery contract.
     _user_row = slot.append(
         "user", message, "msg msg-u", meta=_redact_meta(user_meta) if user_meta else None
     )
     _user_mid = _user_row.get("meta", {}).get("mid")
+    if ws_mode and user_meta and user_meta.get("sendId"):
+        # Raw user content belongs on the per-client slot-authorized WS path.
+        # The global SSE queues have no slot gate. In-band/relay sends keep
+        # their existing stream contract and must not gain an extra WS echo.
+        state.broadcast_ws(
+            "chat_message",
+            chat_message_frame({**_user_row, "slot": slot.key}, include_metadata=True),
+        )
 
     # Note: untitled slots display as "New Session…" via _ChatSlot.display_title
     # (serialization layer), so there's no bare chat-N flash to patch here. The

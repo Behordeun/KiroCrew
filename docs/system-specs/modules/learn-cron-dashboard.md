@@ -1051,6 +1051,20 @@ A pending tool approval has **two** pieces of state that must stay in lockstep: 
 
 **Runner backstop totality**: `outcome` is pre-seeded to `"rejected"` before the approval `await`, because the `finally` runs on *every* exit including `CancelledError` (slot deletion and cleanup endpoints cancel `slot.task`). Assigning it only inside `try`/`except` would raise `UnboundLocalError` from the `finally`, replacing the cancellation with a spurious exception and skipping both the message marking and the Slack prompt cleanup.
 
+### Dashboard send confirmation
+
+An immediate dashboard send with `ws=1` and `meta.sendId` emits its persisted
+`user` row before the reply task starts, supplying a bubble skipped by a stale
+busy snapshot. The canonical `chat_message_frame` uses the slot-authorized
+`broadcast_ws` path; this user echo never enters the global `/api/stream` queues.
+Both composers reconcile by `sendId`/server `mid`, demote an optimistic Steer
+accepted as a new turn, and preserve render identity through `meta.clientTs`.
+They retain `sendId` so a confirmed echo prevents a later HTTP timeout/reset
+from restoring the delivered draft or showing an unconfirmed-send notice.
+HTTP receipts still confirm delivery but never insert a skipped bubble.
+Uncorrelated sends, actual queued/steered sends, and in-band/relay streams keep
+their existing event paths.
+
 ### Queue turn boundary finalize
 
 A successor turn dispatched WITHOUT a `chat_done` -- the tail-drain starting a
@@ -1117,7 +1131,7 @@ must keep streaming. Pinned by `test_chat_steer.py` (cut ordering, cut-failure
 resilience) and the `finalize-on-steer` describe in `chatSlice.test.ts`.
 
 **Send identity — `sendId` through the steer path (#6075).** The optimistic
-steer bubble is minted with a client `sendId` (the same one-shot convention the
+steer bubble is minted with a client `sendId` (the same per-send convention the
 plain send path uses) and the steer POST carries it as `meta.sendId`. Both
 backend paths persist it: the accepted-steer row via
 `steer_into_running_turn` — which normalizes the raw client value at entry

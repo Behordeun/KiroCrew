@@ -35,7 +35,7 @@ import { usePlanActionMutation, isPlanAction } from '../hooks/usePlanActionMutat
 import { useQueuedMessageActions, queuedSendStash } from '../hooks/useQueuedMessageActions'
 import { useListboxKeyboard } from '../hooks/useListboxKeyboard'
 import { useAppSelector, useAppDispatch, store } from '../store'
-import { PANE_HYDRATE_LIMIT, retireStatelessQuestion, captureStatelessCard, capturePendingAskId, confirmOptimisticSend, resolveOptimisticSteer, selectSlotMessages, selectSlotStreamState, selectSlotRunEpoch, selectComposerBusy, hydrateSlotMessages, appendSlotMessage, requestStop, syncSlotRunningFromServer, setAgentSwitchNotice, pendingQuestionFor } from '../store/chatSlice'
+import { PANE_HYDRATE_LIMIT, retireStatelessQuestion, captureStatelessCard, capturePendingAskId, confirmOptimisticSend, resolveOptimisticSteer, selectSlotMessages, selectSendConfirmed, selectSlotStreamState, selectSlotRunEpoch, selectComposerBusy, hydrateSlotMessages, appendSlotMessage, requestStop, syncSlotRunningFromServer, setAgentSwitchNotice, pendingQuestionFor } from '../store/chatSlice'
 import { handleStopPress, isEscalationState } from '../utils/stopDebounce'
 import { deriveFollowUpOptions } from '../app-sdk/protocol'
 import { CONTENT_WIDTH, loadChatConfig, type ChatConfig } from '../pages/chat/ChatSettings'
@@ -737,7 +737,8 @@ export default function ChatPane({
     const sendId = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     // Optimistic user bubble: show immediately in the right position (mirrors the
     // single-chat send). Skipped while busy (main turn streaming OR sub-agents
-    // running) — the backend returns a "queued" message instead, avoiding a duplicate.
+    // running). A real queue has its own card; an immediate dispatch supplies
+    // the skipped row through its correlated user echo.
     const meta = {
       ...(filePaths.length ? { files: filePaths } : {}),
       ...(dirPaths.length ? { dirs: dirPaths } : {}),
@@ -772,6 +773,8 @@ export default function ChatPane({
     // invite a retry that duplicates a turn already in flight, side effects
     // included, so the optimistic composer row stays pending.
     void sendTurn({ message: llm, slot: slotKey, meta, ...(steerNow ? { steer: true } : {}) }).then((receipt) => {
+      if ((receipt.status === 'response-late' || receipt.status === 'transport-error')
+        && selectSendConfirmed(store.getState(), slotKey, sendId)) return
       if (receipt.status === 'refused' || receipt.status === 'transport-error') {
         reportFailedSend(receipt.reason, receipt.status)
         return
@@ -793,26 +796,14 @@ export default function ChatPane({
           // The cost is a visible duplicate (card + refilled draft + notice)
           // when the card did belong to this send; the alternative is silent
           // loss, and the notice says to check the conversation first.
-          const echoed = selectSlotMessages(store.getState(), slotKey).some(m => m.role === 'user' && m.meta?.sendId === sendId)
-          if (!echoed) {
-            restoreIntoComposer(text, files, slotKey)
-            dispatch(appendSlotMessage({ slot: slotKey, message: { role: 'notice', content: '\u26A0\uFE0F ' + i18nT('pages.chatPage.delivery_unconfirmed'), cls: '' } }))
-          }
+          restoreIntoComposer(text, files, slotKey)
+          dispatch(appendSlotMessage({ slot: slotKey, message: { role: 'notice', content: '\u26A0\uFE0F ' + i18nT('pages.chatPage.delivery_unconfirmed'), cls: '' } }))
         }
         return
       }
-      // A steer-flagged send the server neither queued nor injected started a
-      // turn: no `queue_push` or `steer_push` echo is coming, and the busy
-      // rule above skipped the optimistic bubble, so nothing represents the
-      // text. Append it now, addressed to the SENDING slot (ChatPage does the
-      // same, for the same reason). It goes in before the confirm below so
-      // the confirm retires exactly this row.
-      if (steerNow && busy && receipt.status === 'dispatched' && !(receipt.body as { steered?: boolean }).steered && (text || files.length)) {
-        dispatch(appendSlotMessage({
-          slot: slotKey,
-          message: { role: 'user', content: displayTxt, cls: 'msg msg-u', ts: new Date().toISOString(), meta },
-        }))
-      }
+      // The correlated user echo owns insertion before streaming, including
+      // when a busy snapshot skipped the optimistic bubble. A receipt only
+      // confirms an existing row; appending here would duplicate or reorder it.
       // The receipt names the queue entry this send became: bind the
       // pre-send composer state to it so cancelling that card restores the
       // TYPED text and re-stages the files (issue #560). The stash is the
@@ -827,7 +818,7 @@ export default function ChatPane({
         queuedSendStash.set(receipt.body.queue_id, { raw: text, files, sent: llm })
       }
       // The response is the delivery receipt for this pane's optimistic bubble
-      // because no `chat_message` echo is coming for a dashboard send. Only
+      // independently of when its correlated user echo arrives. Only
       // an IMMEDIATE dispatch counts: a queued acceptance is not a receipt for
       // this bubble.
       if (receipt.status === 'dispatched') {
@@ -898,8 +889,10 @@ export default function ChatPane({
     setInput('')
     setPendingFiles([])
     void sendTurn({ message: txt, slot: slotKey, steer: true, meta: steerMeta }).then((receipt) => {
+      if ((receipt.status === 'response-late' || receipt.status === 'transport-error')
+        && selectSendConfirmed(store.getState(), slotKey, sendId)) return
       // Receipt policy, same rulings as ChatPage's steerMutation:
-      // - refused / transport-error: nothing was accepted. Drop the bubble
+      // - refused / unconfirmed transport-error: drop the bubble
       //   (left standing it would be a false third copy next to the error row
       //   and the refilled composer), say so in this transcript, hand the
       //   payload back.
@@ -915,8 +908,6 @@ export default function ChatPane({
       //   as delivered), hand the text back, and warn — a duplicate is visible
       //   and deletable, a lost steer is not.
       if (receipt.status === 'response-late') {
-        const bubble = selectSlotMessages(store.getState(), slotKey).find(m => m.role === 'user' && m.meta?.sendId === sendId)
-        if (bubble && !bubble.meta?.optimistic) return
         dispatch(resolveOptimisticSteer({ slot: slotKey, sendId, outcome: 'queued' }))
         restoreIntoComposer(raw, files, slotKey)
         // \u26A0 is NoticeCard's warn-tone selector (parseNotice).

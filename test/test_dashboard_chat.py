@@ -10096,13 +10096,53 @@ class TestApiChatAgentPassing:
 class TestApiChatSendReceiptMid:
     """The immediate-dispatch receipt carries the user row's server-minted `mid`.
 
-    The dashboard renders the user turn optimistically and no `chat_message`
-    user echo is broadcast for a dashboard send (`append` defaults
-    `broadcast_user=False`), so the send receipt is the only channel that can
-    hand the client the row's stable id before the chat_done refresh. The
-    message-pin control is gated on `meta.mid`, so a missing id keeps the
-    just-sent message unpinnable for the whole turn.
+    Correlated dashboard sends also echo the row before their reply starts.
+    The receipt and echo must agree on identity regardless of arrival order.
     """
+
+    @pytest.mark.asyncio
+    async def test_idle_steer_echoes_user_before_the_reply(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("kiro_crew.dashboard.state.config_dir", lambda: tmp_path)
+        state = _make_state(tmp_path)
+        slot = state.get_or_create_slot("echo-slot")
+        echoed: list[dict] = []
+        broadcast_ws = state.broadcast_ws
+
+        def record_echo(kind, data):
+            if kind == "chat_message":
+                echoed.append(data)
+            broadcast_ws(kind, data)
+
+        monkeypatch.setattr(state, "broadcast_ws", record_echo)
+
+        async def fake_run_chat(st, sl, msg, *, _directive_user_origin):
+            # The frontend can see this turn's first chunk before the HTTP
+            # receipt. Its user row must already be on the ordered event stream.
+            assert [(row["slot"], row["role"]) for row in echoed] == [("echo-slot", "user")]
+            sl.append("assistant", "reply")
+
+        monkeypatch.setattr("kiro_crew.dashboard.chat_handlers._run_chat", fake_run_chat)
+        async with TestClient(TestServer(_make_app(state))) as client:
+            resp = await client.post(
+                "/api/chat?ws=1",
+                json={
+                    "message": "pasted\ttable\r\n1\t42",
+                    "slot": "echo-slot",
+                    "steer": True,
+                    "meta": {"sendId": "s-echo", "pastes": [{"seq": 1, "content": "table"}]},
+                },
+            )
+            assert resp.status == 200
+            receipt = await resp.json()
+            await slot.task
+
+        assert len(echoed) == 1
+        assert [row["role"] for row in slot.messages] == ["user", "assistant"]
+        user = echoed[0]
+        assert user["content"] == "pasted\ttable\r\n1\t42"
+        assert user["meta"]["sendId"] == "s-echo"
+        assert user["meta"]["mid"] == receipt["mid"]
+        assert user["meta"]["pastes"][0]["content"] == "table"
 
     @pytest.mark.asyncio
     async def test_immediate_dispatch_receipt_carries_the_user_row_mid(self, tmp_path, monkeypatch):
