@@ -116,11 +116,17 @@ Current status:
   palette remains centered on the window, and native minimize/maximize/close
   controls remain on the right.
 - **Precompiled Windows gateway startup** — packaging traces the real
-  `kiro_crew.cli_server` import after pruning and ships checked-hash bytecode for
+  `kiro_crew.cli_server` import after pruning and ships hash-based (unchecked) bytecode for
   that import closure beside its sources. Windows consumes those caches directly,
   avoiding the thousand-file cache-population burst that otherwise overlaps
   Defender's post-install scanning. macOS and Linux still redirect bytecode out
-  of the signed/read-only app tree. The loading screen retains its extended
+  of the signed/read-only app tree. The Windows caches are **unchecked**-hash,
+  not checked. Both modes ignore mtime, which is the property that survives
+  extraction restamping the sources, but a checked-hash pyc makes the loader read
+  and hash each `.py` in *addition* to reading the `.pyc` — measured at 43.55 MB
+  and 1639 extra cold file opens per boot, a median 12.5 s on a cold file cache.
+  The macOS whole-tree caches remain checked-hash: a separate mechanism that does
+  not show this cost. The loading screen retains its extended
   Windows handoff window as a slow-machine fallback; a child exit or spawn error
   still fails immediately and includes the launch-log cause.
   `.github/scripts/test-windows-installer.ps1` can start the just-installed
