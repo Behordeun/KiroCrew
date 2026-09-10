@@ -680,6 +680,39 @@ class TestCronCli:
                 folder_id="",
             )
 
+    @pytest.mark.parametrize(
+        "name, cron_expr, every, expected",
+        [
+            ("bad dow", "0 9 * * 8", None, "Error: Invalid cron expression: 0 9 * * 8"),
+            ("n" * 501, None, 60, "Error: name exceeds max length 500"),
+        ],
+        ids=["cron_expr branch", "every branch"],
+    )
+    def test_cron_add_refuses_invalid_input(
+        self, name, cron_expr, every, expected, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setenv("KIROCREW_HOME", str(tmp_path / "home"))
+        args = argparse.Namespace(
+            cron_action="add",
+            name=name,
+            message="m",
+            every=every,
+            cron_expr=cron_expr,
+            channel=None,
+            approval_mode="",
+            agent="",
+            silent=False,
+            folder="",
+        )
+
+        with pytest.raises(SystemExit) as exit_info:
+            _cron(args)
+
+        err = capsys.readouterr().err
+        assert exit_info.value.code == 1
+        assert err.splitlines()[-1] == expected
+        assert "Traceback" not in err
+
     def test_cron_add_with_approval_mode(self, tmp_path):
         with (
             patch("kiro_crew.cli_commands.CronService") as mock_svc_cls,

@@ -609,6 +609,8 @@ async def api_crons_create(request: web.Request) -> web.Response:
         return web.json_response(_CRON_BUSY_BODY, status=_CRON_BUSY_STATUS)
     except CronStoreUnreadable as exc:
         return _cron_unreadable_response(exc)
+    except ValueError as e:
+        return web.json_response({"error": str(e), "code": "invalid_cron"}, status=400)
     state.push_refresh("crons")
     return web.json_response({"ok": True, "id": job.id})
 

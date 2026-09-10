@@ -1316,27 +1316,31 @@ def _cron_dispatch(args: argparse.Namespace) -> None:
                 f"Error: invalid channel ID format (expected {CHANNEL_ID_RE.pattern.strip('^$')})"
             )
             return
-        if cron_expr:
-            job = svc.add_job(
-                name=args.name,
-                message=args.message,
-                cron_expr=cron_expr,
-                channel=channel,
-                approval_mode=approval_mode,
-                folder_id=folder_id,
-            )
-        elif every:
-            job = svc.add_job(
-                name=args.name,
-                message=args.message,
-                every_secs=every,
-                channel=channel,
-                approval_mode=approval_mode,
-                folder_id=folder_id,
-            )
-        else:
-            print("Provide --every or --cron")
-            return
+        try:
+            if cron_expr:
+                job = svc.add_job(
+                    name=args.name,
+                    message=args.message,
+                    cron_expr=cron_expr,
+                    channel=channel,
+                    approval_mode=approval_mode,
+                    folder_id=folder_id,
+                )
+            elif every:
+                job = svc.add_job(
+                    name=args.name,
+                    message=args.message,
+                    every_secs=every,
+                    channel=channel,
+                    approval_mode=approval_mode,
+                    folder_id=folder_id,
+                )
+            else:
+                print("Provide --every or --cron")
+                return
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
         # agent_id and silent are CronJob fields but not add_job kwargs;
         # mirror the MCP cron_add post-create mutation pattern so they
         # are persisted with the job.

@@ -28,10 +28,12 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
+from kiro_crew.cron import CronService
 from kiro_crew.dashboard.handlers.cron import (
     api_cron_ack,
     api_cron_enable,
     api_cron_update,
+    api_crons_create,
     api_lessons_delete,
 )
 
@@ -86,6 +88,21 @@ async def test_cron_update_keeps_the_object_path() -> None:
     assert response.status == 200
     update.assert_awaited_once()
     assert update.await_args.kwargs["name"] == "renamed"
+
+
+async def test_cron_create_refuses_an_invalid_cron_expression(tmp_path) -> None:
+    svc = CronService(base_dir=tmp_path)
+    app = _cron_app(api_crons_create, "/api/crons", add_job_async=svc.add_job_async)
+
+    async with TestClient(TestServer(app)) as client:
+        response = await client.post(
+            "/api/crons", json={"name": "bad dow", "message": "m", "cron": "0 9 * * 8"}
+        )
+        body = await response.json()
+
+    assert response.status == 400
+    assert body == {"error": "Invalid cron expression: 0 9 * * 8", "code": "invalid_cron"}
+    assert svc.list_jobs(include_disabled=True) == []
 
 
 @pytest.mark.parametrize("payload", NON_OBJECT_BODIES)
