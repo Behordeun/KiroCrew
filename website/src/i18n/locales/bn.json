@@ -6082,6 +6082,13 @@
       "timestamp": "টাইমস্ট্যাম্প",
       "trigger": "ট্রিগার"
     },
+    "exportSessionItem": {
+      "export_to_file": "একটি ফাইলে এক্সপোর্ট করুন",
+      "exported": "এক্সপোর্ট হয়েছে",
+      "failed": "ব্যর্থ",
+      "not_saved_to_disk": "সেশন ডিস্কে সংরক্ষিত নয়",
+      "unknown_error": "এক্সপোর্ট ব্যর্থ হয়েছে"
+    },
     "feedbackPill": {
       "insider": "Insider বিল্ড",
       "nightly": "Nightly বিল্ড",

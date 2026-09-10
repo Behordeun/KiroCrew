@@ -6082,6 +6082,13 @@
       "timestamp": "Zeitstempel",
       "trigger": "Auslöser"
     },
+    "exportSessionItem": {
+      "export_to_file": "In eine Datei exportieren",
+      "exported": "Exportiert",
+      "failed": "Fehlgeschlagen",
+      "not_saved_to_disk": "Sitzung nicht auf Festplatte gespeichert",
+      "unknown_error": "Der Export ist fehlgeschlagen"
+    },
     "feedbackPill": {
       "insider": "Insider",
       "nightly": "Nightly",

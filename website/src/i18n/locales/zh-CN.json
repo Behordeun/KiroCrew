@@ -5986,6 +5986,13 @@
       "timestamp": "时间戳",
       "trigger": "触发方式"
     },
+    "exportSessionItem": {
+      "export_to_file": "导出为文件",
+      "exported": "已导出",
+      "failed": "失败",
+      "not_saved_to_disk": "会话未保存到磁盘",
+      "unknown_error": "导出失败"
+    },
     "feedbackPill": {
       "insider": "Insider 版",
       "nightly": "Nightly 版",

@@ -5986,6 +5986,13 @@
       "timestamp": "타임스탬프",
       "trigger": "트리거"
     },
+    "exportSessionItem": {
+      "export_to_file": "파일로 내보내기",
+      "exported": "내보냈습니다",
+      "failed": "실패",
+      "not_saved_to_disk": "세션이 디스크에 저장되지 않음",
+      "unknown_error": "내보내기에 실패했습니다"
+    },
     "feedbackPill": {
       "insider": "Insider",
       "nightly": "Nightly",

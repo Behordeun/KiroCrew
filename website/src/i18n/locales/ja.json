@@ -5986,6 +5986,13 @@
       "timestamp": "タイムスタンプ",
       "trigger": "トリガー"
     },
+    "exportSessionItem": {
+      "export_to_file": "ファイルにエクスポート",
+      "exported": "エクスポートしました",
+      "failed": "失敗",
+      "not_saved_to_disk": "セッションはディスクに保存されていません",
+      "unknown_error": "エクスポートに失敗しました"
+    },
     "feedbackPill": {
       "insider": "Insider ビルド",
       "nightly": "Nightly ビルド",

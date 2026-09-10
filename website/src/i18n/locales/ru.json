@@ -6274,6 +6274,13 @@
       "timestamp": "Время",
       "trigger": "Триггер"
     },
+    "exportSessionItem": {
+      "export_to_file": "Экспортировать в файл",
+      "exported": "Экспортировано",
+      "failed": "Ошибка",
+      "not_saved_to_disk": "сеанс не сохранён на диск",
+      "unknown_error": "Не удалось выполнить экспорт"
+    },
     "feedbackPill": {
       "insider": "Сборка Insider",
       "nightly": "Сборка Nightly",

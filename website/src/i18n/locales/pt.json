@@ -6178,6 +6178,13 @@
       "timestamp": "Data/hora",
       "trigger": "Acionador"
     },
+    "exportSessionItem": {
+      "export_to_file": "Exportar para um arquivo",
+      "exported": "Exportado",
+      "failed": "Falhou",
+      "not_saved_to_disk": "sessão não salva em disco",
+      "unknown_error": "A exportação falhou"
+    },
     "feedbackPill": {
       "insider": "Insider",
       "nightly": "Nightly",

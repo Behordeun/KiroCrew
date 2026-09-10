@@ -4386,6 +4386,13 @@
       "timestamp": "Timestamp",
       "trigger": "Trigger"
     },
+    "exportSessionItem": {
+      "export_to_file": "Export to a file",
+      "exported": "Exported",
+      "failed": "Failed",
+      "not_saved_to_disk": "session not saved to disk",
+      "unknown_error": "The export failed"
+    },
     "fileCard": {
       "save": "Save"
     },
