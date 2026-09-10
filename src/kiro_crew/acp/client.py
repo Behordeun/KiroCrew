@@ -1834,6 +1834,13 @@ _RE_5XX_NAMED = re.compile(
     re.IGNORECASE,
 )
 _RE_5XX_STATUS = re.compile(r"(?:HTTP|status)\s*(?:code\s*)?(?:50[0234]|529)\b", re.IGNORECASE)
+_RE_CONNECTION = re.compile(
+    r"\bE(?:CONNREFUSED|CONNRESET|CONNABORTED|TIMEDOUT|PIPE|HOSTUNREACH|AI_AGAIN)\b"
+    r"|\bsocket hang ?up\b"
+    r"|\bfetch failed\b"
+    r"|\bconnection (?:refused|reset|closed|error|timed ?out)\b",
+    re.IGNORECASE,
+)
 # Genuine retry hint only. "response stream" is deliberately NOT matched here,
 # because that would make this branch a catch-all: kiro-cli wraps EVERY mid-stream
 # provider failure as "Encountered an error in the response stream: <real cause>",
@@ -2057,9 +2064,10 @@ def _is_transient_raw_error(error: object, available_models: Sequence[str] | Non
     unentitled-model(terminal) → usage-limit(terminal) →
     malformed-request(terminal) → model-unavailable → throttle →
     credential-propagation(transient) → auth(terminal) →
-    session-expiry(terminal) → generic 5xx / pre-stream generation failure →
-    unknown(terminal). Every step mirrors :func:`_format_acp_error`'s if/elif
-    order EXCEPT malformed-request, which that formatter checks LAST: this
+    session-expiry(terminal) → connection failure(transient) → generic 5xx /
+    pre-stream generation failure → unknown(terminal). Every step mirrors
+    :func:`_format_acp_error`'s if/elif order EXCEPT malformed-request, which
+    that formatter checks LAST: this
     classifier deliberately hoists it above the 5xx family so a co-occurring
     connector token or retry hint cannot rescue a payload the backend rejected
     for its shape (see
@@ -2117,6 +2125,9 @@ def _is_transient_raw_error(error: object, available_models: Sequence[str] | Non
     if _is_session_expired(haystack):
         # Session expiry is terminal — retrying can't refresh an expired login.
         return False
+    if _RE_CONNECTION.search(haystack):
+        # A temporary endpoint failure is safe for the bounded retry ladder.
+        return True
     return bool(
         _RE_5XX_NAMED.search(haystack)
         or _RE_5XX_STATUS.search(haystack)
@@ -2557,6 +2568,13 @@ def _format_acp_error(
                 f"{host_auth.signed_out_message(backend)} "
                 "Retrying or switching models will not help — this is a "
                 "sign-in issue, not a backend error."
+                f"{req_id_suffix}"
+            )
+        elif _RE_CONNECTION.search(haystack):
+            formatted = (
+                "Could not reach the model backend (connection refused, reset, "
+                "or timed out). Retry in a moment. If it keeps happening, check "
+                "that the backend endpoint is up and listening."
                 f"{req_id_suffix}"
             )
         elif (

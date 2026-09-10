@@ -132,6 +132,18 @@ _TRANSIENT_MARKERS = (
     # in the request is invalid") is matched structurally instead — see the
     # is_credential_propagation_delay call below.
     "credential-propagation delay",
+    # Connection-level failures (client._RE_CONNECTION): raw errno tokens for
+    # restored errors, plus the formatter's wording for fresh ones.
+    "econnrefused",
+    "econnreset",
+    "econnaborted",
+    "etimedout",
+    "epipe",
+    "ehostunreach",
+    "eai_again",
+    "socket hang up",
+    "fetch failed",
+    "could not reach the model backend",
 )
 
 

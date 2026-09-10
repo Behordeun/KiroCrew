@@ -449,6 +449,58 @@ class TestTransientMarkerCoupling:
         assert "set agent.model to 'auto'" in _format_acp_error(unnamed, with_auto)
 
 
+class TestConnectionErrorClassification:
+    """Connection failures are transient, while credential failures win precedence."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "fetch failed",
+            "connect ECONNREFUSED 127.0.0.1:8484",
+            "Connection error.",
+            "socket hang up",
+            "read ECONNRESET",
+            "connect ETIMEDOUT 127.0.0.1:8484",
+            "getaddrinfo EAI_AGAIN fleet-router",
+            "write EPIPE",
+        ],
+    )
+    def test_connection_failures_are_transient(self, text):
+        from kiro_crew.acp.client import _is_transient_raw_error
+
+        assert _is_transient_raw_error({"code": -32603, "message": text, "data": ""})
+
+    def test_dns_resolution_failure_stays_terminal(self):
+        from kiro_crew.acp.client import _is_transient_raw_error
+
+        assert not _is_transient_raw_error(
+            {"code": -32603, "message": "getaddrinfo ENOTFOUND fleet-router", "data": ""}
+        )
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            "Monthly usage limit has been reached. connect ECONNREFUSED 127.0.0.1:8484",
+            "AccessDeniedException after connect ETIMEDOUT 127.0.0.1:8484",
+        ],
+    )
+    def test_terminal_branches_keep_precedence_over_connection(self, data):
+        from kiro_crew.acp.client import _is_transient_raw_error
+
+        assert not _is_transient_raw_error({"code": -32603, "message": "", "data": data})
+
+    def test_formatted_connection_wording_classifies_via_fallback(self):
+        from kiro_crew.acp.client import _format_acp_error
+        from kiro_crew.llm_helpers import is_transient_backend_error
+
+        formatted = _format_acp_error(
+            {"code": -32603, "message": "connect ECONNREFUSED 127.0.0.1:8484", "data": ""}
+        )
+
+        assert "Could not reach the model backend" in formatted
+        assert is_transient_backend_error(formatted)
+
+
 class TestMalformedRequestReachesTheHandlePath:
     """The shared-runtime path must surface the structural-rejection guidance
     (#6022) and carry a terminal verdict, mirroring TestNoRawDictInUserFacingError.
