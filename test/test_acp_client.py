@@ -11205,6 +11205,34 @@ class TestSetModelRebasesContextStats:
         assert stats.context_tokens_from_usage is False
 
     @pytest.mark.asyncio
+    async def test_rebases_to_the_substituted_models_window(self, tmp_path, monkeypatch):
+        """The meter describes what is serving, not what was asked for.
+
+        A config-option advisory can substitute the model a switch actually
+        got. Keying the rebase on the requested id showed that model's window
+        against the substitute's token counts, so the percentage was wrong for
+        exactly the sessions that were silently moved.
+        """
+        import kiro_crew.acp.client as c
+
+        windows = {"gpt-5.6-sol": 272_000, "substitute-model": 128_000}
+        monkeypatch.setattr(c.model_registry, "has_known_window", lambda mid: mid in windows)
+        monkeypatch.setattr(c.model_registry, "model_window", lambda mid, **kw: windows[mid])
+        client = self._client(tmp_path)
+        client._track_usage_update(self._usage_msg(100_000, 1_000_000))
+
+        async def _substitute(method, params):
+            client._last_substitution_model = "substitute-model"
+            return 1
+
+        client._send_request = _substitute
+
+        await client.set_model("gpt-5.6-sol")
+
+        assert client._resolved_model_id == "substitute-model"
+        assert client.last_prompt_stats.context_window_tokens == 128_000
+
+    @pytest.mark.asyncio
     async def test_post_switch_metadata_backfills_new_window(self, tmp_path, monkeypatch):
         """Load-bearing: with the rebase reverted, context_tokens_from_usage
         stays True and this metadata pct would be ignored, leaving the window
@@ -11509,18 +11537,35 @@ class TestModelEntitlementPreflight:
         # Not left holding the id we declined -- the warm-pool re-apply path
         # reads this and would re-offer it on every claim.
         assert client._model == DEFAULT_MODEL
+        assert client._resolved_model_id == "claude-sonnet-4.6"
+
+    @pytest.mark.asyncio
+    async def test_startup_auto_keeps_the_backend_default(self):
+        from kiro_crew.acp.client import DEFAULT_MODEL
+
+        client = self._client(["gpt-5.6-terra"], DEFAULT_MODEL)
+        client._resolved_model_id = "gpt-5.6-terra"
+        sent = []
+        client._send_request = _record(sent)
+
+        await client._apply_startup_model()
+
+        assert sent == []
+        assert client._resolved_model_id == "gpt-5.6-terra"
 
     @pytest.mark.asyncio
     async def test_startup_still_applies_a_usable_model(self):
-        client = self._client(["claude-sonnet-4.6", "claude-opus-4.8"], "claude-opus-4.8")
+        client = self._client(["gpt-5.6-terra", "gpt-6-astra"], "gpt-6-astra")
+        client._resolved_model_id = "gpt-5.6-terra"
         sent = []
         client._send_request = _record(sent)
 
         await client._apply_startup_model()
 
         assert len(sent) == 1
-        assert sent[0][1]["modelId"] == "claude-opus-4.8"
-        assert client._model == "claude-opus-4.8"
+        assert sent[0][1]["modelId"] == "gpt-6-astra"
+        assert client._model == "gpt-6-astra"
+        assert client._resolved_model_id == "gpt-6-astra"
 
     @pytest.mark.asyncio
     async def test_startup_resolves_namespaced_pin_to_advertised_spelling(self):
@@ -11580,6 +11625,101 @@ class TestModelEntitlementPreflight:
         await client._apply_startup_model()
 
         assert applied == [("model", "global.anthropic.claude-opus-4-8[1m]")]
+        assert client._resolved_model_id == "global.anthropic.claude-opus-4-8[1m]"
+
+    @pytest.mark.asyncio
+    async def test_startup_attributes_config_option_substitution_to_served_model(self):
+        client = self._client(
+            ["claude-opus-4-8[1m]"],
+            "global.anthropic.claude-opus-4-8[1m]",
+            is_claude=True,
+        )
+        sent = []
+
+        async def _send_request(method, params):
+            sent.append((method, params))
+            return 1
+
+        async def _wait_for_response(req_id, timeout=0.0):
+            client._last_substitution_model = "global.anthropic.claude-sonnet-4-6[1m]"
+            return {}
+
+        client._send_request = _send_request
+        client._wait_for_response = _wait_for_response
+
+        await client._apply_startup_model()
+
+        assert sent == [
+            (
+                "session/set_config_option",
+                {
+                    "sessionId": "sess-1",
+                    "configId": "model",
+                    "value": "global.anthropic.claude-opus-4-8[1m]",
+                },
+            )
+        ]
+        assert client._resolved_model_id == "global.anthropic.claude-sonnet-4-6[1m]"
+
+    @pytest.mark.asyncio
+    async def test_startup_override_does_not_inherit_a_stale_substitution(self):
+        """An advisory belongs to the request that emitted it.
+
+        A substitution recorded by an earlier switch survives a process reset
+        or resume. Reading it after the startup override, without clearing it
+        first, attributes the session to a model this dispatch never got.
+        """
+        client = self._client(
+            ["claude-opus-4-8[1m]"],
+            "global.anthropic.claude-opus-4-8[1m]",
+            is_claude=True,
+        )
+        client._last_substitution_model = "global.anthropic.claude-sonnet-4-6[1m]"
+
+        async def _send_request(method, params):
+            return 1
+
+        async def _wait_for_response(req_id, timeout=0.0):
+            return {}  # this dispatch carries no advisory of its own
+
+        client._send_request = _send_request
+        client._wait_for_response = _wait_for_response
+
+        await client._apply_startup_model()
+
+        assert client._resolved_model_id == "global.anthropic.claude-opus-4-8[1m]"
+        assert client._last_substitution_model is None
+
+    @pytest.mark.asyncio
+    async def test_clean_explicit_switch_does_not_reuse_startup_substitution(self):
+        client = self._client(
+            ["claude-opus-4-8[1m]"],
+            "global.anthropic.claude-opus-4-8[1m]",
+            is_claude=True,
+        )
+        waits = 0
+
+        async def _send_request(method, params):
+            return 1
+
+        async def _wait_for_response(req_id, timeout=0.0):
+            nonlocal waits
+            waits += 1
+            if waits == 1:
+                client._last_substitution_model = "global.anthropic.claude-sonnet-4-6[1m]"
+            return {}
+
+        client._send_request = _send_request
+        client._wait_for_response = _wait_for_response
+
+        await client._apply_startup_model()
+        assert client._resolved_model_id == "global.anthropic.claude-sonnet-4-6[1m]"
+
+        await client.set_model("global.anthropic.claude-opus-4-8[1m]")
+
+        assert client._model == "global.anthropic.claude-opus-4-8[1m]"
+        assert client._resolved_model_id == "global.anthropic.claude-opus-4-8[1m]"
+        assert client._last_substitution_model is None
 
     @pytest.mark.asyncio
     async def test_explicit_switch_is_refused_not_downgraded(self):
@@ -11623,6 +11763,41 @@ class TestModelEntitlementPreflight:
 
         assert len(sent) == 1
         assert client._model == "claude-opus-4.8"
+
+    @pytest.mark.asyncio
+    async def test_explicit_switch_attributes_config_option_substitution_to_served_model(self):
+        client = self._client(
+            ["claude-opus-4-8[1m]"],
+            "global.anthropic.claude-opus-4-8[1m]",
+            is_claude=True,
+        )
+        sent = []
+
+        async def _send_request(method, params):
+            sent.append((method, params))
+            return 1
+
+        async def _wait_for_response(req_id, timeout=0.0):
+            client._last_substitution_model = "global.anthropic.claude-sonnet-4-6[1m]"
+            return {}
+
+        client._send_request = _send_request
+        client._wait_for_response = _wait_for_response
+
+        await client.set_model("global.anthropic.claude-opus-4-8[1m]")
+
+        assert sent == [
+            (
+                "session/set_config_option",
+                {
+                    "sessionId": "sess-1",
+                    "configId": "model",
+                    "value": "global.anthropic.claude-opus-4-8[1m]",
+                },
+            )
+        ]
+        assert client._model == "global.anthropic.claude-opus-4-8[1m]"
+        assert client._resolved_model_id == "global.anthropic.claude-sonnet-4-6[1m]"
 
 
 def _record(sink):

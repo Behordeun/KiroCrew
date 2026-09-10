@@ -4420,6 +4420,9 @@ class AcpClient:
             model_id = model_registry.resolve_wire_model_id(
                 model_id, self._model_registry_namespace
             )
+        # An advisory belongs to the request that emitted it.  A clean explicit
+        # switch must not inherit the served-model attribution from startup.
+        self._last_substitution_model = None
         if self.backend in ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION:
             model_id = await self._push_model_config_option(model_id, strict=True)
         else:
@@ -4428,7 +4431,7 @@ class AcpClient:
                 {"sessionId": self._session_id, "modelId": model_id},
             )
         self._model = model_id
-        self._resolved_model_id = model_id
+        self._resolved_model_id = self._last_substitution_model or model_id
         if self._seeds_local_settings:
             # Re-seed the per-session settings file: a pooled runtime seeded it at
             # spawn with the POOL DEFAULT model + its allowlist, and the spawn-only
@@ -4446,9 +4449,16 @@ class AcpClient:
         # any) no longer describe this session — rebase the meter stats to the
         # new model so the context meter updates without waiting for the next
         # turn's telemetry (and so _backfill_context_window is un-gated).
+        # Keyed on the SERVED id, not the requested one: a config-option
+        # advisory can substitute the model this switch actually got, and the
+        # meter describes what is serving. Rebasing on model_id showed the
+        # requested model's window against the substitute's token counts, so
+        # the percentage was wrong for exactly the sessions that were
+        # silently moved.
+        served_model_id = self._resolved_model_id or model_id
         win = (
-            model_registry.model_window(model_id)
-            if model_registry.has_known_window(model_id)
+            model_registry.model_window(served_model_id)
+            if model_registry.has_known_window(served_model_id)
             else None
         )
         self.last_prompt_stats.rebase_to_window(win or 0)
@@ -4785,6 +4795,12 @@ class AcpClient:
                 # default we fall back to can itself be one the account lacks.
                 await self._ensure_served_default()
                 return
+        # An advisory belongs to the request that emitted it, the same rule
+        # set_model states: a substitution recorded before this startup
+        # override — by an earlier switch on a runtime this process reset or
+        # resumed — would otherwise be read below as this dispatch's own
+        # served model and misattribute the session.
+        self._last_substitution_model = None
         if self.backend in ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION:
             sent = await self._push_model_config_option(self._model, strict=False)
             if not sent:
@@ -4800,6 +4816,9 @@ class AcpClient:
                 METHOD_SET_MODEL,
                 {"sessionId": self._session_id, "modelId": self._model},
             )
+        # session/new reports the backend default before an explicit override.
+        # A config-option advisory may have substituted the served model.
+        self._resolved_model_id = self._last_substitution_model or self._model
         logger.info("ACP model: %s", self._model)
 
     async def _reseed_after_capture(self) -> None:
