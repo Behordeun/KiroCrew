@@ -643,6 +643,18 @@ export default function WebPreviewPanel({ sessionKey, active = true }: { session
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** Consecutive poll failures that are NOT "the overlay is gone". */
   const pollFailures = useRef(0)
+  /**
+   * Picks the poll updater abandons (nothing typed, editor moved on) and the
+   * page has not been told to drop yet, keyed by the slot they belong to. The
+   * updater fills it; the effect below drains it after the commit. React runs
+   * a state updater lazily whenever the hook already has an update queued, so
+   * a decision made inside it is not readable on the line after setState --
+   * only after the render it produces. The slot travels with the id because
+   * that render can also be the one that switches sessions: a remove bound to
+   * the session current at drain time would reach the other slot's page, where
+   * the same marker number may be a live pick.
+   */
+  const abandonedPicks = useRef<Map<string, Set<number>>>(new Map())
   const noteInputRef = useRef<HTMLInputElement>(null)
 
   const callAnnotate = useCallback(async (op: BrowserAnnotateOp, args?: Record<string, unknown>) => {
@@ -662,6 +674,19 @@ export default function WebPreviewPanel({ sessionKey, active = true }: { session
   const patchMirror = useCallback((fn: (prev: AnnotateMirror) => AnnotateMirror) => {
     patchSlot(sessionKey || '', fn)
   }, [patchSlot, sessionKey])
+
+  // Tell each slot's overlay to drop the picks the poll updater abandoned. This
+  // runs after the commit that removed them from the list, so list, count and
+  // page highlight agree, and it addresses the bridge by the recorded slot
+  // rather than through callAnnotate, which is bound to whichever session is
+  // current now. The Set dedupes the updater's second run under StrictMode.
+  useEffect(() => {
+    if (!abandonedPicks.current.size) return
+    const pending = [...abandonedPicks.current]
+    abandonedPicks.current.clear()
+    if (typeof annotateBridge !== 'function') return
+    for (const [slot, ids] of pending) for (const id of ids) void annotateBridge(slot, 'remove', { id })
+  }, [annotateMirrors, annotateBridge])
 
   // A session switch resets the per-turn transients: poll failure count and an
   // armed Clear -- a confirmation armed for one session's notes must never fire
@@ -732,7 +757,6 @@ export default function WebPreviewPanel({ sessionKey, active = true }: { session
       if (stopped) return
       if (isAnnotatePoll(res)) {
         pollFailures.current = 0
-        const dropped: { id: number | null } = { id: null }
         patchSlot(slot, prev => {
           // A live pick can never share an id with a retained note (the overlay
           // is started past the highest retained id); one that does is a
@@ -768,7 +792,9 @@ export default function WebPreviewPanel({ sessionKey, active = true }: { session
               retained = retained.map(a => (a.id === editing!.id ? { ...a, note: text } : a))
             }
             if (editing && !editing.text.trim() && !(notes[editing.id] ?? '').trim() && targets.some(t => t.id === editing!.id) && editing.id !== moveTo) {
-              dropped.id = editing.id
+              const ids = abandonedPicks.current.get(slot) ?? new Set<number>()
+              ids.add(editing.id)
+              abandonedPicks.current.set(slot, ids)
               targets = targets.filter(t => t.id !== editing!.id)
             }
             editing = { id: moveTo, text: notes[moveTo] ?? '' }
@@ -779,7 +805,6 @@ export default function WebPreviewPanel({ sessionKey, active = true }: { session
             && prev.page.url === page.url && prev.page.title === page.title) return prev
           return { ...prev, picking: res.picking, targets, notes, retained, editing, page }
         })
-        if (dropped.id !== null) void callAnnotate('remove', { id: dropped.id })
         return
       }
       // The overlay is gone (navigation) or the view itself is (closed,
