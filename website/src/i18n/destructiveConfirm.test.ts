@@ -274,6 +274,11 @@ export const CONFIRM_OPERAND_KEY_EXEMPTIONS: Record<string, string> = {
     'kind word "template" sits next to the operand (#4657)',
   'pages.kiroCrewAgentsPage.delete_crew_named_confirm':
     'kind word "crew" sits next to the operand (#4657)',
+  'apps.awsControl.console.backup_restore_foreign_confirm':
+    'the {{install}} operand is the first 8 hex characters of an install id this app '
+    + 'mints itself (uuid4, never user-supplied text), and it already sits inside '
+    + 'parentheses after the words "another install" -- so the risk glyph quotes exist '
+    + 'to close, a crafted operand blending into the sentence, cannot arise here (#9554)',
 }
 
 function placeholdersIn(value: string): string[] {

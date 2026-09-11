@@ -37,6 +37,7 @@ MUTATIONS (also restricted-session refused + SEL-audited)
 ``POST /backup/{account}/run``                 run a backup (snapshot | sessions)
 ``POST /backup/{account}/nightly``             toggle the nightly snapshot
 ``POST /backup/{account}/restore``             download an archive to the staging dir
+``POST /install/label``                        rename THIS install (display only, local)
 
 GUARDS, in order, and why each exists:
 
@@ -2280,6 +2281,10 @@ async def _handle_backup_status(request: web.Request) -> web.Response:
         "nightly": await asyncio.to_thread(backup_mod.nightly_enabled, account),
         "runs": await asyncio.to_thread(backup_mod.last_runs, account),
         "jobs": await asyncio.to_thread(_account_jobs, account),
+        # This install's own identity, so every row can be told from every other
+        # install's. Local and free -- no AWS call -- so it rides on the unpolled
+        # payload rather than waiting for the opt-in remote half.
+        "install": await asyncio.to_thread(backup_mod.install_identity),
         "remote": None,
     }
     # The remote listing is OPT-IN, because this endpoint is now polled. Its
@@ -2290,13 +2295,24 @@ async def _handle_backup_status(request: web.Request) -> web.Response:
     # open, which is the same condition it already gates the display behind.
     if request.query.get("remote") != "1":
         return web.json_response(payload)
+    # A second opt-in inside the first. Enumerating the OTHER installs' prefixes
+    # costs a list call each per kind plus one label read, so it is asked for
+    # separately -- and it is asked for at all because a replacement machine owns
+    # no archives, so without it a fresh install would see an empty list on the one
+    # occasion the bucket holds the only surviving copy.
+    include_others = request.query.get("others") == "1"
     denied = await _consent(aws_consent.SERVICE_S3, profile, region)
     if denied is None:
         try:
             bucket = await _drive_bucket(account, profile, region)
             if bucket:
                 payload["remote"] = await asyncio.to_thread(
-                    backup_mod.list_remote_backups, profile, region, bucket, account=account
+                    backup_mod.list_remote_backups,
+                    profile,
+                    region,
+                    bucket,
+                    account=account,
+                    include_others=include_others,
                 )
         except AWSError as exc:
             payload["remoteError"] = _safe_error(exc)
@@ -2425,13 +2441,78 @@ async def _handle_backup_restore(request: web.Request) -> web.Response:
     err = storage_mod.validate_key(key)
     if err or not (key.startswith("snapshots/") or key.startswith("sessions/")):
         return _bad_request("key must name a backup archive", "invalid_key")
+    # NOT bool(): the same rule the nightly toggle states. This flag waives a
+    # guard that stands between the owner and overwriting this machine's memory
+    # with another machine's, and `bool("false")` is True -- so a stringly-typed
+    # caller asking NOT to override would be granted the override. Absent means
+    # not overridden; present means it has to be a real boolean.
+    raw_foreign = body.get("foreignOk", False)
+    if not isinstance(raw_foreign, bool):
+        return _bad_request("foreignOk must be a boolean", "invalid_foreign_ok")
     try:
         result = await asyncio.to_thread(
-            backup_mod.restore_download, profile, region, bucket, key, account=account
+            backup_mod.restore_download,
+            profile,
+            region,
+            bucket,
+            key,
+            account=account,
+            foreign_ok=raw_foreign,
+        )
+    except backup_mod.UnprovenArchive as exc:
+        # 409, not 403: nothing about the caller's authority is in question -- the
+        # request conflicts with the state of the thing it names, and the same
+        # request with the override succeeds. The ORIGIN travels with the refusal
+        # because the three cases need different words: a co-tenant's archive, one
+        # under this install's own prefix with no upload record, and one predating
+        # install ids are three different things to tell an operator. The owning id
+        # comes too, so "another install" is never the whole answer.
+        return web.json_response(
+            {
+                "error": str(exc),
+                "code": "foreign_install_archive",
+                "origin": exc.origin,
+                "install": exc.install_id,
+            },
+            status=409,
         )
     except AWSError as exc:
         return _aws_failed(exc)
     return web.json_response({"downloaded": True, **result})
+
+
+async def _handle_install_label(request: web.Request) -> web.Response:
+    """Rename THIS install. Local only — no AWS call, no account.
+
+    Not under ``/backup/{account}``: the install is the same install whichever
+    account it backs up to, so scoping the rename to one account would imply a
+    name per account and mint the confusion the id exists to remove. The new name
+    reaches the drive on the next backup, which already holds a bucket and a live
+    authorization decision; making a cosmetic rename depend on the network would
+    let it fail for no benefit.
+
+    The label changes what is DISPLAYED and nothing else. Ownership, the restore
+    refusal and the nightly's shared-drive notice all read the id in the object
+    key, so no name an owner (or another install) chooses can move an archive
+    across that line.
+    """
+    body = await _body(request)
+    raw = body.get("label")
+    if not isinstance(raw, str):
+        return _bad_request("label must be a string", "invalid_label")
+    try:
+        identity = await asyncio.to_thread(backup_mod.set_install_label, raw)
+    except OSError:
+        # Same posture as the nightly toggle: a setting that did not persist is
+        # reported as a failure rather than echoed back as if it had. The message
+        # is fixed because the OSError's own text carries the absolute path of the
+        # state file, which has no business in a response body.
+        logger.exception("aws-control: the install label could not be persisted")
+        return web.json_response(
+            {"error": "the install name could not be saved", "code": "state_persist_failed"},
+            status=500,
+        )
+    return web.json_response({"install": identity})
 
 
 # --------------------------------------------------------------------------
@@ -2525,4 +2606,8 @@ def register_routes(app: web.Application) -> None:
     r.add_post(
         f"{_BASE}/backup/{{account}}/restore",
         _guarded(_mutating("backup_restore")(_handle_backup_restore)),
+    )
+    r.add_post(
+        f"{_BASE}/install/label",
+        _guarded(_mutating("install_label")(_handle_install_label)),
     )
