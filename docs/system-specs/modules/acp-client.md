@@ -58,7 +58,16 @@ not a preference:
   dispatching on `argv[0]` (`~/.toolbox/bin/kiro-cli` → `toolbox-exec`), a
   wrapper reading a sibling registry, or a self-updating install whose real
   payload lives beside it. The launch path is therefore the path the caller
-  resolved, **not** its realpath.
+  resolved, **not** its realpath. One exception, a pod child only: its remapped
+  `$HOME` puts the sibling nowhere, so `apply_pod_bundle_spawn` resolves a
+  symlinked `argv[0]` **onto a verified `<name>.app/Contents/MacOS/` target only** —
+  same basename, executable, with a `<basename>-` sibling beside it. Verifying the
+  whole layout, not just that the link resolves, is what keeps the exception off
+  the `argv[0]`-dispatching multiplexer above and off any wrapper that finds its
+  resources through the path it was invoked by. Crew's launcher still takes the
+  sandbox, though not for the bundle swap's reason: no shim is in this chain, and
+  delegating would skip Crew's seatbelt for an internal sandbox whose behaviour
+  under the pod's remapped `$HOME` Crew cannot verify.
 
 **Removed: the resolve-to-exec integrity snapshot.** An earlier design copied the
 resolved bytes into a private location and executed that instead — a sealed

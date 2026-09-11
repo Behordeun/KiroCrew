@@ -1109,6 +1109,46 @@ def _kiro_cli_bundle_binary(
     return None
 
 
+#: The path tail a macOS ``.app`` install puts the kiro-cli binary at. A multi-call
+#: kiro-cli locates the sibling it execs by searching for this tail in its OWN
+#: executable path, so it is the one layout where resolving a symlink is safe.
+_MACOS_APP_BUNDLE_SUFFIX = ".app"
+_MACOS_APP_BUNDLE_TAIL = ("Contents", "MacOS")
+
+
+def _kiro_cli_app_bundle_target(executable: str) -> str | None:
+    """The macOS ``.app`` kiro-cli binary *executable* symlinks to, or ``None``.
+
+    Verifies the LAYOUT, not just that the link resolves: each condition is one the
+    target must satisfy for the child's own sibling search to succeed afterwards.
+    Same basename keeps an ``argv[0]``-dispatching multiplexer out; the
+    ``<basename>-`` sibling proves this is the multi-call binary.
+    """
+    try:
+        real = os.path.realpath(executable)
+        if real == executable:
+            return None
+        name = os.path.basename(real)
+        if name != os.path.basename(executable):
+            return None
+        macos_dir = os.path.dirname(real)
+        contents_dir = os.path.dirname(macos_dir)
+        app_dir = os.path.dirname(contents_dir)
+        tail = (os.path.basename(contents_dir), os.path.basename(macos_dir))
+        if tail != _MACOS_APP_BUNDLE_TAIL:
+            return None
+        if not os.path.basename(app_dir).endswith(_MACOS_APP_BUNDLE_SUFFIX):
+            return None
+        if not os.path.isfile(real) or not os.access(real, os.X_OK):
+            return None
+        siblings = os.listdir(macos_dir)
+    except OSError:  # pragma: no cover - defensive; a spawn must not fail on this
+        return None
+    if not any(entry.startswith(f"{name}-") for entry in siblings):
+        return None
+    return real
+
+
 def apply_pod_bundle_spawn(
     argv: list[str],
     *,
@@ -1155,10 +1195,20 @@ def apply_pod_bundle_spawn(
     goes ``False`` and ``wrap_argv`` wraps the child in Crew's launcher instead.
     The substitution is per-pod-child and never reaches a host session.
 
-    If the bundle binary cannot be located the pair degrades to the status quo
-    (shim, internal sandbox) rather than spawning something unlaunchable; a pod
-    whose child cannot bootstrap is meant to be refused loudly at ``pod up``, not
-    papered over here.
+    If the bundle binary cannot be located, one further layout resolves: a symlinked
+    ``argv[0]`` whose target :func:`_kiro_cli_app_bundle_target` verifies as a macOS
+    ``.app`` binary. Its exec'd sibling shares that directory -- which is why the
+    fixed-depth candidate above misses it -- so the real name puts the sibling beside
+    the child instead of under the remapped ``HOME``.
+    ``delegate_internal_sandbox`` goes ``False``, though not for the swap's reason:
+    no shim is in this chain, and delegating would instead skip Crew's seatbelt for
+    an internal sandbox whose behaviour under the pod's remapped ``HOME`` Crew cannot
+    verify -- that remap already broke the other sandbox in this chain. Uncertainty
+    resolves toward our own layer, the direction
+    :func:`sandbox.kiro_internal_sandbox_enabled` states for itself. Failing both,
+    the pair degrades to the status quo (shim, internal sandbox) rather than spawning
+    something unlaunchable; a pod whose child cannot bootstrap is meant to be refused
+    loudly at ``pod up``, not papered over here.
     """
     delegate = backend in ACP_BACKENDS_INTERNAL_SANDBOX
     env = os.environ if environ is None else environ
@@ -1169,6 +1219,8 @@ def apply_pod_bundle_spawn(
     if not argv:  # pragma: no cover - defensive; callers always pass argv[0]
         return argv, delegate
     bundle = _kiro_cli_bundle_binary(argv[0], environ=env)
+    if bundle is None:
+        bundle = _kiro_cli_app_bundle_target(argv[0])
     if bundle is None:
         return argv, delegate
     return [bundle, *argv[1:]], False
