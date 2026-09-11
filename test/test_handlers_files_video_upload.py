@@ -355,6 +355,18 @@ def test_accept_list_covers_every_accepted_extension() -> None:
     assert set(files_mod._ALLOWED_VIDEO_EXT) == {".mp4", ".m4v", ".mov", ".webm"}
 
 
+def test_file_picker_covers_every_text_and_document_extension() -> None:
+    """The browser picker exposes every text/document type the server accepts."""
+    match = re.search(
+        r"const FILE_ACCEPT = IMAGE_ACCEPT \+ ',' \+ VIDEO_ACCEPT \+ '([^']+)'",
+        _website_source("components/ChatInput.tsx"),
+    )
+    assert match, "FILE_ACCEPT not found in ChatInput.tsx"
+    offered = {value for value in match.group(1).split(",") if value}
+    required = files_mod._ALLOWED_TEXT_EXT | files_mod._ALLOWED_DOC_EXT
+    assert offered == required, (offered - required, required - offered)
+
+
 def test_video_ceiling_stays_above_the_document_cap() -> None:
     """``_MAX_VIDEO_UPLOAD_BYTES`` exceeds ``_MAX_UPLOAD_BYTES``.
 
