@@ -667,31 +667,139 @@ _MEMBER_MARKER_RES: tuple[re.Pattern[str], ...] = (
 )
 
 
-def _scrub_member_payload(text: str) -> str:
-    """Neutralize member-authority markers in an untrusted payload.
+def _member_normalized_view(text: str) -> str:
+    """The member scrub's historical whole-string normalization.
 
-    The payload is first NORMALIZED — NFKC-folded (so fullwidth/compatibility
-    confusables like ``［ＰＥＲＭＡＮＥＮＴ ＲＵＬＥＳ］`` collapse to their
-    ASCII forms), then Unicode default-ignorables dropped and every dash folded
-    to ASCII ``-`` — and the normalized copy is what gets injected, so a
-    confusable forgery (``[PERM<zwsp>ANENT RULES‐``) cannot slip past the ASCII
-    patterns. NFKC runs first because it maps compatibility glyphs the category
-    filters never touch; the ignorable/dash passes stay because NFKC preserves
-    grapheme joiners, variation selectors, and most dashes.
-    Unlike ``_neutralize_structural_markers`` this needs no origin map: these
-    payloads are small prompt prose, never span-attributed, and losing
-    zero-width characters or compatibility glyphs from a briefing costs
-    nothing.
+    NFKC-fold (fullwidth/compatibility confusables like
+    ``［ＰＥＲＭＡＮＥＮＴ ＲＵＬＥＳ］`` collapse to their ASCII forms), then
+    drop Unicode default-ignorables, fold ``_MULTIBYTE_TABLE`` punctuation,
+    and map every Unicode dash (``Pd``) to ASCII ``-``. NFKC runs first
+    because it maps compatibility glyphs the category filters never touch;
+    the ignorable/dash passes stay because NFKC preserves grapheme joiners,
+    variation selectors, and most dashes. Kept as the fail-closed floor for
+    :func:`_scrub_member_payload`.
     """
-    normalized = "".join(
+    return "".join(
         "-" if unicodedata.category(folded) == "Pd" else folded
         for ch in unicodedata.normalize("NFKC", text)
         if not _is_marker_ignorable(ch)
         for folded in ch.translate(_MULTIBYTE_TABLE)
     )
-    for pattern in _MEMBER_MARKER_RES:
-        normalized = pattern.sub(_STRUCTURAL_MARKER_NEUTRALIZED, normalized)
-    return normalized
+
+
+def _member_marker_spans(text: str) -> list[tuple[int, int]]:
+    """Merged spans of forgeable member-authority markers, in ORIGINAL coords.
+
+    The matching view mirrors :func:`_member_normalized_view` — NFKC first,
+    then default-ignorable drops, ``_MULTIBYTE_TABLE`` punctuation folds and
+    ``Pd`` dashes to ``-`` — but is built PER COMBINING
+    SEQUENCE (base character plus its trailing combining marks) with an origin
+    map back to original offsets, the same mechanism
+    :func:`_structural_marker_spans` uses for its view.
+
+    Sequences — not lone characters — are the normalization unit because
+    canonical composition happens ACROSS characters within one sequence:
+    ``I`` + U+0307 composes to ``İ`` (U+0130) under whole-string NFKC, and
+    ``İ`` case-folds to ASCII ``i``, so a marker word carrying an embedded
+    combining mark matches the case-insensitive patterns on the whole-string
+    view. A per-character view cannot compose the pair, leaves the mark
+    splitting the word, misses the match, and strands the scrub on the
+    whole-payload fail-closed floor — corrupting legitimate content the
+    span-local rewrite exists to protect.
+
+    Residual divergences from the whole-string view (e.g. Hangul jamo, where
+    STARTERS compose with each other) survive this grouping, but every such
+    composition yields a non-ASCII char with no ASCII case fold, so it cannot
+    reach the marker alphabet; :func:`_scrub_member_payload` still re-checks
+    its result against the whole-string view and fails CLOSED regardless.
+
+    A single original char may fold to several view chars (``㎢`` → ``km2``),
+    and a sequence's marks travel with its base; a match touching any part of
+    the fold maps to the WHOLE original sequence, so spans only ever
+    over-cover — the deny direction.
+    """
+    if text.isascii():  # pure ASCII cannot contain confusables — match directly
+        raw = [m.span() for pattern in _MEMBER_MARKER_RES for m in pattern.finditer(text)]
+    else:
+        norm: list[str] = []
+        origin: list[tuple[int, int]] = []  # (start, end] original span per view char
+        i = 0
+        length = len(text)
+        while i < length:
+            if unicodedata.category(text[i]) == "Cf":
+                i += 1  # invisible for matching; still inside any marker's original span
+                continue
+            # Extend through the base char's combining marks (Mn/Mc/Me). A Cf
+            # char terminates the sequence exactly as it blocks composition in
+            # the whole-string view (NFKC runs before the Cf drop there).
+            end = i + 1
+            while end < length and unicodedata.category(text[end]).startswith("M"):
+                end += 1
+            seq = text[i:end]
+            if seq.isascii():  # single ASCII char, no marks: no fold possible
+                norm.append(seq)
+                origin.append((i, end))
+            else:
+                for c in unicodedata.normalize("NFKC", seq):
+                    if _is_marker_ignorable(c):
+                        continue
+                    for folded in c.translate(_MULTIBYTE_TABLE):
+                        norm.append("-" if unicodedata.category(folded) == "Pd" else folded)
+                        origin.append((i, end))
+            i = end
+
+        norm_str = "".join(norm)
+        raw = []
+        for pattern in _MEMBER_MARKER_RES:
+            for m in pattern.finditer(norm_str):
+                s, e = m.span()
+                # Through the last matched sequence, in original coordinates.
+                raw.append((origin[s][0], origin[e - 1][1]))
+
+    return _merge_overlapping_spans(raw)
+
+
+def _scrub_member_payload(text: str) -> str:
+    """Neutralize member-authority markers in an untrusted payload.
+
+    Detection runs on a normalized view (NFKC + ignorable drop + ``Pd`` fold, see
+    :func:`_member_marker_spans`) so a confusable forgery
+    (``[PERM<zwsp>ANENT RULES‐``) cannot slip past the ASCII patterns — but
+    the rewrite is SPAN-LOCAL in the ORIGINAL text: only matched marker spans
+    are replaced, so legitimate fullwidth/compatibility characters, zero-width
+    joiners and Unicode dashes outside a forgery survive byte-exact. A
+    permanent rule protecting ``Ａ.txt`` reaches the member naming ``Ａ.txt``,
+    not its NFKC fold (the whole-payload normalized injection this replaces
+    handed the member a subtly different safety boundary than the user wrote).
+
+    FAIL-CLOSED FLOOR: the span-scrubbed result is re-checked against the
+    historical whole-string normalized view; if any marker pattern still
+    matches there, the scrub degrades to exactly that historical behavior —
+    normalize the whole payload and substitute every match. A mapping defect
+    can therefore cost fidelity, never admit a forgery: every return value
+    either passes the whole-string detector clean or IS its output.
+    """
+    scrubbed = _apply_marker_spans(text, _member_marker_spans(text))
+    residue = _member_normalized_view(scrubbed)
+    if any(pattern.search(residue) for pattern in _MEMBER_MARKER_RES):
+        for pattern in _MEMBER_MARKER_RES:
+            residue = pattern.sub(_STRUCTURAL_MARKER_NEUTRALIZED, residue)
+        return residue
+    return scrubbed
+
+
+def _merge_overlapping_spans(raw: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Sort and merge overlapping/adjacent match spans (shared by both views)."""
+    if not raw:
+        return []
+    raw.sort()
+    merged: list[tuple[int, int]] = []
+    for s, e in raw:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+    return merged
 
 
 def _marker_spans(
@@ -732,16 +840,7 @@ def _marker_spans(
                 # Through the last matched char, in original coordinates.
                 raw.append((origin[start], origin[end - 1] + 1))
 
-    if not raw:
-        return []
-    raw.sort()
-    merged: list[tuple[int, int]] = []
-    for start, end in raw:
-        if merged and start <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-        else:
-            merged.append((start, end))
-    return merged
+    return _merge_overlapping_spans(raw)
 
 
 def _structural_marker_spans(text: str) -> list[tuple[int, int]]:
