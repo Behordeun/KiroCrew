@@ -16,6 +16,7 @@ import functools
 import json
 import logging
 import os
+import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -68,7 +69,7 @@ SCOPE_PROJECT = "project"
 # sessions on different checkouts must not serve each other's agents from one
 # entry. The signature is the pair of per-directory signatures, so an edit in
 # either scope invalidates.
-_ListAgentsSig = tuple[int, int]
+_ListAgentsSig = tuple[tuple[str, int], ...]
 _LIST_AGENTS_KEY = tuple[str, str]
 _LIST_AGENTS_CACHE: dict[_LIST_AGENTS_KEY, tuple[tuple[_ListAgentsSig, ...], list[AgentInfo]]] = {}
 
@@ -77,6 +78,22 @@ _LIST_AGENTS_CACHE: dict[_LIST_AGENTS_KEY, tuple[tuple[_ListAgentsSig, ...], lis
 # resolver needs only the name set: building full AgentInfo rows (and scanning the
 # user-level dir alongside) on every turn is the cost this index exists to avoid.
 _PROJECT_NAMES_CACHE: dict[str, tuple[tuple[_ListAgentsSig, ...], frozenset[str]]] = {}
+
+# Parsed agent SPECS (raw dict + original path), keyed by directory and
+# revalidated by the same stat-only signature. This is the shared snapshot
+# behind :func:`agent_skill_globs` and the dashboard's ``loaded_by_agents``
+# annotation: both re-read every spec per call without it, and the parse is
+# their dominant cost. Guarded by a lock — callers run on executor threads.
+# Rows are shared, never copied: treat ``(data, path)`` tuples and the
+# ``data`` dicts as read-only.
+_PARSED_SPECS_LOCK = threading.Lock()
+_PARSED_SPECS_CACHE: dict[str, tuple[_ListAgentsSig, list[tuple[dict[str, Any], Path]]]] = {}
+# Bumped by clear_list_agents_cache() under the lock. A parse snapshot records
+# the generation it started under and is discarded instead of stored when a
+# clear landed meanwhile — otherwise an in-flight parse could re-publish rows
+# read BEFORE the write that the clear announced, inside one mtime tick where
+# the signature cannot tell the difference.
+_PARSED_SPECS_GEN = 0
 
 
 @dataclass
@@ -725,73 +742,135 @@ def expand_skill_uri(uri: str, agent_path: Path) -> str | None:
     return str(agent_path.parent.parent.parent / raw)
 
 
+def parsed_agent_specs(
+    agents_dir: Path | None = None,
+    *,
+    operation: str,
+    source: str,
+) -> list[tuple[dict[str, Any], Path]]:
+    """Return every parsed agent spec in *agents_dir* as ``(data, path)`` pairs.
+
+    ``path`` is the ORIGINAL file path (not the resolved target), in sorted
+    filename order, so ``path.stem`` matching and relative ``skill://`` glob
+    anchoring behave exactly as a direct scan would. Reads go through
+    :func:`_read_agent_spec`, so sidecars, symlink loops, sensitive targets,
+    oversized files, and invalid JSON are skipped best-effort.
+
+    Cached per directory and revalidated by :func:`_dir_signature`, so a warm
+    call costs one ``scandir`` instead of parsing every spec. The cache is
+    also dropped by :func:`clear_list_agents_cache` — the agent write paths
+    already call it, which covers a write landing inside one mtime tick. The
+    returned list is a fresh copy but its rows are the cached objects: treat
+    them as read-only.
+
+    *operation*/*source* label the SEL denial trail exactly as
+    :func:`_read_agent_spec` documents; the cache makes the labels
+    first-reader-wins for the lifetime of one snapshot, which is acceptable
+    because every current caller reads the same user-level directory for the
+    same catalog purpose.
+    """
+    d = agents_dir or _kiro_agents_dir()
+    key = str(d)
+    signature = _dir_signature(d)
+    with _PARSED_SPECS_LOCK:
+        cached = _PARSED_SPECS_CACHE.get(key)
+        gen = _PARSED_SPECS_GEN
+    if cached is not None and cached[0] == signature:
+        return list(cached[1])
+    # Parse OUTSIDE the lock: the lock guards only dict reads/writes, so an
+    # event-loop caller of clear_list_agents_cache() can never block behind a
+    # worker thread's disk scan. Two threads missing at once parse redundantly
+    # and last-write-wins — the same rows, from the same signature-checked
+    # directory state, so the duplicate work is bounded and harmless.
+    try:
+        candidates = sorted(d.glob("*.json"))
+    except OSError:
+        candidates = []
+    rows: list[tuple[dict[str, Any], Path]] = []
+    for f in candidates:
+        data = _read_agent_spec(f, operation=operation, source=source)
+        if data is None:
+            continue
+        rows.append((data, f))
+    with _PARSED_SPECS_LOCK:
+        # A clear() that landed during the parse announced a write this scan
+        # may predate; serve these rows to this caller but do not publish them.
+        if _PARSED_SPECS_GEN == gen:
+            _PARSED_SPECS_CACHE[key] = (signature, rows)
+    return list(rows)
+
+
 def agent_skill_globs(agent: str, agents_dir: Path | None = None) -> list[str]:
     """Return fnmatch globs for the skills mapped to *agent*, or ``[]``.
 
     An empty list means "this agent has no explicit skill mapping" — callers
     treat that as the legacy all-or-nothing default rather than as "no skills".
     Best-effort and never raises: an unreadable, invalid, or sensitive-path
-    agent file yields ``[]``.
+    agent file yields ``[]``. Resolved from the :func:`parsed_agent_specs`
+    snapshot, so a warm call parses nothing.
     """
-    d = agents_dir or _kiro_agents_dir()
-    if not agent or not d.is_dir():
+    if not agent:
         return []
-    try:
-        candidates = sorted(d.glob("*.json"))
-    except OSError:
-        return []
-    for f in candidates:
-        # The one hardened reader for the user-writable agents dir: AppleDouble
-        # sidecars, symlink loops (``RuntimeError`` on resolve), sensitive
-        # resolved targets (with the SEL ``denied`` event), the size cap, and
-        # non-UTF-8 / non-object JSON all collapse to ``None`` — skipped like an
-        # absent file, preserving this function's never-raises / ``[]`` contract.
-        # Pass ``f``, not the resolved target: ``f.stem`` and
-        # ``expand_skill_uri`` below must see the ORIGINAL path so a symlinked
-        # spec's relative globs stay anchored where the symlink lives.
-        data = _read_agent_spec(f, operation="agent_skill_globs", source="unknown")
-        if data is None:
-            continue
+    # ``f`` is the ORIGINAL path: ``f.stem`` and ``expand_skill_uri`` below
+    # must see it so a symlinked spec's relative globs stay anchored where
+    # the symlink lives.
+    for data, f in parsed_agent_specs(agents_dir, operation="agent_skill_globs", source="unknown"):
         if data.get("name") != agent and f.stem != agent:
             continue
-        globs = [g for uri in skill_resource_uris(data) if (g := expand_skill_uri(uri, f))]
-        return globs
+        return [g for uri in skill_resource_uris(data) if (g := expand_skill_uri(uri, f))]
     return []
 
 
 def _dir_signature(d: Path) -> _ListAgentsSig:
     """Cheap stat-only signature of the agents dir.
 
-    Captures the JSON file count and newest mtime — enough to detect adds,
-    removals, and in-place edits without reading or parsing any file. Used to
-    invalidate the :func:`list_agents` result cache.
+    Captures each JSON entry's name and mtime — enough to detect adds,
+    removals, renames, and any edit that changes a file's mtime, without
+    reading or parsing any file. An edit landing inside the same mtime tick
+    is invisible here; :func:`clear_list_agents_cache` is the escape hatch
+    the write paths use for exactly that case. Naming the files matters: a
+    rename changes neither the file count nor any file's mtime, but does
+    change the stem-derived agent name and the anchoring of relative
+    ``skill://`` globs. Invalidates the :func:`list_agents`, project-names,
+    and parsed-specs caches.
     """
-    count = 0
-    max_mtime = 0
+    entries: list[tuple[str, int]] = []
     try:
         with os.scandir(d) as it:
             for entry in it:
-                if not entry.name.endswith(".json"):
+                # Case-insensitive: a case-insensitive filesystem serves
+                # ``Foo.JSON`` to ``glob("*.json")`` consumers, so a
+                # case-sensitive suffix here would omit from the signature a
+                # file the scans include — its edits would never invalidate.
+                if not entry.name.lower().endswith(".json"):
                     continue
-                count += 1
                 try:
                     m = entry.stat().st_mtime_ns
                 except OSError:
                     m = 0
-                if m > max_mtime:
-                    max_mtime = m
+                entries.append((entry.name, m))
     except OSError:
         pass
-    return (count, max_mtime)
+    return tuple(sorted(entries))
 
 
 def clear_list_agents_cache() -> None:
-    """Drop all cached :func:`list_agents` results (forces a fresh scan next call).
+    """Drop the :func:`list_agents` result cache and the :func:`parsed_agent_specs`
+    snapshot (forces a fresh scan next call).
 
+    One invalidation point for those two caches, so the agent write paths that
+    already call this also cover a write landing inside one mtime tick. The
+    project-names cache is untouched: it revalidates purely by directory
+    signature and holds only name sets, never parsed spec content.
     Invalidation is normally automatic via the directory signature; call this
-    only to force an immediate refresh (e.g. right after writing an agent file).
+    only to force an immediate refresh (e.g. right after writing an agent
+    file).
     """
     _LIST_AGENTS_CACHE.clear()
+    global _PARSED_SPECS_GEN
+    with _PARSED_SPECS_LOCK:
+        _PARSED_SPECS_CACHE.clear()
+        _PARSED_SPECS_GEN += 1
 
 
 def _with_edition_agents(disk_agents: list[AgentInfo]) -> list[AgentInfo]:
@@ -947,8 +1026,8 @@ def list_agents(
     cache_key = (str(d), str(project_dir or ""))
     signature: tuple[_ListAgentsSig, ...] = (
         _dir_signature(d),
-        _dir_signature(project_kiro_dir(project_dir)) if project_dir else (0, 0),
-        _dir_signature(project_agents_dir(project_dir)) if project_dir else (0, 0),
+        _dir_signature(project_kiro_dir(project_dir)) if project_dir else (),
+        _dir_signature(project_agents_dir(project_dir)) if project_dir else (),
     )
     cached = _LIST_AGENTS_CACHE.get(cache_key)
     if cached is not None and cached[0] == signature:

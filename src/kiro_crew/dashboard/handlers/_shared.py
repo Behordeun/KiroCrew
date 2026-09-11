@@ -23,6 +23,7 @@ from kiro_crew import extras, platform_compat
 from kiro_crew.agent_discovery import (
     SKILL_URI_PREFIX,
     expand_skill_uri,
+    parsed_agent_specs,
     skill_resource_uris,
 )
 from kiro_crew.config.loader import KiroCrewConfig, config_dir
@@ -1188,41 +1189,31 @@ def _agents_loading_skill(
     ]
 
 
+# The parsed-agents snapshot lives in ``agent_discovery.parsed_agent_specs``
+# — one cache, one signature, one invalidation point shared with the
+# ``list_agents`` cache (the agent write paths clear both through
+# ``clear_list_agents_cache``). Skill rows themselves stay uncached: the
+# endpoint's documented freshness contract is about skills on disk, not
+# agent specs.
+
+
 def _load_parsed_agents() -> list[tuple[str, dict[str, Any], Path]]:
     """Read every agent JSON ONCE, returning ``(name, data, agent_path)``.
 
     Hoisted out of the per-skill loop so ``api_skills`` parses each agent
     file exactly once per request instead of once per skill — turning an
-    O(skills × agents) read/parse blowup into O(agents). Best-effort: macOS
-    AppleDouble sidecars ("._foo.json"), unreadable/invalid agents, and
-    sensitive-path symlinks are skipped (a symlink under ~/.kiro/agents/
-    could otherwise point at a credential file renamed ``*.json``).
+    O(skills × agents) read/parse blowup into O(agents). Resolved from the
+    :func:`kiro_crew.agent_discovery.parsed_agent_specs` snapshot, so a warm
+    request parses nothing and reads go through the one hardened reader
+    (sidecars, symlink loops, sensitive targets, oversized files, and
+    invalid JSON are skipped best-effort rather than 500ing the response).
+    Rows are shared with that cache: treat them as read-only.
     """
     parsed: list[tuple[str, dict[str, Any], Path]] = []
     for agents_dir in _agent_dirs():
-        try:
-            agent_files = sorted(agents_dir.glob("*.json"))
-        except OSError:
-            # An unreadable agents dir (e.g. PermissionError) must degrade to
-            # "no agents" rather than propagate and 500 the whole response.
-            continue
-        for agent_path in agent_files:
-            if agent_path.name.startswith("._"):
-                continue
-            try:
-                resolved = agent_path.resolve(strict=True)
-            except OSError:
-                continue
-            if is_sensitive_path(str(resolved)):
-                continue
-            try:
-                data = json.loads(resolved.read_text(encoding="utf-8"))
-            # ValueError covers both json.JSONDecodeError and
-            # UnicodeDecodeError (a non-UTF-8 file must not 500 the API).
-            except (OSError, ValueError):
-                continue
-            if not isinstance(data, dict):
-                continue
+        for data, agent_path in parsed_agent_specs(
+            agents_dir, operation="skills_loaded_by_agents", source="dashboard"
+        ):
             name = data.get("name") or agent_path.stem
             parsed.append((str(name), data, agent_path))
     return parsed

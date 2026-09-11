@@ -894,7 +894,7 @@ _EXPECTED_CALL_SITE_LABELS: dict[str, list[tuple[str, str]]] = {
         ("migrate_agent_specs", "unknown"),
     ],
     "kiro_crew/agent_discovery.py": [
-        ("agent_skill_globs", "unknown"),
+        ("forward:operation", "forward:source"),
         ("forward:operation", "forward:source"),
         ("list_agents", "unknown"),
         ("list_agents", "unknown"),
@@ -1035,11 +1035,22 @@ def _labelled_call_sites(target: str) -> dict[str, list[tuple[str | None, str | 
     }
 
 
+# The parsed-specs snapshot forwards attribution the same way: its cached read
+# serves several surfaces, so a fixed literal inside it would erase which
+# surface triggered a denial. Callers therefore name themselves at the call
+# site, and the wrapper's own `_read_agent_spec` call is pinned as forwarding.
+_EXPECTED_PARSED_SPECS_CALL_SITE_LABELS: dict[str, list[tuple[str, str]]] = {
+    "kiro_crew/agent_discovery.py": [("agent_skill_globs", "unknown")],
+    "kiro_crew/dashboard/handlers/_shared.py": [("skills_loaded_by_agents", "dashboard")],
+}
+
+
 # The ratchet's coverage: every attribution-labelled helper in the module, with
 # its exact call-site inventory. Extending attribution to a new helper means
 # adding it here so its callers keep the two vocabularies separate too.
 _RATCHET_INVENTORY: dict[str, dict[str, list[tuple[str, str]]]] = {
     "_read_agent_spec": _EXPECTED_CALL_SITE_LABELS,
+    "parsed_agent_specs": _EXPECTED_PARSED_SPECS_CALL_SITE_LABELS,
     "project_agent_names": _EXPECTED_PROJECT_NAMES_CALL_SITE_LABELS,
     "warm_project_agent_names": _EXPECTED_WARM_CALL_SITE_LABELS,
 }
