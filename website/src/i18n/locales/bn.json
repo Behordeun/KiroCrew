@@ -11431,8 +11431,6 @@
         "embedding_provider": "এমবেডিং প্রোভাইডার",
         "enable_dynamic_mcp_tool_discovery_via_kiro_cli_t": "kiro-cli-এর মাধ্যমে ডাইনামিক MCP টুল ডিসকভারি সক্রিয় করুন। পরের সেশনে কার্যকর হবে।",
         "enabled": "সক্রিয়",
-        "enforce_denied_commands": "নিষিদ্ধ কমান্ড বলবৎ করা",
-        "immediate_all_enforces_on_every_agent_kirocrew_o": "তাৎক্ষণিক। 'all' প্রতিটি এজেন্টে বলবৎ হয়; 'kirocrew' শুধু kirocrew.json-এ।",
         "immediate_auto_approves_all_tools_interactive_as": "তাৎক্ষণিক। 'auto' সব টুল অনুমোদন করে; 'interactive' প্রতিটির আগে জিজ্ঞাসা করে।",
         "immediate_auto_enables_sandbox_for_untrusted_too": "তাৎক্ষণিক। 'auto' অবিশ্বস্ত টুলের জন্য স্যান্ডবক্স সক্রিয় করে।",
         "inherited_provider": "উত্তরাধিকৃত ({{provider}})",

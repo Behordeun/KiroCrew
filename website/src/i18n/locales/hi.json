@@ -11431,8 +11431,6 @@
         "embedding_provider": "एम्बेडिंग प्रोवाइडर",
         "enable_dynamic_mcp_tool_discovery_via_kiro_cli_t": "kiro-cli के ज़रिए डायनामिक MCP टूल डिस्कवरी चालू करें। अगले सत्र से लागू होगा।",
         "enabled": "चालू",
-        "enforce_denied_commands": "अस्वीकृत कमांड लागू करें",
-        "immediate_all_enforces_on_every_agent_kirocrew_o": "तुरंत लागू। 'all' हर एजेंट पर लागू करता है; 'kirocrew' केवल kirocrew.json पर।",
         "immediate_auto_approves_all_tools_interactive_as": "तुरंत लागू। 'auto' सभी टूल स्वीकृत करता है; 'interactive' हर बार पूछता है।",
         "immediate_auto_enables_sandbox_for_untrusted_too": "तुरंत लागू। 'auto' अविश्वसनीय टूल के लिए सैंडबॉक्स चालू करता है।",
         "inherited_provider": "इनहेरिटेड ({{provider}})",

@@ -17,7 +17,7 @@ vi.mock('../api/client')
 
 /* SimpleSelect is stubbed for the same reason as CrewEditorSelect.test.tsx and
    WorkspaceModal.test.tsx: it wraps a Radix Select, which commits its selection
-   inside `ReactDOM.flushSync(...)`, and this tab mounts FIVE of them at once —
+   inside `ReactDOM.flushSync(...)`, and this tab mounts several of them at once —
    driving them for real costs an open/close cycle per assertion for a dropdown
    that is not the code under test. What IS under test is CfgSelect's own
    `onChange` (markDirty → setLocal → onSave), which the stub reaches directly.
@@ -78,7 +78,6 @@ const CFG = {
     tool_search: true,
     max_channels: 7,
     max_channel_agents: 5,
-    enforce_denied_commands: 'all',
   },
   session: { timeout_secs: 3600, pool_size: 2, pool_agent: '', pool_ttl_secs: 600 },
   memory: { embedding_provider: 'inherited-embedder' },
@@ -386,7 +385,6 @@ describe('KiroCrewCfgTab — select and toggle rows', () => {
   it('applies defaults for the keys an older config file omits', async () => {
     const sparse = clone() as Cfg
     const agent = sparse.agent as Record<string, unknown>
-    delete agent.enforce_denied_commands
     delete agent.tool_search
     const session = sparse.session as Record<string, unknown>
     delete session.pool_size
@@ -397,7 +395,7 @@ describe('KiroCrewCfgTab — select and toggle rows', () => {
     await renderTab()
     expect(num('Pool Size').value).toBe('0')
     expect(toggleFor('MCP Tool Search')).toHaveTextContent('on')
-    expect(optionIn('Enforce Denied Commands', 'all')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('group', { name: /Enforce Denied Commands|enforce_denied_commands/ })).not.toBeInTheDocument()
     // With no default agent configured, the empty pool-agent option falls back
     // to a generic placeholder instead of naming one.
     expect(optionIn('Pool Agent', '(default agent)')).toBeInTheDocument()

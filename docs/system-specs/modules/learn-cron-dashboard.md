@@ -2782,9 +2782,10 @@ normalization, so it neither conflicts with nor replaces the owner-gated record.
 
 ### Security Enforcement
 
-`_enforce_denied_commands()` in `agent.py`:
-- Injects `deniedCommands` from bundled defaults into ALL agent configs (security)
-- Runs at install, gateway startup, and every ~60s
+Denied-command rules are managed in Settings → Security and enforced at the
+`hooks.py` PreToolUse gate, as described in [security](security.md). Developer →
+Config does not expose the retired per-agent enforcement-scope selector.
+
 - MCP server isolation removed — kiro-cli ACP ignores per-agent `disabled` overrides; control is centralized in global mcp.json
 
 ### Build & Development

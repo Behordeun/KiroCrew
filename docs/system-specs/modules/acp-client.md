@@ -275,8 +275,8 @@ flag passed to `kiro-cli acp` at spawn time drives all configuration:
     next session without a gateway restart.
 - **Tools/allowedTools/toolsSettings**: Applied by kiro-cli via `set_mode`.
 - **Prompt/resources/hooks**: Applied by kiro-cli via `set_mode`.
-- **deniedCommands**: Enforced by KiroCrew's `_enforce_denied_commands()` on
-  all agent configs regardless.
+- **Denied commands**: Enforced at Kiro Crew's `hooks.py` PreToolUse gate;
+  see [security](security.md).
 
 Custom agents use cold start with `--agent <name>` flag at spawn time.
 

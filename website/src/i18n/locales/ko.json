@@ -11267,8 +11267,6 @@
         "embedding_provider": "임베딩 제공자",
         "enable_dynamic_mcp_tool_discovery_via_kiro_cli_t": "kiro-cli를 통한 동적 MCP 도구 검색을 활성화합니다. 다음 세션부터 적용됩니다.",
         "enabled": "활성화됨",
-        "enforce_denied_commands": "거부된 명령 적용",
-        "immediate_all_enforces_on_every_agent_kirocrew_o": "즉시 적용됩니다. ‘all’은 모든 에이전트에, ‘kirocrew’는 kirocrew.json에만 적용합니다.",
         "immediate_auto_approves_all_tools_interactive_as": "즉시 적용됩니다. ‘auto’는 모든 도구를 승인하고, ‘interactive’는 도구마다 확인합니다.",
         "immediate_auto_enables_sandbox_for_untrusted_too": "즉시 적용됩니다. ‘auto’는 신뢰할 수 없는 도구에 샌드박스를 활성화합니다.",
         "inherited_provider": "상속됨 ({{provider}})",

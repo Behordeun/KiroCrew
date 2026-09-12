@@ -11595,8 +11595,6 @@
         "embedding_provider": "Provedor de embedding",
         "enable_dynamic_mcp_tool_discovery_via_kiro_cli_t": "Ativa a descoberta dinâmica de ferramentas MCP via kiro-cli. Aplica-se na próxima sessão.",
         "enabled": "Ativado",
-        "enforce_denied_commands": "Aplicar comandos negados",
-        "immediate_all_enforces_on_every_agent_kirocrew_o": "Imediato. 'all' aplica em todos os agentes; 'kirocrew' apenas em kirocrew.json.",
         "immediate_auto_approves_all_tools_interactive_as": "Imediato. 'auto' aprova todas as ferramentas; 'interactive' pergunta antes de cada uma.",
         "immediate_auto_enables_sandbox_for_untrusted_too": "Imediato. 'auto' ativa o sandbox para ferramentas não confiáveis.",
         "inherited_provider": "herdado ({{provider}})",

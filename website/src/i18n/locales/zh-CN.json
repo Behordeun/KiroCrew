@@ -11267,8 +11267,6 @@
         "embedding_provider": "嵌入提供方",
         "enable_dynamic_mcp_tool_discovery_via_kiro_cli_t": "通过 kiro-cli 启用动态 MCP 工具发现。下次会话生效。",
         "enabled": "已启用",
-        "enforce_denied_commands": "强制执行禁用命令",
-        "immediate_all_enforces_on_every_agent_kirocrew_o": "立即生效。“all”对每个代理强制执行；“kirocrew”仅对 kirocrew.json 生效。",
         "immediate_auto_approves_all_tools_interactive_as": "立即生效。“auto”批准所有工具；“interactive”每次询问。",
         "immediate_auto_enables_sandbox_for_untrusted_too": "立即生效。“auto”为不受信任的工具启用沙箱。",
         "inherited_provider": "继承 ({{provider}})",

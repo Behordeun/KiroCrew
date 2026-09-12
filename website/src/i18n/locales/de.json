@@ -11431,8 +11431,6 @@
         "embedding_provider": "Embedding-Anbieter",
         "enable_dynamic_mcp_tool_discovery_via_kiro_cli_t": "Dynamische MCP-Werkzeugerkennung über kiro-cli aktivieren. Wird in der nächsten Sitzung wirksam.",
         "enabled": "Aktiviert",
-        "enforce_denied_commands": "Verbotene Befehle erzwingen",
-        "immediate_all_enforces_on_every_agent_kirocrew_o": "Sofort. „all“ erzwingt es bei jedem Agenten; „kirocrew“ nur bei kirocrew.json.",
         "immediate_auto_approves_all_tools_interactive_as": "Sofort. „auto“ genehmigt alle Werkzeuge; „interactive“ fragt vor jedem nach.",
         "immediate_auto_enables_sandbox_for_untrusted_too": "Sofort. „auto“ aktiviert die Sandbox für nicht vertrauenswürdige Werkzeuge.",
         "inherited_provider": "übernommen ({{provider}})",
