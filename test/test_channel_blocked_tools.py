@@ -88,6 +88,14 @@ async def test_blocked_tool_rejected_even_on_trusted_channel(monkeypatch, tool):
         ("send_notification (kirocrew-core)", True),
         ("kirocrew-core___send_message", True),
         ("mcp__kirocrew-core__send_message", True),  # canonical MCP prefix
+        # opencode joins server and tool with ONE underscore (measured on
+        # 1.18.30), which the 2+ run normalization leaves intact -- and the
+        # boundary lookbehind then refuses the match, so the whole containment
+        # list read as absent on that harness. Both Crew servers whose tools are
+        # on the list spell it this way.
+        ("kirocrew-core_send_message", True),
+        ("kirocrew-work_work_report", True),
+        ("Running: kirocrew-core_session_send", True),
         ('Tool: "send_notification"', True),
         # Negative: filenames/paths/identifiers that merely
         # CONTAIN a blocked tool name must not trip the containment guard.
@@ -95,6 +103,17 @@ async def test_blocked_tool_rejected_even_on_trusted_channel(monkeypatch, tool):
         ("Reading /tmp/send_message_backup.txt", False),
         ("fs_write path=src/send_notification_helpers.py", False),
         ("grep send_message_v2", False),
+        # The Crew server prefix is what earns the normalization: a single
+        # underscore alone would unblock every identifier ending in a blocked
+        # name, and a longer tail is still not the tool.
+        ("do_send_message", False),
+        ("evil_send_notification", False),
+        ("kirocrew-core_send_message_v2", False),
+        # A rendered PATH is not a tool call, even when a directory happens to
+        # carry the server-prefixed name: the left boundary excludes `/` and `.`
+        # exactly as the blocked-tool pattern's own does.
+        ("cat /tmp/kirocrew-core_send_message", False),
+        ("Reading ./kirocrew-core_send_message.log", False),
     ],
 )
 def test_blocked_tool_matcher_precision(rendered, expected):
