@@ -135,13 +135,23 @@ class TestACloserMustBeMatchedOrContinueTheList:
             assert match is not None, text
             assert match.group("labels").startswith(" Fix "), text
 
-    def test_an_unmatched_opener_in_a_label_still_parses(self):
-        # The pair alternative must not become a REQUIREMENT: a stray ``[`` with no
-        # closer of its own is still just a character in the label, as it was
-        # before this rule.
-        match = OPTIONS_RE_LINE.search("[OPTIONS: Fix [x logging | Skip]")
-        assert match is not None
-        assert match.group("labels") == " Fix [x logging | Skip"
+    def test_an_unmatched_opener_in_a_label_is_refused(self):
+        """The one shape the balanced-labels rule costs.
+
+        A stray ``[`` with no closer of its own cannot be treated as ordinary label
+        text, because that shape is indistinguishable from a marker the model never
+        closed: in ``[OPTIONS: A | B then check arr[0]`` the only closer belongs to
+        ``arr[0]``, and the body would run through the prose to reach it. Both hold
+        one unmatched opener and a closer at the end anchor, so accepting either
+        accepts both -- and accepting the second deletes a line of prose.
+
+        So the marker now renders as visible text. Nothing is removed, which is the
+        direction every cost in this grammar fails in, and the full argument lives at
+        :func:`kiro_crew.constants._marker_labels_have_unmatched_opener`.
+        """
+        text = "[OPTIONS: Fix [x logging | Skip]"
+        assert OPTIONS_RE_LINE.search(text) is None
+        assert OPTIONS_RE_LINE.sub("", text) == text
 
 
 class TestAcceptedCosts:
@@ -228,17 +238,21 @@ class TestAcceptedCosts:
         # here, and neither does this one.
         assert OPTIONS_RE_LINE.search("Note [OPTIONS: see [OPTIONS: x] below | Skip]") is None
 
-    def test_the_separator_tail_form_is_out_of_scope_and_unchanged(self):
-        # NOT reachable by this rule, and pinned so it is not read as a regression
-        # introduced here: ``], `` DOES continue the label list, by the very rule
-        # that makes ``[OPTIONS: Alpha ], Bravo]`` legal, so no guard applied at the
-        # internal closer can tell the two apart. Resolving it means deciding which
-        # shape loses -- a separate call with its own cost. Behaviour here is
-        # byte-for-byte what origin/main does.
+    def test_the_separator_tail_form_is_declined_rather_than_truncated(self):
+        # Not reachable by the matched-or-continues rule: ``], `` DOES continue the
+        # label list, by the very rule that makes ``[OPTIONS: Alpha ], Bravo]``
+        # legal, so no guard applied at the INTERNAL closer can tell the two apart.
+        # The terminator gate reaches it from the other end -- the ``[`` of
+        # ``CHANGELOG[1]`` is the opener whose partner would end the marker, so the
+        # bare form is refused and the line stays whole.
+        #
+        # Declining is the affordable outcome: truncating deleted ``, details in
+        # CHANGELOG[1]`` from the message and handed it back as the pill label
+        # ``Wait], details in CHANGELOG[1``.
         text = "Done. [OPTIONS: Merge | Wait], details in CHANGELOG[1]"
-        match = OPTIONS_RE_LINE.search(text)
-        assert match is not None
-        assert OPTIONS_RE_LINE.sub("", text) == "Done. "
+        assert OPTIONS_RE_LINE.search(text) is None
+        assert OPTIONS_RE_LINE.sub("", text) == text
+        assert split_options_trailer(text) == (text, [])
 
 
 class TestTheWideningIsNotOverlyNarrow:

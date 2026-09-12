@@ -5,7 +5,7 @@ import { parseOptions } from '../app-sdk/protocol'
 // Imported from the defining module, not the `protocol` barrel, which deliberately
 // does not re-export a g-flagged regex. Only `.source` is read below — a string
 // copy — so the shared `lastIndex` this const's own docs warn about is untouched.
-import { OPTION_MARKER_RE } from '../app-sdk/protocol/optionMarker'
+import { OPTION_MARKER_PATTERN_SOURCE } from '../app-sdk/protocol/optionMarker'
 
 // Mock MarkdownRenderer to avoid complex markdown parsing in tests
 vi.mock('../components/MarkdownRenderer', () => ({
@@ -891,7 +891,7 @@ describe('parseOptions', () => {
   // reaching for, deterministically and in microseconds. The behavioural half — an
   // adversarial input still parses to no options — is asserted directly below.
   it('does not catastrophically backtrack on adversarial `[OPTIONS:` input', () => {
-    const src = OPTION_MARKER_RE.source
+    const src = OPTION_MARKER_PATTERN_SOURCE
     // The label body: tempered alternation, NOT a nested quantifier. Spelled with
     // `\uXXXX` escapes because that is how the SOURCE spells the closer class —
     // `.source` is the literal pattern text, so a literal `】` here would not match.
@@ -903,6 +903,12 @@ describe('parseOptions', () => {
     // the linearity rests on, so it is pinned here character for character. BOTH
     // bracket forms carry `(?!OPTIONS?:)`: that is what keeps a nested head out of
     // a label, and dropping it from the pair form is a widening, not a tidy-up.
+    //
+    // Note what is NOT here: whether a candidate's terminating closer is really its
+    // own. That is bracket balance, which no pattern decides at unbounded depth, so
+    // `labelsHaveUnmatchedOpener` decides it and the pattern is module-private to stop the
+    // two being applied separately. Pinning the pattern's shape is still worth it:
+    // this is the half that has to stay linear.
     expect(src).toContain(
       `(?:\\[(?!OPTIONS?:)[^[${C}\\n]*[${C}](?!${CONT})|\\[(?!OPTIONS?:)|[${C}](?=${CONT})|[^[${C}\\n])*`,
     )
