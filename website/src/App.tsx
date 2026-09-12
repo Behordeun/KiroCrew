@@ -52,6 +52,7 @@ import { GithubIcon, DiscordIcon } from './components/BrandIcon'
 import { Toggle } from './components/ui'
 import OnboardingFlow from './components/OnboardingFlow'
 import AgentImportFlow from './components/AgentImportFlow'
+import ErrorNotice from './components/ErrorNotice'
 import PrivacyChapter from './components/PrivacyChapter'
 import { OnboardingShellHost } from './components/OnboardingChapterShell'
 import { PREVIEW_EXPAND_EVENT } from './components/WebPreviewPanel'
@@ -338,6 +339,9 @@ const UPDATE_STEPS: Record<string, { icon: ReactNode }> = {
   installing: { icon: <Package className="lucide-inline" /> },
   restarting: { icon: <Rocket className="lucide-inline" /> },
   failed:     { icon: <XCircle className="lucide-inline" /> },
+  // The per-step handlers report their failure as `error`; without an entry
+  // the header fell back to the spinning glyph over a failure card.
+  error:      { icon: <XCircle className="lucide-inline" /> },
 }
 
 /**
@@ -354,6 +358,7 @@ const UPDATE_STEP_LABEL_KEY: Record<string, string> = {
   installing: 'app.installing_packages',
   restarting: 'app.restarting_server',
   failed: 'app.update_failed_2',
+  error: 'app.update_failed_2',
 }
 
 const STEP_ORDER = ['pulling', 'syncing', 'building', 'installing', 'restarting']
@@ -380,7 +385,11 @@ export function UpdateOverlay({ onCancel }: { onCancel: () => void }) {
   const detail = progress?.detail || ''
   const info = UPDATE_STEPS[step]
   const currentIdx = STEP_ORDER.indexOf(step)
-  const isFailed = step === 'failed'
+  // Both spellings are terminal: the apply path pushes `failed` from its
+  // outer handler and `error` from its per-step handlers (pull, pip), and a
+  // step the overlay does not recognise as final renders as a stall until the
+  // stuck timer fires five minutes later.
+  const isFailed = step === 'failed' || step === 'error'
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef(Date.now())
 
@@ -414,7 +423,8 @@ export function UpdateOverlay({ onCancel }: { onCancel: () => void }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-bg/80 backdrop-blur-sm animate-rise">
       <div className="bg-card border border-border rounded-xl p-8 max-w-md w-full mx-4 shadow-xl text-center">
-        <div className="text-4xl mb-4 animate-pulse">{info?.icon || <RefreshCw className="lucide-inline" />}</div>
+        {/* A terminal step is not in progress, so it does not pulse. */}
+        <div className={`text-4xl mb-4 ${isFailed ? 'text-danger' : 'animate-pulse'}`} data-testid="update-overlay-step-icon">{info?.icon || <RefreshCw className="lucide-inline" />}</div>
         <div className="text-lg font-bold text-text-strong mb-2">{i18nT('app.updating_kirocrew')}</div>
         <div className="text-sm text-muted mb-5">{detail || i18nT('app.starting_update')}</div>
         {/* Step progress */}
@@ -434,7 +444,18 @@ export function UpdateOverlay({ onCancel }: { onCancel: () => void }) {
         </div>
         {isFailed ? (
           <div className="flex flex-col gap-3 items-center">
-            <div className="text-sm text-danger">{detail || i18nT('app.check_logs_for_details')}</div>
+            {/* askAgent ON: a failed step has already stopped the worker, so
+                the hand-off can destroy nothing; the causes (pull refused,
+                pip refusing the merged revision) are diagnosable by the agent.
+                The hand-off navigates to chat UNDER this z-[100] overlay, so
+                it also dismisses the overlay -- the same clear as Dismiss. */}
+            <ErrorNotice
+              askAgent
+              className="text-left"
+              message={detail || i18nT('app.check_logs_for_details')}
+              onHandoff={handleCancel}
+              testId="update-overlay-error"
+            />
             <button className="px-4 py-1.5 rounded-lg text-[13px] font-medium cursor-pointer bg-card border border-border text-text hover:border-border-strong transition-colors" onClick={handleCancel}>
               {i18nT('app.dismiss')}
             </button>

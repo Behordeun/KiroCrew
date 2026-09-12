@@ -11060,6 +11060,42 @@ class GatewayOrchestrator:
                     self.dashboard_state.push_refresh("update_available")
                 return
 
+            # 5. Interpreter floor of the TARGET revision, read from the fetched
+            #    commit itself. pip would refuse the reinstall below on the same
+            #    floor, but only after the reset has moved the tree to code this
+            #    venv cannot import -- a state every boot then re-enters, because
+            #    the next check sees the commit already applied and never retries.
+            #    Refuse before the reset, with the remedy, and leave the tree.
+            try:
+                floor_breach = await asyncio.get_running_loop().run_in_executor(
+                    subprocess_executor(),
+                    lambda: dep_sync.incoming_python_floor_breach(
+                        Path(proj), target, Path(sys.executable), git_bin=_git, env=_git_env
+                    ),
+                )
+            except dep_sync.IncomingFloorUnreadable as exc:
+                # A floor git could not read is not a floor that is absent:
+                # refusing here is what keeps a git hiccup from re-admitting
+                # the stranded state this whole gate exists to prevent.
+                floor_breach = (
+                    "could not read the incoming revision's interpreter "
+                    f"requirement ({exc}); leaving the checkout where it is"
+                )
+            if floor_breach:
+                # Redact first, cap last -- the same treatment every sibling push
+                # gives text it did not author. The refusal quotes the remote's
+                # `requires-python` verbatim and paths from the local install.
+                floor_breach, _ = redact_exfiltration_urls(floor_breach)
+                floor_breach, _ = redact_credentials(floor_breach)
+                floor_breach = floor_breach[:500]
+                logger.warning("Auto-update refused: %s", floor_breach)
+                if self.dashboard_state:
+                    self.dashboard_state.push_update_progress(
+                        "failed", f"Update refused: {floor_breach}"
+                    )
+                    self.dashboard_state.push_refresh("update_available")
+                return
+
             # Hard reset to remote. Reached only with a clean tracked tree and no
             # untracked collisions, so it overwrites nothing the developer owns.
             reset = await asyncio.create_subprocess_exec(

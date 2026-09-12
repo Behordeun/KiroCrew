@@ -27,6 +27,7 @@ import collections
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -558,12 +559,20 @@ class TestPipInstallFailureReport:
         monkeypatch.setattr(dep_sync, "sync_or_reinstall", fake_sync)
 
         assert await updates._venv_pip_install("/tmp/proj", state) is False
+        # The executor thread hands the message to the loop with
+        # call_soon_threadsafe, so it lands on the NEXT loop iteration -- reading
+        # call_args before yielding once raced it and read the "Installing" step.
+        await asyncio.sleep(0)
 
         step, detail = state.push_update_progress.call_args[0]
         assert step == "error"
         # Truncated rather than dropped: the actionable line is often mid-stderr.
         assert detail.endswith("…(truncated)")
         assert len(detail) < 1200
+
+
+#: The commit the pre-apply pin resolves `@{u}` to in the apply tests.
+_UPSTREAM_OID = b"0123456789abcdef0123456789abcdef01234567"
 
 
 class TestApplyRefusals:
@@ -640,22 +649,162 @@ class TestApplyRefusals:
         assert "uncommitted changes" in json.loads(resp.body.decode())["error"]
         assert req.app["state"]._background_tasks == set()
 
-    async def _drive_worker(self, monkeypatch, tmp_path, procs: list[_FakeProc]):
-        """Accept the request, then await the background worker it scheduled."""
+    @pytest.mark.asyncio
+    async def test_a_revision_the_venv_cannot_run_is_refused_before_the_pull(
+        self, monkeypatch, tmp_path
+    ):
+        """The floor is judged on the FETCHED commit, and the tree is left alone.
+
+        pip would refuse the same revision during the reinstall, but only after
+        the pull had moved the checkout to code this interpreter cannot import
+        -- a state the running gateway then serves from memory while every
+        later attempt repeats the pull and the refusal.
+        """
+        from kiro_crew import dep_sync
+
         monkeypatch.setenv("KIROCREW_PROJECT_DIR", _git_proj(monkeypatch, tmp_path))
         monkeypatch.setattr(updates, "resolve_remote_url", lambda _p: "")
         monkeypatch.setattr(updates, "update_blocked_reason", lambda _u: "")
-        # Clean tree, then the diverged guard's own fetch and a fast-forwardable
-        # rev-list count, so the request reaches the worker whose procs follow.
         _sequence_procs(
             monkeypatch,
-            [_FakeProc(out=b""), _FakeProc(out=b""), _FakeProc(out=b"0\t1\n")] + procs,
+            [
+                _FakeProc(out=b""),
+                _FakeProc(out=b""),
+                _FakeProc(out=b"0\t1\n"),
+                _FakeProc(out=_UPSTREAM_OID + b"\n"),
+            ],
+        )
+        seen: dict[str, object] = {}
+
+        def _breach(repo, ref, target_py, **_kw):
+            seen.update(repo=repo, ref=ref, target_py=target_py)
+            return (
+                "the incoming revision requires Python >=3.12 but this install's venv runs 3.11.9"
+            )
+
+        monkeypatch.setattr(dep_sync, "incoming_python_floor_breach", _breach)
+
+        req = _request({})
+        resp = await updates.api_update_apply(req)
+        assert resp.status == 409
+        body = json.loads(resp.body.decode())
+        assert body["code"] == "python_floor"
+        assert ">=3.12" in body["error"] and "3.11.9" in body["error"]
+        # Judged against the PINNED upstream commit (the exact revision the
+        # fast-forward would apply), with the interpreter this gateway runs.
+        assert seen["ref"] == _UPSTREAM_OID.decode()
+        assert seen["target_py"] == Path(sys.executable)
+        # No worker, so no pull: the checkout stays where the venv can import it.
+        assert req.app["state"]._background_tasks == set()
+        assert not any(step == "pulling" for step, _ in self._progress(req.app["state"]))
+
+    @pytest.mark.asyncio
+    async def test_a_floor_git_cannot_read_refuses_rather_than_passing(self, monkeypatch, tmp_path):
+        """ "Could not read the floor" is not "no floor": the pinned revision stays out."""
+        from kiro_crew import dep_sync
+
+        monkeypatch.setenv("KIROCREW_PROJECT_DIR", _git_proj(monkeypatch, tmp_path))
+        monkeypatch.setattr(updates, "resolve_remote_url", lambda _p: "")
+        monkeypatch.setattr(updates, "update_blocked_reason", lambda _u: "")
+        _sequence_procs(
+            monkeypatch,
+            [
+                _FakeProc(out=b""),
+                _FakeProc(out=b""),
+                _FakeProc(out=b"0\t1\n"),
+                _FakeProc(out=_UPSTREAM_OID + b"\n"),
+            ],
+        )
+
+        def _unreadable(repo, ref, target_py, **_kw):
+            raise dep_sync.IncomingFloorUnreadable("git show timed out")
+
+        monkeypatch.setattr(dep_sync, "incoming_python_floor_breach", _unreadable)
+
+        req = _request({})
+        resp = await updates.api_update_apply(req)
+        assert resp.status == 409
+        assert json.loads(resp.body.decode())["code"] == "git_read_failed"
+        assert req.app["state"]._background_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_an_unresolvable_upstream_pin_is_refused(self, monkeypatch, tmp_path):
+        """rev-parse @{u} failing means nothing to floor-check and nothing to land on."""
+        from kiro_crew import dep_sync
+
+        monkeypatch.setenv("KIROCREW_PROJECT_DIR", _git_proj(monkeypatch, tmp_path))
+        monkeypatch.setattr(updates, "resolve_remote_url", lambda _p: "")
+        monkeypatch.setattr(updates, "update_blocked_reason", lambda _u: "")
+        _sequence_procs(
+            monkeypatch,
+            [
+                _FakeProc(out=b""),
+                _FakeProc(out=b""),
+                _FakeProc(out=b"0\t1\n"),
+                _FakeProc(out=b"", err=b"fatal: no upstream configured", returncode=128),
+            ],
+        )
+        judged: list[str] = []
+        monkeypatch.setattr(
+            dep_sync, "incoming_python_floor_breach", lambda *a, **k: judged.append(a[1])
+        )
+
+        req = _request({})
+        resp = await updates.api_update_apply(req)
+        assert resp.status == 409
+        assert json.loads(resp.body.decode())["code"] == "git_read_failed"
+        # Nothing was judged and nothing was scheduled: no pin, no apply.
+        assert judged == []
+        assert req.app["state"]._background_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_a_hung_upstream_pin_is_a_500_and_reaps_the_process(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("KIROCREW_PROJECT_DIR", _git_proj(monkeypatch, tmp_path))
+        monkeypatch.setattr(updates, "resolve_remote_url", lambda _p: "")
+        monkeypatch.setattr(updates, "update_blocked_reason", lambda _u: "")
+        pin = _FakeProc(time_out=True)
+        _sequence_procs(
+            monkeypatch,
+            [_FakeProc(out=b""), _FakeProc(out=b""), _FakeProc(out=b"0\t1\n"), pin],
+        )
+
+        req = _request({})
+        resp = await updates.api_update_apply(req)
+        assert resp.status == 500
+        assert json.loads(resp.body.decode())["code"] == "git_read_failed"
+        assert pin.killed and pin.communicate_calls == 2
+        assert req.app["state"]._background_tasks == set()
+
+    async def _drive_worker(self, monkeypatch, tmp_path, procs: list[_FakeProc]):
+        """Accept the request, then await the background worker it scheduled."""
+        from kiro_crew import dep_sync
+
+        monkeypatch.setenv("KIROCREW_PROJECT_DIR", _git_proj(monkeypatch, tmp_path))
+        monkeypatch.setattr(updates, "resolve_remote_url", lambda _p: "")
+        monkeypatch.setattr(updates, "update_blocked_reason", lambda _u: "")
+        # The fabricated checkout has no commits for the floor gate to read, and
+        # an unreadable floor now refuses; these tests are about the worker
+        # that runs AFTER the gate passes.
+        monkeypatch.setattr(dep_sync, "incoming_python_floor_breach", lambda *a, **k: None)
+        # Clean tree, then the diverged guard's own fetch, a fast-forwardable
+        # rev-list count and the upstream OID pin, so the request reaches the
+        # worker whose procs follow.
+        argv_seen = _sequence_procs(
+            monkeypatch,
+            [
+                _FakeProc(out=b""),
+                _FakeProc(out=b""),
+                _FakeProc(out=b"0\t1\n"),
+                _FakeProc(out=_UPSTREAM_OID + b"\n"),
+            ]
+            + procs,
         )
 
         req = _request({})
         state = req.app["state"]
         resp = await updates.api_update_apply(req)
         assert resp.status == 200
+        self._argv_seen = argv_seen
         # The worker is registered on the state so it cannot be garbage collected
         # mid-flight; awaiting it here is what makes the test deterministic.
         assert len(state._background_tasks) == 1
@@ -670,14 +819,39 @@ class TestApplyRefusals:
         state = await self._drive_worker(
             monkeypatch, tmp_path, [_FakeProc(time_out=True, kill_raises=True)]
         )
-        assert ("error", "git pull timed out") in self._progress(state)
+        oid = _UPSTREAM_OID.decode()[:12]
+        assert ("error", f"Fast-forward to {oid} timed out (git merge --ff-only)") in (
+            self._progress(state)
+        )
         # No build and no restart followed the failure.
         assert not any(step == "restarting" for step, _ in self._progress(state))
 
     @pytest.mark.asyncio
     async def test_a_failed_pull_is_reported_and_stops_the_worker(self, monkeypatch, tmp_path):
         state = await self._drive_worker(monkeypatch, tmp_path, [_FakeProc(returncode=1)])
-        assert ("error", "git pull failed") in self._progress(state)
+        steps = self._progress(state)
+        assert any(
+            step == "error"
+            and detail.startswith(f"Fast-forward to {_UPSTREAM_OID.decode()[:12]} failed")
+            for step, detail in steps
+        )
+        # The detail is what the failure card's agent hand-off sends along, so it
+        # must name what actually ran (a fast-forward merge), never a pull.
+        assert not any(step == "error" and "git pull" in detail for step, detail in steps)
+
+    @pytest.mark.asyncio
+    async def test_the_worker_fast_forwards_to_the_pinned_oid_without_refetching(
+        self, monkeypatch, tmp_path
+    ):
+        """The commit that was floor-checked is the commit that lands.
+
+        `git pull` would refetch and re-resolve the upstream, so a remote that
+        moved after the check could land a revision nobody judged.
+        """
+        await self._drive_worker(monkeypatch, tmp_path, [_FakeProc(returncode=1)])
+        worker_argv = self._argv_seen[4]
+        assert worker_argv[:4] == ("git", "merge", "--ff-only", _UPSTREAM_OID.decode())
+        assert not any(c[:2] == ("git", "pull") for c in self._argv_seen)
 
     @pytest.mark.asyncio
     async def test_an_unexpected_crash_surfaces_as_a_failed_update(self, monkeypatch, tmp_path):
@@ -686,9 +860,12 @@ class TestApplyRefusals:
         The overlay has no other way to leave the "updating" state, so a
         swallowed error strands the user on a spinner forever.
         """
+        from kiro_crew import dep_sync
+
         monkeypatch.setenv("KIROCREW_PROJECT_DIR", _git_proj(monkeypatch, tmp_path))
         monkeypatch.setattr(updates, "resolve_remote_url", lambda _p: "")
         monkeypatch.setattr(updates, "update_blocked_reason", lambda _u: "")
+        monkeypatch.setattr(dep_sync, "incoming_python_floor_breach", lambda *a, **k: None)
         calls = {"n": 0}
 
         async def _exec(*args: str, **_kwargs: object):
@@ -699,6 +876,8 @@ class TestApplyRefusals:
                 return _FakeProc(out=b"")
             if calls["n"] == 3:  # the guard's rev-list: fast-forwardable
                 return _FakeProc(out=b"0\t1\n")
+            if calls["n"] == 4:  # the upstream OID pin
+                return _FakeProc(out=_UPSTREAM_OID + b"\n")
             # The WORKER's first spawn (git pull) crashes: the point under test
             # is that an exception inside the worker reaches the UI.
             raise RuntimeError("fork failed")
