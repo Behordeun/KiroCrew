@@ -1034,17 +1034,27 @@ class TestFormatSchedule:
         assert "PDT" in result or "PST" in result
         assert "3:00 AM" in result
 
-    def test_every_secs(self) -> None:
+    @pytest.mark.parametrize(
+        ("every_secs", "expected"),
+        [
+            (60, "every 1m"),
+            (90, "every 90s"),
+            (300, "every 5m"),
+            (3599, "every 3599s"),
+            (3600, "every 1h"),
+            (3601, "every 3601s"),
+            (3660, "every 61m"),
+            (5400, "every 90m"),
+            (5401, "every 5401s"),
+            (7200, "every 2h"),
+            (9000, "every 150m"),
+        ],
+    )
+    def test_every_preserves_interval(self, every_secs: int, expected: str) -> None:
         from kiro_crew.cron import CronSchedule, format_schedule
 
-        s = CronSchedule(kind="every", every_secs=300)
-        assert format_schedule(s) == "every 300s"
-
-    def test_every_hours(self) -> None:
-        from kiro_crew.cron import CronSchedule, format_schedule
-
-        s = CronSchedule(kind="every", every_secs=7200)
-        assert format_schedule(s) == "every 2h"
+        s = CronSchedule(kind="every", every_secs=every_secs)
+        assert format_schedule(s) == expected
 
     def test_at_timestamp_today(self, monkeypatch, _utc_tz) -> None:
         from kiro_crew.cron import CronSchedule, format_schedule
