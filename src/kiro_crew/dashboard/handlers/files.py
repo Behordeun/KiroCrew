@@ -47,6 +47,12 @@ from kiro_crew.config.loader import (
     materialize_workspace_dir,
     update_config_locked,
 )
+from kiro_crew.config.sections import (
+    LINK_PATTERN_PATTERN_MAX_LEN,
+    LINK_PATTERN_URL_MAX_LEN,
+    LINK_PATTERNS_MAX,
+    link_pattern_url_ok,
+)
 from kiro_crew.dashboard import part_stream, upload_destination
 from kiro_crew.dashboard.chat_persistence import rehydrate_slot_from_history_async
 from kiro_crew.dashboard.chat_utils import (
@@ -4227,7 +4233,7 @@ async def api_dashboard_config(request: web.Request) -> web.Response:
             )
             return body_err
         assert body is not None  # read_bounded_json returns (dict, None) on success
-        _allowed = {"restore_sessions", "restore_window_minutes", "merge_queued_messages", "default_memory_mode", "widget_density", "use_builtin_browser", "verbosity", "quick_send", "session_grid", "tail_fork_enabled", "link_previews", "mcp_app_panel", "auto_open_git_panel", "folder_suggestions_enabled", "session_card_source_links"}
+        _allowed = {"restore_sessions", "restore_window_minutes", "merge_queued_messages", "default_memory_mode", "widget_density", "use_builtin_browser", "verbosity", "quick_send", "session_grid", "tail_fork_enabled", "link_previews", "link_patterns", "mcp_app_panel", "auto_open_git_panel", "folder_suggestions_enabled", "session_card_source_links"}
         # One-release backward-compat shim for removed key; delete after all clients update.
         deprecated_ignored_keys = {"tail_fork_head_handling"}
         # Read-only keys the GET exposes: both settings surfaces save with
@@ -4307,6 +4313,64 @@ async def api_dashboard_config(request: web.Request) -> web.Response:
                     {"error": "widget_density must be 'more' or 'less'"}, status=400
                 )
             updates["widget_density"] = val
+        if "link_patterns" in body:
+            val = body["link_patterns"]
+            cleaned: list[dict[str, str]] = []
+            # Reject (not silently drop) malformed entries: this path serves the
+            # settings editor, and a dropped rule with a 200 would read as saved.
+            # Regex VALIDITY is not checked -- patterns are compiled by the
+            # browser in the JavaScript dialect, which Python cannot arbitrate.
+            ok = isinstance(val, list) and len(val) <= LINK_PATTERNS_MAX
+            if ok:
+                seen_patterns: set[str] = set()
+                for entry in val:
+                    pattern = entry.get("pattern") if isinstance(entry, dict) else None
+                    url = entry.get("url") if isinstance(entry, dict) else None
+                    if not isinstance(pattern, str) or not isinstance(url, str):
+                        ok = False
+                        break
+                    # Pattern text is stored EXACTLY as authored -- whitespace
+                    # in a regex is load-bearing, so strip() only decides
+                    # blankness (mirrors the load coercer). URL edge-trim is
+                    # safe: the template is expanded, never matched.
+                    url = url.strip()
+                    if not pattern.strip() or len(pattern) > LINK_PATTERN_PATTERN_MAX_LEN:
+                        ok = False
+                        break
+                    # http(s) only: these templates become anchors in every
+                    # transcript, so javascript:/file: must not reach disk. The
+                    # shared validator also applies the renderer's
+                    # origin-stability rule, so a rule that saves is a rule
+                    # that linkifies.
+                    if len(url) > LINK_PATTERN_URL_MAX_LEN or not link_pattern_url_ok(url):
+                        ok = False
+                        break
+                    # Duplicate patterns must be rejected here, not deduped:
+                    # the load-time coercer keeps only the first of a pair, so
+                    # accepting both would persist rules that GET then omits —
+                    # and the editor's next whole-list save would silently
+                    # delete the survivor's twin from disk.
+                    if pattern in seen_patterns:
+                        ok = False
+                        break
+                    seen_patterns.add(pattern)
+                    cleaned.append({"pattern": pattern, "url": url})
+            if not ok:
+                _sel().log_tool_invocation(
+                    session_key="dashboard", tool_name="dashboard_config_write", outcome="failure"
+                )
+                return web.json_response(
+                    {
+                        "error": (
+                            f"link_patterns must be a list of at most {LINK_PATTERNS_MAX}"
+                            " {pattern, url} objects with distinct non-empty patterns and"
+                            " an absolute http(s) url template containing {match}"
+                        ),
+                        "code": "invalid_link_patterns",
+                    },
+                    status=400,
+                )
+            updates["link_patterns"] = cleaned
         # Apply ONLY when it is the sole submitted setting. The Browser panel
         # sends it alone; the Chat settings panel PUTs the whole config object
         # from its own (possibly stale) cache, and applying it on that path would
@@ -4585,6 +4649,13 @@ async def api_dashboard_config(request: web.Request) -> web.Response:
             # withdraws the "Share as image" menu entry; there is no toggle behind
             # it, so nothing here is writable.
             "social_share_enabled": not social_share_denied,
+            # Read-write (unlike the host allowlists above): a rule only changes
+            # how this dashboard RENDERS text -- it grants no fetch and no CLI
+            # any authority -- so the settings editor may manage it.
+            "link_patterns": [
+                {"pattern": rule.pattern, "url": rule.url}
+                for rule in cfg.dashboard.link_patterns
+            ],
         }
     )
 

@@ -721,6 +721,13 @@
       "description": "Sets how deep explanations go — plain language vs. full technical detail"
     },
     {
+      "id": "chat.text-link-patterns",
+      "label": "Text Link Patterns",
+      "tab": "chat",
+      "route": "/settings/chat?highlight=key%3Adashboard.link_patterns",
+      "configKey": "dashboard.link_patterns"
+    },
+    {
       "id": "chat.text-streaming-style",
       "label": "Text Streaming Style",
       "tab": "chat",

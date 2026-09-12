@@ -1187,6 +1187,88 @@ class TestDashboardConfigPut:
         assert got["jira_hosts"] == []
 
     @pytest.mark.asyncio
+    async def test_link_patterns_round_trip(self, config_client_app):
+        rules = [{"pattern": r"\bPROJ-\d+\b", "url": "https://tracker.example.com/browse/{match}"}]
+        async with TestClient(TestServer(config_client_app)) as client:
+            resp = await client.put("/api/dashboard/config", json={"link_patterns": rules})
+            assert resp.status == 200
+            got = await (await client.get("/api/dashboard/config")).json()
+        assert got["link_patterns"] == rules
+
+    @pytest.mark.asyncio
+    async def test_link_patterns_preserve_pattern_whitespace_exactly(self, config_client_app):
+        # Whitespace in a regex is load-bearing: `PROJ-\d+ ` (trailing space)
+        # matches different text than `PROJ-\d+`. Neither the PUT handler nor
+        # the load-time coercer may strip it -- trimming is for blank-DETECTION
+        # only. Silent stripping broadened the stored pattern (mints links the
+        # operator never wrote); the two edge-space twins below are DIFFERENT
+        # regexes and must both survive, not collapse into the dedup 400.
+        rules = [
+            {"pattern": r"PROJ-\d+ ", "url": "https://one.example/{match}"},
+            {"pattern": r"PROJ-\d+", "url": "https://two.example/{match}"},
+            {"pattern": r" ID-\d+", "url": "https://three.example/{match}"},
+        ]
+        async with TestClient(TestServer(config_client_app)) as client:
+            resp = await client.put("/api/dashboard/config", json={"link_patterns": rules})
+            assert resp.status == 200
+            got = await (await client.get("/api/dashboard/config")).json()
+        # Byte-exact round trip through PUT -> disk -> coercer -> GET.
+        assert got["link_patterns"] == rules
+
+    @pytest.mark.asyncio
+    async def test_link_patterns_accept_mixed_case_scheme(self, config_client_app):
+        # The editor validates with the browser's URL parser, whose scheme is
+        # case-insensitive -- `HTTPS://x/{match}` passes the inline check, so
+        # the PUT (and the load coercer) must accept it too or the save dies
+        # with no inline warning. Stored byte-exactly, normalised nowhere.
+        rules = [{"pattern": r"\bCASE-\d+\b", "url": "HTTPS://tracker.example.com/browse/{match}"}]
+        async with TestClient(TestServer(config_client_app)) as client:
+            resp = await client.put("/api/dashboard/config", json={"link_patterns": rules})
+            assert resp.status == 200
+            got = await (await client.get("/api/dashboard/config")).json()
+        assert got["link_patterns"] == rules
+
+    @pytest.mark.asyncio
+    async def test_link_patterns_rejects_malformed(self, config_client_app):
+        bad_bodies = [
+            {"link_patterns": "not-a-list"},
+            {"link_patterns": ["not-a-dict"]},
+            {"link_patterns": [{"pattern": "", "url": "https://x.example/{match}"}]},
+            {"link_patterns": [{"pattern": "ok", "url": "javascript:alert(1)"}]},
+            {"link_patterns": [{"pattern": "ok", "url": "https://x.example/no-placeholder"}]},
+            {"link_patterns": [{"pattern": "ok", "url": "https://x.example/{match}"}] * 51},
+            {"link_patterns": [{"pattern": "a" * 301, "url": "https://x.example/{match}"}]},
+            # Duplicate patterns: the load-time coercer keeps only the first,
+            # so accepting both would persist a rule that GET then omits and a
+            # later editor save would silently drop from disk. Distinct urls
+            # under the same pattern are still one duplicate.
+            {
+                "link_patterns": [
+                    {"pattern": r"\bDUP-\d+\b", "url": "https://one.example/{match}"},
+                    {"pattern": r"\bDUP-\d+\b", "url": "https://two.example/{match}"},
+                ]
+            },
+            # Renderer parity: normaliseHref refuses userinfo and a '{match}'
+            # in the authority (the token could steer the host), so accepting
+            # these would store rules that never linkify and show no warning.
+            {"link_patterns": [{"pattern": "ok", "url": "https://{match}.example.com/x"}]},
+            {"link_patterns": [{"pattern": "ok", "url": "https://user:pw@x.example/{match}"}]},
+            {"link_patterns": [{"pattern": "ok", "url": "https://x.example:{match}/t"}]},
+            # Whitespace in the authority: Python's urlsplit tolerates it but
+            # the browser's URL parser refuses it, so the rule would store
+            # fine and silently never linkify.
+            {"link_patterns": [{"pattern": "ok", "url": "https://exa mple.com/{match}"}]},
+        ]
+        async with TestClient(TestServer(config_client_app)) as client:
+            for body in bad_bodies:
+                resp = await client.put("/api/dashboard/config", json=body)
+                assert resp.status == 400, body
+                assert (await resp.json())["code"] == "invalid_link_patterns"
+            # A malformed save persisted nothing.
+            got = await (await client.get("/api/dashboard/config")).json()
+        assert got["link_patterns"] == []
+
+    @pytest.mark.asyncio
     async def test_boolean_fields_reject_non_booleans(self, config_client_app):
         bool_fields = [
             "restore_sessions",
