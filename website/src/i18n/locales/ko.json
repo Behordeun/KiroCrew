@@ -5759,6 +5759,7 @@
       "copy_failed": "복사 실패",
       "copy_selection": "선택 항목 복사",
       "disconnected_message": "터미널 연결이 끊겼습니다",
+      "displaced_message": "다른 창이 이 터미널을 가져갔습니다",
       "failed_retry": "실패 — 다시 시도",
       "reconnect": "다시 연결",
       "reconnecting": "다시 연결하는 중…",
@@ -5767,7 +5768,8 @@
       "send_to_chat": "채팅으로 전송",
       "sending": "전송 중…",
       "touch_select_anchor": "첫 지점 설정됨 — 반대쪽 끝을 탭하세요",
-      "touch_select_done": "범위 선택됨 — 복사를 탭하세요"
+      "touch_select_done": "범위 선택됨 — 복사를 탭하세요",
+      "use_here": "여기에서 터미널 사용"
     },
     "codeBlock": {
       "copied": "복사했습니다!",

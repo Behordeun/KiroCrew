@@ -5852,6 +5852,7 @@
       "copy_failed": "कॉपी विफल",
       "copy_selection": "चयन कॉपी करें",
       "disconnected_message": "टर्मिनल डिस्कनेक्ट हो गया",
+      "displaced_message": "दूसरी विंडो ने इस टर्मिनल को अपने नियंत्रण में ले लिया",
       "failed_retry": "विफल — फिर कोशिश करें",
       "reconnect": "पुनः कनेक्ट करें",
       "reconnecting": "फिर से कनेक्ट किया जा रहा है…",
@@ -5860,7 +5861,8 @@
       "send_to_chat": "चैट में भेजें",
       "sending": "भेजा जा रहा है…",
       "touch_select_anchor": "पहला बिंदु सेट — दूसरा सिरा टैप करें",
-      "touch_select_done": "श्रेणी चयनित — कॉपी टैप करें"
+      "touch_select_done": "श्रेणी चयनित — कॉपी टैप करें",
+      "use_here": "टर्मिनल यहाँ उपयोग करें"
     },
     "codeBlock": {
       "copied": "कॉपी हो गया!",

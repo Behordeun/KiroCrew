@@ -5852,6 +5852,7 @@
       "copy_failed": "Kopieren fehlgeschlagen",
       "copy_selection": "Auswahl kopieren",
       "disconnected_message": "Terminal getrennt",
+      "displaced_message": "Ein anderes Fenster hat dieses Terminal übernommen",
       "failed_retry": "Fehlgeschlagen — wiederholen",
       "reconnect": "Erneut verbinden",
       "reconnecting": "Verbindung wird wiederhergestellt…",
@@ -5860,7 +5861,8 @@
       "send_to_chat": "An den Chat senden",
       "sending": "Wird gesendet…",
       "touch_select_anchor": "Erster Punkt gesetzt — tippe das andere Ende an",
-      "touch_select_done": "Bereich ausgewählt — tippe auf Kopieren"
+      "touch_select_done": "Bereich ausgewählt — tippe auf Kopieren",
+      "use_here": "Terminal hier verwenden"
     },
     "codeBlock": {
       "copied": "Kopiert!",

@@ -93,12 +93,15 @@ const registry = vi.hoisted(() => ({
   getTerminalCwd: vi.fn<(id: string) => string | undefined>(() => undefined),
   connStatus: { value: undefined as 'connected' | 'reconnecting' | 'disconnected' | undefined },
   manualRetry: { value: false },
+  displaced: { value: false },
   useTerminalConnStatus: vi.fn<() => 'connected' | 'reconnecting' | 'disconnected' | undefined>(),
   useTerminalManualRetry: vi.fn<() => boolean>(),
+  useTerminalDisplaced: vi.fn<() => boolean>(),
   retryTerminalConnection: vi.fn<(id: string) => void>(),
 }))
 registry.useTerminalConnStatus.mockImplementation(() => registry.connStatus.value)
 registry.useTerminalManualRetry.mockImplementation(() => registry.manualRetry.value)
+registry.useTerminalDisplaced.mockImplementation(() => registry.displaced.value)
 vi.mock('../utils/terminalRegistry', () => registry)
 
 // Both children own their own xterm hooks and are covered by their own suites;
@@ -257,6 +260,7 @@ beforeEach(() => {
   registry.retryTerminalConnection.mockClear()
   registry.connStatus.value = undefined
   registry.manualRetry.value = false
+  registry.displaced.value = false
   xt.FakeTerminal.instances = []
   xt.FakeFitAddon.instances = []
   touch.value = false
@@ -404,7 +408,12 @@ describe('CliPanel disconnected banner', () => {
   it('renders the disconnected banner with an enabled Reconnect button once the socket is dead', () => {
     registry.connStatus.value = 'disconnected'
     mount()
-    expect(screen.getByRole('status')).toHaveTextContent(DISCONNECTED_LABEL)
+    // Retry exhaustion is a FAILED outcome: it renders through ErrorNotice
+    // (role="alert", agent hand-off on), not the neutral status bar.
+    const notice = screen.getByTestId('cli-panel-disconnected')
+    expect(notice).toHaveAttribute('role', 'alert')
+    expect(notice).toHaveTextContent(DISCONNECTED_LABEL)
+    expect(screen.queryByRole('status')).toBeNull()
     const button = screen.getByRole('button', { name: RECONNECT_LABEL })
     expect(button).toBeInTheDocument()
     expect(button).toBeEnabled()
@@ -442,6 +451,27 @@ describe('CliPanel disconnected banner', () => {
     expect(screen.getByText(DISCONNECTED_LABEL)).toBeInTheDocument()
     expect(screen.queryByText(RECONNECTING_LABEL)).toBeNull()
     expect(screen.getByRole('button', { name: RECONNECT_LABEL })).toBeEnabled()
+  })
+
+  it('names the other window, not a network failure, when the server displaced this socket', () => {
+    // The registry parked the session after the server's `code: 'displaced'`
+    // error frame: the banner must say so (neutral icon) rather than render
+    // the generic disconnected copy, and Reconnect stays available to take
+    // the terminal back deliberately.
+    registry.connStatus.value = 'disconnected'
+    registry.displaced.value = true
+    const { sessionId } = mount()
+    const banner = screen.getByRole('status')
+    expect(banner).toHaveTextContent(i18nT('components.cliPanel.displaced_message'))
+    expect(screen.queryByText(DISCONNECTED_LABEL)).toBeNull()
+    expect(banner.querySelector('.text-danger')).toBeNull()
+    // The button says what it does here -- take the terminal from the other
+    // window -- not "Reconnect", which would imply repairing a broken link.
+    expect(screen.queryByRole('button', { name: RECONNECT_LABEL })).toBeNull()
+    const takeBack = screen.getByRole('button', { name: i18nT('components.cliPanel.use_here') })
+    expect(takeBack).toBeEnabled()
+    fireEvent.click(takeBack)
+    expect(registry.retryTerminalConnection).toHaveBeenCalledWith(sessionId)
   })
 })
 

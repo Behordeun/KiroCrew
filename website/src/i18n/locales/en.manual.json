@@ -1692,6 +1692,7 @@
       "copy": "Copy",
       "copy_failed": "Copy failed",
       "disconnected_message": "Terminal disconnected",
+      "displaced_message": "Another window took over this terminal",
       "failed_retry": "Failed — retry",
       "reconnect": "Reconnect",
       "reconnecting": "Reconnecting…",
@@ -1700,7 +1701,8 @@
       "send_to_chat": "Send to chat",
       "sending": "Sending…",
       "touch_select_anchor": "First point set — tap the other end",
-      "touch_select_done": "Range selected — tap Copy"
+      "touch_select_done": "Range selected — tap Copy",
+      "use_here": "Use terminal here"
     },
     "codeBlock": {
       "copied": "Copied!",

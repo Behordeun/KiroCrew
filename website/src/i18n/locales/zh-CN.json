@@ -5759,6 +5759,7 @@
       "copy_failed": "复制失败",
       "copy_selection": "复制所选",
       "disconnected_message": "终端已断开连接",
+      "displaced_message": "另一个窗口已接管此终端",
       "failed_retry": "失败 — 重试",
       "reconnect": "重新连接",
       "reconnecting": "正在重新连接…",
@@ -5767,7 +5768,8 @@
       "send_to_chat": "发送到聊天",
       "sending": "发送中…",
       "touch_select_anchor": "已设第一点 — 点按另一端",
-      "touch_select_done": "已选择范围 — 点按复制"
+      "touch_select_done": "已选择范围 — 点按复制",
+      "use_here": "在此窗口使用终端"
     },
     "codeBlock": {
       "copied": "已复制！",

@@ -40,6 +40,8 @@ def _make_request(
     cfg=None,
     origin=None,
     remote="127.0.0.1",
+    owner_id=None,
+    app_claim="",
 ):
     """Build a mock aiohttp request with state and match_info.
 
@@ -49,10 +51,15 @@ def _make_request(
     """
     state = MagicMock()
     state._terminal_sessions = registry if registry is not None else {}
+    state.owner_id = user if owner_id is None else owner_id
     app = {"state": state, "allowed_origins": {"http://localhost:5476"}}
     request = MagicMock()
     request.app = app
     request.get = lambda k, default=None: user if k == "user" else default
+    request.__contains__.side_effect = lambda key: key == "app"
+    request.__getitem__.side_effect = (
+        lambda key: app_claim if key == "app" else KeyError(key)
+    )
     request.match_info = MagicMock()
     request.match_info.get = lambda k, default="": session_id if k == "session_id" else default
     request.remote = remote
@@ -78,6 +85,28 @@ def _make_session(session_id="s1", alive=True, ws=None, disconnect=None):
     sess.last_ws_disconnect = disconnect
     sess.reader_task = None
     return sess
+
+
+class TestTerminalOwnerAuthorization:
+    @pytest.mark.parametrize(
+        "handler",
+        [
+            terminal.api_terminal_ws,
+            terminal.api_terminal_create,
+            terminal.api_terminal_redact,
+            terminal.api_terminal_complete,
+            terminal.api_terminal_delete,
+            terminal.api_terminal_list,
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_non_owner_is_denied_before_terminal_capability(self, handler):
+        req = _make_request(user="intruder", owner_id="owner")
+
+        response = await handler(req)
+
+        assert response.status == 403
+        assert json.loads(response.body)["code"] == "owner_only"
 
 
 # ── _resolve_shell ──
@@ -2689,14 +2718,16 @@ class TestReapOrphanedTerminals:
 # ── Integration tests using aiohttp TestClient ──
 
 
-def _make_app(registry=None, cfg=None, user="testuser"):
+def _make_app(registry=None, cfg=None, user="testuser", owner_id=None):
     """Build a minimal aiohttp app with terminal routes and fake auth."""
     state = MagicMock()
     state._terminal_sessions = registry if registry is not None else {}
+    state.owner_id = user if owner_id is None else owner_id
 
     @web.middleware
     async def fake_auth(request, handler):
-        request["user"] = user
+        request["user"] = request.headers.get("X-Test-User", user)
+        request["app"] = ""
         return await handler(request)
 
     app = web.Application(middlewares=[fake_auth])
@@ -3116,7 +3147,19 @@ class TestTerminalWsIntegration:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({"dashboard": {"terminal": {"enabled": True}}}))
         monkeypatch.setattr(terminal, "config_path", lambda: cfg_file)
-        monkeypatch.setattr(terminal, "_sel", lambda: MagicMock())
+        audit = MagicMock()
+        monkeypatch.setattr(terminal, "_sel", lambda: audit)
+
+        async def leave_displaced_socket_open(*_args, **_kwargs):
+            # A bounded close may time out. Keep the predecessor readable so
+            # this integration test exercises the stale-handler fallback.
+            return None
+
+        monkeypatch.setattr(
+            terminal,
+            "_close_terminal_ws_bounded",
+            leave_displaced_socket_open,
+        )
 
         registry: dict = {}
         app = _make_app(registry=registry)
@@ -3138,9 +3181,39 @@ class TestTerminalWsIntegration:
             assert takeover_ws is not None
             assert takeover_ws is not first_ws  # replaced by the new socket
 
-            # The displaced client closes; its server-side handler unwinds.
-            await ws1.close()
-            # Give the displaced handler's finally block a chance to run.
+            # Multiple queued stale input frames terminate the displaced
+            # handler after one coarse audit; no terminal content is recorded.
+            cwd_probe = (time.monotonic(), "/tmp/takeover-owner")
+            sess.cwd_probe = cwd_probe
+            owned_size = (sess.cols, sess.rows)
+            await ws1.send_bytes(b"echo displaced-must-not-run\r")
+            await ws1.send_bytes(b"echo still-displaced\r")
+            for _ in range(40):
+                message = await ws1.receive(timeout=3)
+                if message.type in (
+                    web.WSMsgType.CLOSE,
+                    web.WSMsgType.CLOSED,
+                    web.WSMsgType.ERROR,
+                ):
+                    break
+            assert sess.cwd_probe == cwd_probe
+            assert (sess.cols, sess.rows) == owned_size
+            input_denials = [
+                call.kwargs
+                for call in audit.log_api_access.call_args_list
+                if call.kwargs.get("operation") == "terminal.ws.input"
+            ]
+            assert input_denials == [
+                {
+                    "caller": "testuser",
+                    "operation": "terminal.ws.input",
+                    "outcome": "denied",
+                    "source": "dashboard",
+                    "resources": "session=takeover-sess,stale_owner=1",
+                }
+            ]
+
+            # Its cleanup must leave the takeover socket authoritative.
             for _ in range(50):
                 await asyncio.sleep(0.05)
                 if sess.ws is takeover_ws and sess.last_ws_disconnect is None:
@@ -3148,18 +3221,84 @@ class TestTerminalWsIntegration:
             assert sess.ws is takeover_ws  # NOT clobbered to None
             assert sess.last_ws_disconnect is None
 
-            # And the new socket still works end-to-end (control ping).
-            await ws2.send_str(json.dumps({"type": "ping"}))
+            # A third connection displaces ws2. Multiple stale resize frames
+            # likewise produce one audit and cannot alter the PTY dimensions.
+            ws3 = await client.ws_connect("/api/ws/terminal/takeover-sess")
+            latest_ws = sess.ws
+            assert latest_ws is not None
+            assert latest_ws is not takeover_ws
+            await ws2.send_str(
+                json.dumps({"type": "resize", "cols": 321, "rows": 123})
+            )
+            await ws2.send_str(
+                json.dumps({"type": "resize", "cols": 322, "rows": 124})
+            )
+            for _ in range(40):
+                message = await ws2.receive(timeout=3)
+                if message.type in (
+                    web.WSMsgType.CLOSE,
+                    web.WSMsgType.CLOSED,
+                    web.WSMsgType.ERROR,
+                ):
+                    break
+            assert (sess.cols, sess.rows) == owned_size
+            resize_denials = [
+                call.kwargs
+                for call in audit.log_api_access.call_args_list
+                if call.kwargs.get("operation") == "terminal.ws.resize"
+            ]
+            assert resize_denials == [
+                {
+                    "caller": "testuser",
+                    "operation": "terminal.ws.resize",
+                    "outcome": "denied",
+                    "source": "dashboard",
+                    "resources": "session=takeover-sess,stale_owner=1",
+                }
+            ]
+
+            # The latest owner still works end-to-end.
+            await ws3.send_str(json.dumps({"type": "ping"}))
             got_pong = False
             for _ in range(40):
-                msg = await ws2.receive(timeout=3)
+                msg = await ws3.receive(timeout=3)
                 if msg.type == web.WSMsgType.TEXT and json.loads(msg.data).get("type") == "pong":
                     got_pong = True
                     break
             assert got_pong
 
-            await ws2.close()
+            await ws3.close()
             await terminal._kill_session(registry["takeover-sess"])
+
+    @pytest.mark.asyncio
+    async def test_non_owner_cannot_list_or_displace_owned_terminal(self):
+        owner_ws = MagicMock()
+        owner_ws.closed = False
+        sess = _make_session(session_id="owned-session", ws=owner_ws)
+        sess.scrollback.extend(b"owner scrollback")
+        registry = {"owned-session": sess}
+        app = _make_app(registry=registry, user="owner", owner_id="owner")
+
+        from aiohttp import WSServerHandshakeError
+        from aiohttp.test_utils import TestClient, TestServer
+
+        async with TestClient(TestServer(app)) as client:
+            response = await client.get(
+                "/api/terminal/sessions",
+                headers={"X-Test-User": "intruder"},
+            )
+            assert response.status == 403
+            assert (await response.json())["code"] == "owner_only"
+            assert "owned-session" not in await response.text()
+
+            with pytest.raises(WSServerHandshakeError) as exc_info:
+                await client.ws_connect(
+                    "/api/ws/terminal/owned-session",
+                    headers={"X-Test-User": "intruder"},
+                )
+            assert exc_info.value.status == 403
+
+        assert sess.ws is owner_ws
 
     @pytest.mark.asyncio
     async def test_ws_invalid_json_ignored(self, monkeypatch, tmp_path):
@@ -4270,7 +4409,103 @@ class TestPollTerminalTitles:
              patch.object(terminal, "_session_cwd", return_value=None), \
              patch("asyncio.sleep", side_effect=[None, asyncio.CancelledError]):
             await terminal.poll_terminal_titles(self._app(sess))  # must not raise
-        assert sess.last_title == "vim"
+        # A failed send must not advance the dedup marker: the next dirty tick
+        # retries instead of leaving the client on a stale title until the
+        # value changes again.
+        assert sess.last_title is None
+
+    @pytest.mark.asyncio
+    async def test_timed_out_send_is_retried_on_the_next_dirty_tick(self, monkeypatch):
+        monkeypatch.setattr(terminal, "_OWNER_CONTROL_SEND_TIMEOUT_S", 0.02)
+        ws = MagicMock()
+        ws.closed = False
+        attempts = 0
+
+        async def first_send_hangs(_data):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                await asyncio.Event().wait()
+
+        ws.send_str = AsyncMock(side_effect=first_send_hangs)
+        sess = _make_session(session_id="s1", ws=ws)
+
+        def redirty(_delay):
+            sess.frames_dirty = True  # PTY output landed between ticks
+
+        real_sleep = asyncio.sleep
+        ticks = iter([None, None, asyncio.CancelledError])
+
+        async def fake_sleep(delay):
+            step = next(ticks)
+            if step is asyncio.CancelledError:
+                raise step
+            redirty(delay)
+            await real_sleep(0)
+
+        with patch.object(terminal, "_session_title", return_value="/repo"), \
+             patch.object(terminal, "_session_cwd", return_value="/home/u/repo"), \
+             patch("asyncio.sleep", side_effect=fake_sleep):
+            await asyncio.wait_for(terminal.poll_terminal_titles(self._app(sess)), timeout=5)
+
+        # Tick 1: title send timed out -> marker not advanced; cwd send succeeded.
+        # Tick 2: title retried and delivered.
+        assert sess.last_title == "/repo"
+        assert sess.last_cwd == "/home/u/repo"
+        frames = [json.loads(call.args[0]) for call in ws.send_str.await_args_list]
+        assert [f["type"] for f in frames] == ["title", "cwd", "title"]
+
+    @pytest.mark.asyncio
+    async def test_takeover_during_probe_never_sends_to_displaced_socket(self):
+        """The poller captures ``sess.ws`` before its executor probe. A takeover
+        that lands while the probe runs must leave the displaced socket untouched;
+        the new owner gets the title on the next tick (publication re-dirties)."""
+        old_ws = MagicMock()
+        old_ws.closed = False
+        old_ws.send_str = AsyncMock()
+        old_ws.close = AsyncMock()
+        new_ws = MagicMock()
+        new_ws.closed = False
+        new_ws.send_bytes = AsyncMock()
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(session_id="s1", ws=old_ws)
+        published = threading.Event()
+        real_sleep = asyncio.sleep
+
+        def title_probe(_sess):
+            # Executor thread: hold the probe open until the loop has published.
+            published.wait(5)
+            return "vim"
+
+        async def publish_during_probe():
+            await real_sleep(0.05)
+            assert await terminal._replace_terminal_ws(sess, new_ws) is True
+            published.set()
+
+        publisher = asyncio.create_task(publish_during_probe())
+        ticks = iter([None, None, asyncio.CancelledError])
+
+        async def fake_sleep(_delay):
+            step = next(ticks)
+            if isinstance(step, type) and issubclass(step, BaseException):
+                raise step
+            await real_sleep(0)
+
+        with patch.object(terminal, "_session_title", side_effect=title_probe), \
+             patch.object(terminal, "_session_cwd", return_value=None), \
+             patch("asyncio.sleep", side_effect=fake_sleep):
+            await asyncio.wait_for(terminal.poll_terminal_titles(self._app(sess)), timeout=5)
+        await publisher
+
+        old_frames = [json.loads(call.args[0]) for call in old_ws.send_str.await_args_list]
+        assert [f.get("type") for f in old_frames] == ["error"]  # displacement notice only
+        assert sess.ws is new_ws
+        titles = [
+            json.loads(call.args[0])
+            for call in new_ws.send_str.await_args_list
+            if json.loads(call.args[0]).get("type") == "title"
+        ]
+        assert titles == [{"type": "title", "text": "vim"}]
 
     @pytest.mark.asyncio
     async def test_handles_missing_state(self):
@@ -4571,13 +4806,11 @@ class TestWriteAll:
 
 
 class TestWriteSerialization:
-    """Concurrent handlers must not interleave one frame's retry chunks.
+    """Input ownership and frame serialization share one ordering point.
 
-    A reconnect attaches a new WS handler by assignment without waiting for the
-    old handler's write loop to exit, so two handlers can dispatch PTY writes
-    for one session at once. Each frame is written under ``sess.write_lock`` so
-    its bytes land contiguously even when ``_write_all`` needs several
-    ``os.write`` calls.
+    A reconnect does not wait for the displaced handler's socket loop to exit.
+    The lock makes ownership replacement atomic with input and resize while
+    keeping each accepted frame contiguous on the PTY.
     """
 
     @pytest.mark.asyncio
@@ -4626,6 +4859,569 @@ class TestWriteSerialization:
 
         names = {f.name for f in dataclasses.fields(terminal._TerminalSession)}
         assert "write_lock" in names
+        assert "replace_lock" in names
+        assert "output_lock" in names
+        assert "output_send_cancel" in names
+
+    @pytest.mark.asyncio
+    async def test_displaced_socket_cannot_write_or_resize(self):
+        old_ws = MagicMock()
+        new_ws = MagicMock()
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=old_ws)
+        winpty = MagicMock()
+        sess.winpty = winpty
+
+        await terminal._replace_terminal_ws(sess, new_ws)
+        wrote = await terminal._write_terminal_input(sess, old_ws, b"echo stale\r")
+        resized = await terminal._resize_terminal(sess, old_ws, 160, 50)
+
+        assert wrote is False
+        assert resized is False
+        winpty.write.assert_not_called()
+        winpty.resize.assert_not_called()
+        assert (sess.cols, sess.rows) == (80, 24)
+
+    @pytest.mark.asyncio
+    async def test_failed_replay_keeps_previous_owner(self):
+        old_ws = MagicMock()
+        new_ws = MagicMock()
+        new_ws.send_bytes = AsyncMock(side_effect=ConnectionResetError)
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=old_ws, disconnect=123.0)
+        sess.scrollback.extend(b"before")
+        sess.output_bytes = len(sess.scrollback)
+        sess.last_title = "old title"
+        sess.last_cwd = "/old/cwd"
+        sess.frames_dirty = False
+
+        replaced = await terminal._replace_terminal_ws(sess, new_ws)
+
+        assert replaced is False
+        assert sess.ws is old_ws
+        assert sess.last_ws_disconnect == 123.0
+        assert sess.last_title == "old title"
+        assert sess.last_cwd == "/old/cwd"
+        assert sess.frames_dirty is False
+
+    @pytest.mark.asyncio
+    async def test_failed_ready_send_keeps_previous_owner(self):
+        old_ws = MagicMock()
+        new_ws = MagicMock()
+        new_ws.send_bytes = AsyncMock()
+        new_ws.send_str = AsyncMock(side_effect=ConnectionResetError)
+        sess = _make_session(ws=old_ws, disconnect=123.0)
+        sess.shell_ready = True
+        sess.last_title = "old title"
+        sess.last_cwd = "/old/cwd"
+        sess.frames_dirty = False
+
+        replaced = await terminal._replace_terminal_ws(sess, new_ws)
+
+        assert replaced is False
+        assert sess.ws is old_ws
+        assert sess.last_ws_disconnect == 123.0
+        assert sess.last_title == "old title"
+        assert sess.last_cwd == "/old/cwd"
+        assert sess.frames_dirty is False
+
+    @pytest.mark.asyncio
+    async def test_replacement_catches_output_produced_during_replay(self):
+        old_ws = MagicMock()
+        old_ws.closed = False
+        old_ws.send_str = AsyncMock()
+        old_ws.close = AsyncMock()
+        old_ws.send_bytes = AsyncMock()
+        new_ws = MagicMock()
+        replay_started = asyncio.Event()
+        allow_replay = asyncio.Event()
+
+        async def send_bytes(data):
+            if data == b"before":
+                replay_started.set()
+                await allow_replay.wait()
+
+        new_ws.send_bytes = AsyncMock(side_effect=send_bytes)
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=old_ws)
+        sess.scrollback.extend(b"before")
+        sess.output_bytes = len(sess.scrollback)
+
+        replacement = asyncio.create_task(terminal._replace_terminal_ws(sess, new_ws))
+        await replay_started.wait()
+        await terminal._record_and_forward_terminal_output(sess, b"during")
+        allow_replay.set()
+
+        assert await replacement is True
+        assert sess.ws is new_ws
+        assert [call.args[0] for call in new_ws.send_bytes.await_args_list] == [
+            b"before",
+            b"during",
+        ]
+        old_ws.send_bytes.assert_awaited_once_with(b"during")
+
+    @pytest.mark.asyncio
+    async def test_takeover_cancels_displaced_send_and_releases_reader(self):
+        old_ws = MagicMock()
+        old_ws.closed = False
+        old_ws.send_str = AsyncMock()
+        old_ws.close = AsyncMock()
+        new_ws = MagicMock()
+        new_ws.closed = False
+        new_ws.send_bytes = AsyncMock()
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=old_ws)
+        send_started = asyncio.Event()
+
+        async def blocked_send(_data):
+            send_started.set()
+            await asyncio.Event().wait()
+
+        old_ws.send_bytes = AsyncMock(side_effect=blocked_send)
+        output = asyncio.create_task(
+            terminal._record_and_forward_terminal_output(sess, b"during")
+        )
+        await send_started.wait()
+
+        assert await terminal._replace_terminal_ws(sess, new_ws) is True
+        await asyncio.wait_for(output, timeout=1)
+        await asyncio.wait_for(
+            terminal._record_and_forward_terminal_output(sess, b"after"),
+            timeout=1,
+        )
+
+        assert sess.ws is new_ws
+        assert [call.args[0] for call in new_ws.send_bytes.await_args_list] == [
+            b"during",
+            b"after",
+        ]
+        old_ws.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_displaced_socket_close_is_bounded_and_outside_output_lock(
+        self, monkeypatch
+    ):
+        old_ws = MagicMock()
+        old_ws.closed = False
+        old_ws.send_str = AsyncMock()
+        new_ws = MagicMock()
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=old_ws)
+
+        async def blocked_close():
+            assert not sess.output_lock.locked()
+            await asyncio.Event().wait()
+
+        old_ws.close = AsyncMock(side_effect=blocked_close)
+        monkeypatch.setattr(terminal, "_TERMINAL_WS_CLEANUP_TIMEOUT_S", 0.01)
+
+        assert await asyncio.wait_for(
+            terminal._replace_terminal_ws(sess, new_ws), timeout=1
+        )
+        assert sess.ws is new_ws
+        old_ws.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_failed_reconnect_error_send_cannot_block_close(self, monkeypatch):
+        ws = MagicMock()
+        ws.closed = False
+        send_started = asyncio.Event()
+
+        async def blocked_send(_data):
+            send_started.set()
+            await asyncio.Event().wait()
+
+        ws.send_str = AsyncMock(side_effect=blocked_send)
+        ws.close = AsyncMock()
+        monkeypatch.setattr(terminal, "_TERMINAL_WS_CLEANUP_TIMEOUT_S", 0.01)
+
+        cleanup = asyncio.create_task(
+            terminal._close_terminal_ws_bounded(
+                ws,
+                error_message="Terminal reconnect failed",
+            )
+        )
+        await send_started.wait()
+        await asyncio.wait_for(cleanup, timeout=1)
+
+        ws.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stalled_replay_releases_lock_for_later_candidate(self, monkeypatch):
+        old_ws = MagicMock()
+        stalled_ws = MagicMock()
+        healthy_ws = MagicMock()
+        replay_started = asyncio.Event()
+
+        async def blocked_replay(_data):
+            replay_started.set()
+            await asyncio.Event().wait()
+
+        stalled_ws.send_bytes = AsyncMock(side_effect=blocked_replay)
+        healthy_ws.send_bytes = AsyncMock()
+        healthy_ws.send_str = AsyncMock()
+        sess = _make_session(ws=old_ws)
+        sess.scrollback.extend(b"before")
+        sess.output_bytes = len(sess.scrollback)
+        monkeypatch.setattr(terminal, "_TAKEOVER_REPLAY_SEND_TIMEOUT_S", 0.01)
+
+        stalled = asyncio.create_task(terminal._replace_terminal_ws(sess, stalled_ws))
+        await replay_started.wait()
+        healthy = asyncio.create_task(terminal._replace_terminal_ws(sess, healthy_ws))
+
+        assert await stalled is False
+        assert await asyncio.wait_for(healthy, timeout=1) is True
+        assert sess.ws is healthy_ws
+        healthy_ws.send_bytes.assert_awaited_once_with(b"before")
+
+    @pytest.mark.asyncio
+    async def test_current_socket_can_write_and_resize(self):
+        ws = MagicMock()
+        sess = _make_session(ws=ws)
+        winpty = MagicMock()
+        sess.winpty = winpty
+        sess.cwd_probe = (time.monotonic(), "/tmp/old")
+
+        wrote = await terminal._write_terminal_input(sess, ws, b"cd /tmp\r")
+        resized = await terminal._resize_terminal(sess, ws, 160, 50)
+
+        assert wrote is True
+        assert resized is True
+        winpty.write.assert_called_once_with(b"cd /tmp\r")
+        winpty.resize.assert_called_once_with(160, 50)
+        assert (sess.cols, sess.rows) == (160, 50)
+        assert sess.cwd_probe is None
+        assert sess.frames_dirty is True
+
+    @pytest.mark.asyncio
+    async def test_inflight_input_does_not_block_replacement(self):
+        old_ws = MagicMock()
+        new_ws = MagicMock()
+        old_ws.closed = False
+        old_ws.send_str = AsyncMock()
+        old_ws.close = AsyncMock()
+        new_ws.closed = False
+        old_ws.send_bytes = AsyncMock()
+        new_ws.send_bytes = AsyncMock()
+        new_ws.send_str = AsyncMock()
+        winpty = MagicMock()
+        write_started = threading.Event()
+        allow_write_to_finish = threading.Event()
+        calls = []
+
+        def blocked_write(data):
+            calls.append(data)
+            write_started.set()
+            assert allow_write_to_finish.wait(timeout=5)
+            return len(data)
+
+        winpty.write.side_effect = blocked_write
+        sess = _make_session(ws=old_ws)
+        sess.winpty = winpty
+        sess.scrollback.extend(b"before-")
+        sess.output_bytes = len(sess.scrollback)
+
+        write_task = asyncio.create_task(
+            terminal._write_terminal_input(sess, old_ws, b"first")
+        )
+        assert await asyncio.to_thread(write_started.wait, 5)
+        await terminal._record_and_forward_terminal_output(sess, b"during")
+        old_ws.send_bytes.assert_awaited_once_with(b"during")
+        replace_task = asyncio.create_task(
+            terminal._replace_terminal_ws(sess, new_ws)
+        )
+        assert await asyncio.wait_for(replace_task, timeout=1) is True
+        assert sess.ws is new_ws
+        new_ws.send_bytes.assert_awaited_once_with(b"before-during")
+
+        stale_task = asyncio.create_task(
+            terminal._write_terminal_input(sess, old_ws, b"second")
+        )
+        await asyncio.sleep(0)
+        assert stale_task.done() is False
+        allow_write_to_finish.set()
+        assert await write_task is True
+        stale = await stale_task
+
+        assert stale is False
+        assert calls == [b"first"]
+        assert sess.ws is new_ws
+
+    @pytest.mark.asyncio
+    async def test_cancelled_takeover_after_publication_releases_identity(self):
+        """A candidate cancelled while closing the socket it displaced never
+        reaches the write loop's teardown, so publication must detach it here
+        or the orphan reaper would keep the PTY alive indefinitely."""
+        old_ws = MagicMock()
+        old_ws.closed = False
+        old_ws.send_str = AsyncMock()
+        close_started = asyncio.Event()
+
+        async def blocked_close():
+            close_started.set()
+            await asyncio.Event().wait()
+
+        old_ws.close = AsyncMock(side_effect=blocked_close)
+        new_ws = MagicMock()
+        new_ws.closed = False
+        new_ws.send_bytes = AsyncMock()
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=old_ws)
+
+        replace_task = asyncio.create_task(terminal._replace_terminal_ws(sess, new_ws))
+        await asyncio.wait_for(close_started.wait(), timeout=1)
+        assert sess.ws is new_ws
+        assert sess.last_ws_disconnect is None
+
+        replace_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await replace_task
+
+        assert sess.ws is None
+        assert sess.last_ws_disconnect is not None
+
+    @pytest.mark.asyncio
+    async def test_cancelled_takeover_after_publication_keeps_a_newer_owner(self):
+        old_ws = MagicMock()
+        old_ws.closed = False
+        old_ws.send_str = AsyncMock()
+        close_started = asyncio.Event()
+
+        async def blocked_close():
+            close_started.set()
+            await asyncio.Event().wait()
+
+        old_ws.close = AsyncMock(side_effect=blocked_close)
+        mid_ws = MagicMock()
+        mid_ws.closed = False
+        mid_ws.send_bytes = AsyncMock()
+        mid_ws.send_str = AsyncMock()
+        newest_ws = MagicMock()
+        newest_ws.closed = False
+        sess = _make_session(ws=old_ws)
+
+        replace_task = asyncio.create_task(terminal._replace_terminal_ws(sess, mid_ws))
+        await asyncio.wait_for(close_started.wait(), timeout=1)
+        assert sess.ws is mid_ws
+        sess.ws = newest_ws  # a later publication landed meanwhile
+
+        replace_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await replace_task
+
+        assert sess.ws is newest_ws
+        assert sess.last_ws_disconnect is None
+
+    @pytest.mark.asyncio
+    async def test_reconnect_with_no_owner_converges_against_continuous_output(self):
+        """A reload with ``sess.ws is None`` against a firehose: output advances
+        after every unlocked catch-up send, so no unlocked round can settle. The
+        final round sends under ``output_lock`` and must still publish, with
+        every byte delivered in order and none duplicated."""
+        new_ws = MagicMock()
+        new_ws.closed = False
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=None, disconnect=5.0)
+        sess.scrollback.extend(b"seed")
+        sess.output_bytes = 4
+        delivered = bytearray()
+        chunk = 0
+
+        async def send_and_stream(data):
+            nonlocal chunk
+            delivered.extend(data)
+            # PTY output keeps landing while the socket is unlocked; it cannot
+            # land while output_lock is held (the reader records under it).
+            if not sess.output_lock.locked():
+                chunk += 1
+                more = f"[{chunk}]".encode()
+                sess.scrollback.extend(more)
+                sess.output_bytes += len(more)
+
+        new_ws.send_bytes = AsyncMock(side_effect=send_and_stream)
+
+        assert await asyncio.wait_for(terminal._replace_terminal_ws(sess, new_ws), timeout=2) is True
+
+        assert sess.ws is new_ws
+        assert sess.last_ws_disconnect is None
+        assert bytes(delivered) == bytes(sess.scrollback)
+        assert len(delivered) == sess.output_bytes
+        assert chunk >= terminal._TAKEOVER_CATCH_UP_ROUNDS - 1
+
+    @pytest.mark.asyncio
+    async def test_reconnect_with_no_owner_publishes_after_ring_overrun(self):
+        """If the stream outran the bounded ring while nobody was attached,
+        the owner's only window still gets what the ring holds and ownership."""
+        new_ws = MagicMock()
+        new_ws.closed = False
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=None, disconnect=5.0)
+        sess.scrollback.extend(b"tail")
+        sess.output_bytes = 4
+
+        async def overrun_then_record(_data):
+            if not sess.output_lock.locked():
+                sess.output_bytes += terminal._SCROLLBACK_MAX * 2  # ring lost bytes
+                del sess.scrollback[:]
+                sess.scrollback.extend(b"latest")
+
+        new_ws.send_bytes = AsyncMock(side_effect=overrun_then_record)
+
+        assert await asyncio.wait_for(terminal._replace_terminal_ws(sess, new_ws), timeout=2) is True
+        assert sess.ws is new_ws
+        assert new_ws.send_bytes.await_args_list[-1].args[0] == b"latest"
+
+    @pytest.mark.asyncio
+    async def test_contended_takeover_refuses_on_ring_overrun(self):
+        """With a live owner attached, a gap is worse than a refused candidate."""
+        old_ws = MagicMock()
+        old_ws.closed = False
+        old_ws.send_str = AsyncMock()
+        old_ws.close = AsyncMock()
+        new_ws = MagicMock()
+        new_ws.closed = False
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=old_ws)
+        sess.scrollback.extend(b"tail")
+        sess.output_bytes = 4
+
+        async def overrun(_data):
+            if not sess.output_lock.locked():
+                sess.output_bytes += terminal._SCROLLBACK_MAX * 2
+
+        new_ws.send_bytes = AsyncMock(side_effect=overrun)
+
+        assert await asyncio.wait_for(terminal._replace_terminal_ws(sess, new_ws), timeout=2) is False
+        assert sess.ws is old_ws
+        old_ws.close.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_publication_notifies_displaced_socket_once_before_close(self):
+        """The displaced window learns why its socket ended: exactly one coarse
+        ``error`` frame, then close; the new owner receives no error frame."""
+        events: list[str] = []
+        old_ws = MagicMock()
+        old_ws.closed = False
+
+        async def record_send(data):
+            events.append("send:" + data)
+
+        async def record_close():
+            events.append("close")
+
+        old_ws.send_str = AsyncMock(side_effect=record_send)
+        old_ws.close = AsyncMock(side_effect=record_close)
+        new_ws = MagicMock()
+        new_ws.closed = False
+        new_ws.send_bytes = AsyncMock()
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=old_ws)
+
+        assert await terminal._replace_terminal_ws(sess, new_ws) is True
+
+        assert events == [
+            "send:" + json.dumps(
+                {
+                    "type": "error",
+                    "message": terminal._STALE_OWNER_ERROR_MESSAGE,
+                    "code": terminal._STALE_OWNER_ERROR_CODE,
+                }
+            ),
+            "close",
+        ]
+        assert sess.session_id not in terminal._STALE_OWNER_ERROR_MESSAGE
+        new_frames = [json.loads(call.args[0]) for call in new_ws.send_str.await_args_list]
+        assert "error" not in {f.get("type") for f in new_frames}
+
+    @pytest.mark.asyncio
+    async def test_owner_control_frame_skips_displaced_socket(self):
+        old_ws = MagicMock()
+        old_ws.closed = False
+        old_ws.send_str = AsyncMock()
+        new_ws = MagicMock()
+        new_ws.closed = False
+        new_ws.send_str = AsyncMock()
+        sess = _make_session(ws=new_ws)
+
+        sent = await terminal._send_owner_control_frame(
+            sess, old_ws, {"type": "title", "text": "vim"}
+        )
+
+        assert sent is False
+        old_ws.send_str.assert_not_awaited()
+        new_ws.send_str.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_owner_control_frame_rechecks_identity_under_lock(self):
+        """Ownership can move while the caller waits for the transport lock;
+        the frame is then dropped rather than delivered to the displaced socket."""
+        old_ws = MagicMock()
+        old_ws.closed = False
+        old_ws.send_str = AsyncMock()
+        new_ws = MagicMock()
+        new_ws.closed = False
+        sess = _make_session(ws=old_ws)
+        old_lock = sess.send_lock
+        await old_lock.acquire()
+
+        send_task = asyncio.create_task(
+            terminal._send_owner_control_frame(sess, old_ws, {"type": "pong"})
+        )
+        await asyncio.sleep(0)
+        assert send_task.done() is False
+        sess.ws = new_ws  # takeover publishes and rotates the lock
+        sess.send_lock = asyncio.Lock()
+        old_lock.release()
+
+        assert await asyncio.wait_for(send_task, timeout=1) is False
+        old_ws.send_str.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_owner_control_frame_is_bounded_by_a_held_lock(self, monkeypatch):
+        monkeypatch.setattr(terminal, "_OWNER_CONTROL_SEND_TIMEOUT_S", 0.05)
+        ws = MagicMock()
+        ws.closed = False
+        ws.send_str = AsyncMock()
+        sess = _make_session(ws=ws)
+        await sess.send_lock.acquire()  # a wedged send never releases it
+
+        sent = await asyncio.wait_for(
+            terminal._send_owner_control_frame(sess, ws, {"type": "pong"}),
+            timeout=1,
+        )
+
+        assert sent is False
+        ws.send_str.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_owner_control_frame_is_bounded_by_a_blocked_send(self, monkeypatch):
+        monkeypatch.setattr(terminal, "_OWNER_CONTROL_SEND_TIMEOUT_S", 0.05)
+        ws = MagicMock()
+        ws.closed = False
+
+        async def blocked_send(_data):
+            await asyncio.Event().wait()
+
+        ws.send_str = AsyncMock(side_effect=blocked_send)
+        sess = _make_session(ws=ws)
+
+        sent = await asyncio.wait_for(
+            terminal._send_owner_control_frame(sess, ws, {"type": "pong"}),
+            timeout=1,
+        )
+
+        assert sent is False
+        assert sess.send_lock.locked() is False
+
+    @pytest.mark.asyncio
+    async def test_owner_control_frame_delivers_to_current_owner(self):
+        ws = MagicMock()
+        ws.closed = False
+        ws.send_str = AsyncMock()
+        sess = _make_session(ws=ws)
+
+        assert await terminal._send_owner_control_frame(sess, ws, {"type": "pong"}) is True
+        assert json.loads(ws.send_str.await_args.args[0]) == {"type": "pong"}
 
 
 class TestPtyChildEnvStripsPythonStartupVars:

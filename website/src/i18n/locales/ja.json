@@ -5759,6 +5759,7 @@
       "copy_failed": "コピーに失敗しました",
       "copy_selection": "選択部分をコピー",
       "disconnected_message": "ターミナルが切断されました",
+      "displaced_message": "別のウィンドウがこのターミナルを引き継ぎました",
       "failed_retry": "失敗 — 再試行",
       "reconnect": "再接続",
       "reconnecting": "再接続しています…",
@@ -5767,7 +5768,8 @@
       "send_to_chat": "チャットに送信",
       "sending": "送信中…",
       "touch_select_anchor": "始点を設定 — もう一方の端をタップ",
-      "touch_select_done": "範囲を選択 — コピーをタップ"
+      "touch_select_done": "範囲を選択 — コピーをタップ",
+      "use_here": "ここでターミナルを使う"
     },
     "codeBlock": {
       "copied": "コピーしました！",
