@@ -50,6 +50,20 @@ and radii are injected as fixed defaults by `buildCustomThemeCss` (fonts are a
 pack-level L1 surface, not per-color-mode data), and the `--search-highlight*`
 trio is an internal find-in-page surface not exposed to theme packs.
 
+**`buildCustomThemeCss` also fills the allowlisted colors a pack OMITS.** Fonts
+and radii are not the only thing it emits. Because `variables.json` requires only
+`--bg`, `--text` and `--accent`, a valid pack can leave ~50 tokens unset, and an
+unset token inherits from the bare `:root` in `index.css` — which carries the DARK
+palette and has no light counterpart. A pack with a light `--bg` would therefore
+paint dark-mode surfaces under its own light palette. So the builder derives the
+gap from the pack's own palette: surfaces and borders as small steps from `--bg`
+toward `--text`, the muted ramp at 75/85% of that axis, a foreground on a
+saturated fill picked black-or-white by that fill's luminance, and the designed
+syntax/diff sets taken from the built-in theme of the matching polarity. Only
+omitted tokens are filled, so a declared value always wins, and only
+`[data-theme="custom-*"]` selectors are written, so no built-in palette moves.
+The author-facing detail lives in the `theme-pack-authoring` skill.
+
 **A card must carry its own edge.** `--card` is not guaranteed to differ from
 `--bg`: in `kiro-light` both are `#ffffff`, because the canvas is white and the
 shell (nav rail, sessions list) steps back onto `--panel` instead. So a `bg-card`
