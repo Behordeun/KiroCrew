@@ -416,18 +416,18 @@ export function SecretsPanel() {
               </div>
             )}
 
-            {otherNames.length > 0 && (
-              <div className="space-y-3">
+            {/* Custom secrets: owner-defined vault entries that are not part of
+                the managed credential catalog. Always rendered — even when
+                empty — so the MCP consumption contract is explained up front. */}
+            <div className="space-y-3">
               <PanelSectionHeader
-                label={i18nT(managed.length > 0
-                  ? 'settings.secrets.other_stored_title'
-                  : 'settings.secrets.stored_title')}
+                label={i18nT('settings.secrets.custom_title')}
               />
               <p className="text-sm text-muted">
-                {i18nT('settings.secrets.other_stored_description')}
+                {i18nT('settings.secrets.custom_description')}
               </p>
 
-              {otherNames.length > 0 && (
+              {otherNames.length > 0 ? (
                 <div className="space-y-2">
                   {otherNames.map(name => (
                     <div
@@ -482,9 +482,19 @@ export function SecretsPanel() {
                     </div>
                   ))}
                 </div>
+              ) : (
+                // Only assert an empty vault when the list actually loaded. On a
+                // load failure otherNames is empty for lack of data, not because
+                // the vault is empty — showing "no custom secrets" there would
+                // invite re-adding an existing key and overwriting its value. The
+                // top-level error notice already explains the failure.
+                !isError && (
+                  <p className="text-sm italic text-muted">
+                    {i18nT('settings.secrets.custom_empty')}
+                  </p>
+                )
               )}
-              </div>
-            )}
+            </div>
 
             {showAdd ? (
               <div className="mt-4 space-y-3 rounded border border-border p-3">
