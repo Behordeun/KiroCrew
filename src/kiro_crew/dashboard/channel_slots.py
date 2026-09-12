@@ -470,9 +470,11 @@ def surface_channel_session(
     # through chat_persistence (chat_tags → chat_persistence → this module).
     from kiro_crew.dashboard.chat_tags import validate_folder_tag_ids
 
+    tags_changed = False
     for tid in validate_folder_tag_ids(meta.get("tags"), state):
         if tid not in slot.tags:
             slot.tags.append(tid)
+            tags_changed = True
     if meta.get("folder_id"):
         slot.folder_id = meta["folder_id"]
     elif folder_id and needs_default_filing(meta):
@@ -493,6 +495,14 @@ def surface_channel_session(
         for tid in folder_tags or []:
             if tid not in slot.tags:
                 slot.tags.append(tid)
+                tags_changed = True
+    # "tags changed => revision changed": the slot was constructed with an empty
+    # list under its birth revision, and a concurrent slots GET may already have
+    # snapshotted that; the surfaced list must carry a revision of its own.
+    if tags_changed:
+        bump_revision = getattr(slot, "bump_tags_revision", None)
+        if callable(bump_revision):
+            bump_revision()
     if meta.get("pinned"):
         slot.pinned = True
 

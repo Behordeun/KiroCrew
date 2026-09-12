@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, NamedTuple, TypeVar
 from aiohttp import web
 
 from kiro_crew.acp.types import STOP_REASON_CANCELLED
-from kiro_crew.atomic_write import atomic_write
+from kiro_crew.atomic_write import atomic_write, fsync_dir
 from kiro_crew.config.loader import (
     DASHBOARD_PORT,
     _raw_config,
@@ -3256,6 +3256,119 @@ def _normalize_slot_key(name: str) -> str:
     return _SLOT_KEY_FILENAME_UNSAFE_RE.sub("_", _ascii_slot_key(name))
 
 
+# Tag revisions are totally ordered across gateway restarts. Each process claims
+# an EPOCH once at startup (``ensure_tags_revision_epoch``, run off the event
+# loop from ``DashboardState.load_tags``): ``max(persisted counter + 1, current
+# clock in microseconds)``, persisted atomically to the data home. Paired with a
+# strictly increasing in-process sequence, a revision minted by a later process
+# always sorts after every revision of an earlier one, so a slow reply from the
+# pre-restart process can never masquerade as newer. The persisted counter keeps
+# the order monotonic across a backward clock step; the clock floor keeps a
+# writable restart above everything minted before it. A process whose claim
+# cannot be persisted mints OPAQUE revisions instead: an ordering that was never
+# made durable is never asserted, and clients fall back to equality + lineage.
+_TAGS_REVISION_EPOCH_FILE = "tags_revision_epoch"
+_TAGS_REVISION_EPOCH: int | None = None
+_TAGS_REVISION_SEQ_LOCK = threading.Lock()
+_TAGS_REVISION_SEQ = 0
+
+
+def _claim_tags_revision_epoch() -> int | None:
+    """Claim, persist and return this process's epoch, or None if it could not
+    be persisted.
+
+    The claim is ``max(previous + 1, now_microseconds)``: never below the
+    persisted counter (so a backward clock step cannot regress the order) and
+    never below the current clock (so a writable restart sorts above anything
+    minted before it). If the claim cannot be persisted, no epoch is returned
+    and ``mint_tags_revision`` falls back to OPAQUE revisions: an ordering
+    that was never made durable must not be asserted, because the next restart
+    cannot know about it and a backward clock step could then produce a lower
+    orderable epoch that clients would reject. Opaque revisions keep the
+    equality/lineage behaviour that fixes the reported flicker; only the
+    cross-restart ordering refinement is given up, on a home that cannot
+    persist anything anyway.
+    """
+    path = config_dir() / _TAGS_REVISION_EPOCH_FILE
+    previous = 0
+    try:
+        previous = int(path.read_text(encoding="utf-8").strip() or "0")
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError):
+        # An unreadable or malformed counter is NOT "no counter": the real value
+        # may be higher than anything the clock would now yield, so re-seeding
+        # from the clock could persist a LOWER epoch than clients already hold.
+        # Refuse to assert an order this process cannot prove.
+        logger.warning(
+            "tags revision epoch file unreadable; minting opaque (unordered) revisions",
+            exc_info=True,
+        )
+        return None
+    claimed = max(previous + 1, time.time_ns() // 1000)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # The anti-regression guarantee rests on the persisted counter surviving
+        # a crash: without the data AND the directory entry on disk, a power
+        # loss inside the flush window followed by a backward clock step would
+        # re-claim an epoch that connected clients already hold.
+        atomic_write(path, f"{claimed}\n", fsync=True)
+        fsync_dir(path.parent)
+    except OSError:
+        logger.warning(
+            "tags revision epoch not persisted; minting opaque (unordered) revisions",
+            exc_info=True,
+        )
+        return None
+    return claimed
+
+
+# Sentinel stored in _TAGS_REVISION_EPOCH once a claim failed, so the disk is not
+# retried on every mint; the process stays on opaque revisions until restart.
+_TAGS_REVISION_EPOCH_UNPERSISTED = -1
+
+
+def ensure_tags_revision_epoch() -> int | None:
+    """Claim this process's epoch now (idempotent); None when unpersisted.
+
+    Called from startup code that already runs off the event loop
+    (``DashboardState.load_tags`` via ``asyncio.to_thread``) so the one disk
+    read/write the claim performs never happens inside a request handler;
+    ``mint_tags_revision`` keeps a lazy claim only as a fallback for callers
+    that construct slots without a full startup (tests, tools).
+    """
+    global _TAGS_REVISION_EPOCH
+    with _TAGS_REVISION_SEQ_LOCK:
+        if _TAGS_REVISION_EPOCH is None:
+            claimed = _claim_tags_revision_epoch()
+            _TAGS_REVISION_EPOCH = _TAGS_REVISION_EPOCH_UNPERSISTED if claimed is None else claimed
+        epoch = _TAGS_REVISION_EPOCH
+    return None if epoch == _TAGS_REVISION_EPOCH_UNPERSISTED else epoch
+
+
+def mint_tags_revision() -> str:
+    """Return a new tag revision: ``<16-digit epoch>.<20-digit sequence>-<8 hex>``.
+
+    Zero-padded epoch then sequence sort lexically and numerically alike, so a
+    client compares two revisions for staleness by string order alone: a later
+    gateway process (higher epoch) always wins over an earlier one, and within a
+    process the sequence orders commits. The random suffix keeps revisions
+    unique even if two processes ever claimed the same epoch. When no epoch
+    could be persisted (unwritable data home) an opaque ``uuid4`` hex is
+    returned instead, which clients treat with equality + lineage only.
+    """
+    global _TAGS_REVISION_SEQ
+    epoch = ensure_tags_revision_epoch()
+    if epoch is None:
+        # No durable epoch: an opaque revision. Clients treat it with the
+        # equality/lineage rules (no ordering is asserted).
+        return uuid.uuid4().hex
+    with _TAGS_REVISION_SEQ_LOCK:
+        _TAGS_REVISION_SEQ += 1
+        seq = _TAGS_REVISION_SEQ
+    return f"{epoch:016d}.{seq:020d}-{uuid.uuid4().hex[:8]}"
+
+
 class SlotOrigin:
     """Slot creation origin — who initiated the slot.
 
@@ -3377,6 +3490,7 @@ class _ChatSlot:
         "_folder_suggested",
         "pinned",
         "tags",
+        "tags_revision",
         "_pending_subagent_failures",
         "_pending_synthesis",
         "_synthesis_inflight",
@@ -3764,6 +3878,10 @@ class _ChatSlot:
         self._folder_suggested: bool = False
         self.pinned: bool = False  # pinned to top of sidebar
         self.tags: list[str] = []  # assigned tag ids (see DashboardState._tags)
+        # Change identity for tag snapshots. Orderable (see mint_tags_revision):
+        # equality identifies a specific frame, and the sequence prefix lets a
+        # client classify an unseen older snapshot as stale rather than newer.
+        self.tags_revision: str = mint_tags_revision()
         self._pending_subagent_failures: list[str] = []
         # Fix 2 (B1): armed by gateway when the LAST sub-agent of a fan-out
         # completes; consumed once by chat_runner's drain/idle branch to fire a
@@ -4198,6 +4316,20 @@ class _ChatSlot:
         # surfaces normally. In-memory like ``_question_pending``: after a
         # restart the card may reappear, which errs on the side of re-asking.
         self._decision_dismissed_ts: str = ""
+
+    def bump_tags_revision(self) -> str:
+        """Rotate and return the revision for the current tag list.
+
+        Totally ordered, not merely opaque: ``mint_tags_revision`` pairs a
+        persisted per-process epoch with a strictly increasing sequence, so a
+        client can tell an older snapshot it has never seen (a delayed HTTP
+        fetch landing after a newer WebSocket frame, or a slow reply from the
+        pre-restart process) from a genuinely newer commit by string order
+        alone. No wall-clock value participates after the first epoch is
+        seeded, so a clock step cannot make revisions regress.
+        """
+        self.tags_revision = mint_tags_revision()
+        return self.tags_revision
 
     @property
     def _dirty(self) -> bool:
@@ -7263,6 +7395,10 @@ class DashboardState:
         across restarts), and a parse failure is left untouched (so a
         transient I/O error never silently overwrites saved data).
         """
+        # Claim this process's tag-revision epoch here: load_tags runs off the
+        # event loop at startup (asyncio.to_thread) and before any slot is
+        # restored, so the claim's disk read/write never lands on the loop.
+        ensure_tags_revision_epoch()
         tags_path = config_dir() / self._TAGS_FILE
         file_existed = tags_path.exists()
         try:

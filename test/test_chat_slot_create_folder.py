@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiohttp import web
@@ -352,14 +352,30 @@ class TestFolderTagInheritance:
     @pytest.mark.asyncio
     async def test_new_slot_in_folder_inherits_the_folders_tags(self, tmp_path):
         """(c) A genuinely new chat filed into a tagged folder copies its tags."""
+        from kiro_crew.dashboard.state import _ChatSlot
+
         state = self._tagged_state(tmp_path, ["t1", "t2"])
-        async with TestClient(TestServer(_make_app(state))) as client:
-            resp = await client.post(
-                "/api/chat/slots", json={"name": "fresh", "folder_id": FOLDER_ID}
-            )
-            assert resp.status == 200
-            assert sorted((await resp.json())["tags"]) == ["t1", "t2"]
+        birth_revisions: list[str] = []
+        original_init = _ChatSlot.__init__
+
+        def _recording_init(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            birth_revisions.append(self.tags_revision)
+
+        with patch.object(_ChatSlot, "__init__", _recording_init):
+            async with TestClient(TestServer(_make_app(state))) as client:
+                resp = await client.post(
+                    "/api/chat/slots", json={"name": "fresh", "folder_id": FOLDER_ID}
+                )
+                assert resp.status == 200
+                assert sorted((await resp.json())["tags"]) == ["t1", "t2"]
         assert sorted(state._slots["fresh"].tags) == ["t1", "t2"]
+        # "tags changed => revision changed": the inherited list must not ship
+        # under the newborn's birth revision, which a slots GET racing the
+        # awaited folder read may already have snapshotted with an empty list.
+        assert birth_revisions
+        assert state._slots["fresh"].tags_revision not in birth_revisions
+        assert state._slots["fresh"].tags_revision > max(birth_revisions)
 
     @pytest.mark.asyncio
     async def test_new_slot_without_folder_inherits_nothing(self, tmp_path):

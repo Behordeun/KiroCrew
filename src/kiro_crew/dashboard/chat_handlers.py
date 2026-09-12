@@ -75,7 +75,11 @@ from kiro_crew.dashboard.chat_runner import (
     schedule_eager_spawn,
 )
 from kiro_crew.dashboard.chat_summary import generate_session_summary
-from kiro_crew.dashboard.chat_tags import tags_write_lock, validate_folder_tag_ids
+from kiro_crew.dashboard.chat_tags import (
+    _bump_slot_tags_revision,
+    tags_write_lock,
+    validate_folder_tag_ids,
+)
 from kiro_crew.dashboard.chat_title import _maybe_auto_title
 from kiro_crew.dashboard.chat_utils import (
     _MANUAL_CONTINUE_MSG,
@@ -2791,9 +2795,17 @@ async def api_chat_slot_create(request: web.Request) -> web.Response:
                     # lock) matches the folder create/PATCH paths.
                     async with tags_write_lock(state):
                         inherited = await state.read_folders(_read_folder_tags)
+                        appended = False
                         for tid in validate_folder_tag_ids(inherited, state):
                             if tid not in slot.tags:
                                 slot.tags.append(tid)
+                                appended = True
+                        # "tags changed => revision changed": the awaited folder
+                        # read above is a window in which a concurrent slots GET
+                        # can snapshot the empty newborn under its birth revision;
+                        # the inherited list must not ship under that same one.
+                        if appended:
+                            _bump_slot_tags_revision(slot)
         # A slot with no project filed into a project-linked folder inherits
         # from the nearest configured ancestor before its first broadcast. The
         # server owns this fallback because the client folder cache can be
@@ -9429,6 +9441,11 @@ async def api_chat_slot_resume(request: web.Request) -> web.Response:
         if getattr(state, "_tags_authoritative", True):
             known = {t.get("id") for t in state._tags}
             slot.tags = [t for t in slot.tags if t in known]
+        # This slot is live and already broadcast: its tags just changed, so
+        # its revision must too (invariant "tags changed => revision changed"),
+        # or a client holding an accepted overlay keyed on the old revision
+        # would pin it until the next mutation.
+        _bump_slot_tags_revision(slot)
     if meta.get("auto_tagged"):
         slot._auto_tagged = True
     mm = meta.get("memory_mode", "persistent")

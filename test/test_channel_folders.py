@@ -514,6 +514,27 @@ class TestFilingOnSurface:
         assert slot.folder_id == "f1"
         assert sorted(slot.tags) == ["t1", "t2"]
 
+    def test_first_filing_rotates_the_tags_revision(self, dashboard_state: Any) -> None:
+        """Inherited tags ship under a revision distinct from the slot's birth one."""
+        from unittest.mock import patch
+
+        from kiro_crew.dashboard.state import _ChatSlot
+
+        birth_revisions: list[str] = []
+        original_init = _ChatSlot.__init__
+
+        def _recording_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            original_init(self, *args, **kwargs)
+            birth_revisions.append(self.tags_revision)
+
+        with patch.object(_ChatSlot, "__init__", _recording_init):
+            slot = channel_slots.surface_channel_session(
+                dashboard_state, self._info(), {}, [], folder_id="f1", folder_tags=["t1"]
+            )
+        assert slot is not None and slot.tags == ["t1"]
+        assert birth_revisions and slot.tags_revision not in birth_revisions
+        assert slot.tags_revision > max(birth_revisions)
+
     def test_restoring_a_filed_session_never_re_tags(self, dashboard_state: Any) -> None:
         """The restore branch (persisted folder_id) is not a birth — no tags.
 

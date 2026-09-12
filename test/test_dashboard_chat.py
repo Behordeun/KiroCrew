@@ -14007,6 +14007,42 @@ class TestForkSlot:
         assert len(visible) == 4
 
     @pytest.mark.asyncio
+    async def test_fork_inherits_tags_under_a_fresh_revision(self, tmp_path, monkeypatch):
+        """The fork is constructed with an empty tag list under its birth
+        revision, then inherits the parent's tags. Those two states must never
+        share a `tags_revision`: a slot fetch racing the fork could snapshot the
+        empty newborn, and a client seeing that frame under the same revision as
+        the inherited list would take it as the next toggle base and erase the
+        inherited tags on its first write."""
+        from kiro_crew.dashboard.state import _ChatSlot
+
+        state = _make_state(tmp_path)
+        slot = state.get_or_create_slot("src")
+        slot.tags = ["tag-a", "tag-b"]
+        slot.append("user", "hello", "msg msg-u")
+        slot.drain()
+        birth_revisions: list[str] = []
+        original_init = _ChatSlot.__init__
+
+        def _recording_init(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            birth_revisions.append(self.tags_revision)
+
+        monkeypatch.setattr(_ChatSlot, "__init__", _recording_init)
+
+        app = _make_app(state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.post("/api/chat/slots/src/fork", json={})
+            assert resp.status == 200
+            data = await resp.json()
+
+        new_slot = state._slots.get(data["key"])
+        assert new_slot.tags == ["tag-a", "tag-b"]
+        assert new_slot.tags is not slot.tags
+        assert new_slot.tags_revision not in birth_revisions
+        assert new_slot.tags_revision > max(birth_revisions)
+
+    @pytest.mark.asyncio
     async def test_fork_at_message_id(self, tmp_path):
         state = _make_state(tmp_path)
         slot = state.get_or_create_slot("src")
