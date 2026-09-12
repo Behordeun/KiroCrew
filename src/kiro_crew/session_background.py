@@ -56,7 +56,7 @@ class _BackgroundRuntime(Protocol):
 
     async def spawn(self) -> None: ...
 
-    async def kill(self, expected: bool = False) -> None: ...
+    async def kill(self, expected: bool = False, reason: str = "") -> None: ...
 
     async def create_session(self, *, agent: str) -> object: ...
 
@@ -509,7 +509,9 @@ class BackgroundSessionRuntime:
                     # its PID tracking + sweep-protection shield.
                     if self._bg_runtime is not None:
                         try:
-                            await self._bg_runtime.kill()
+                            await self._bg_runtime.kill(
+                                expected=True, reason="background runtime reap"
+                            )
                         except Exception:
                             logger.debug(
                                 "get_bg_session: dead _bg runtime kill failed",
@@ -542,7 +544,9 @@ class BackgroundSessionRuntime:
                 async with self._bg_runtime_lock:
                     if self._bg_runtime is not None and not self._bg_runtime.is_alive():
                         try:
-                            await self._bg_runtime.kill()
+                            await self._bg_runtime.kill(
+                                expected=True, reason="background runtime reap"
+                            )
                         except Exception:
                             logger.debug(
                                 "get_bg_session: dead _bg runtime kill failed",

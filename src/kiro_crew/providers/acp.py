@@ -945,7 +945,10 @@ class AcpProvider(LLMProvider):
                         runtime.pid,
                     )
                     try:
-                        await runtime.kill()
+                        # Reap of an already-dead runtime: _mark_dead refuses
+                        # the expected-downgrade when the child exited on its
+                        # own, so this only labels the genuinely-deliberate case.
+                        await runtime.kill(expected=True, reason="reap before resume respawn")
                     except Exception:
                         pass
                     runtime = AcpRuntime(
@@ -1050,7 +1053,7 @@ class AcpProvider(LLMProvider):
             # setup doesn't leak an orphaned kiro-cli process. Best-effort:
             # the cleanup kill must not mask the original exception.
             try:
-                await runtime.kill()
+                await runtime.kill(expected=True, reason="failed session setup cleanup")
             except Exception:
                 logger.debug(
                     "Cleanup kill of runtime after failed session setup failed",
