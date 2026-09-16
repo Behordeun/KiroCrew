@@ -8596,6 +8596,22 @@ async def _run_chat(
                         _wt_pending_coding.add(event.tool_call_id)
                         if not event.tool_pending:
                             _wt_counted_coding.add(event.tool_call_id)
+                            # Emit a mid-turn cadence heartbeat so WakaTime can
+                            # accrue coding-time DURATION across the turn, not
+                            # just the single end-of-turn attribution row. Same
+                            # scope exclusions as the end-of-turn path (no
+                            # restricted or app-owned slot), and the config load
+                            # runs off the event loop.
+                            if not slot.is_restricted and not slot._app:
+
+                                def _wt_dispatch() -> None:
+                                    from kiro_crew.wakatime.heartbeats import (
+                                        note_coding_dispatch,
+                                    )
+
+                                    note_coding_dispatch(slot.project or None)
+
+                                await asyncio.to_thread(_wt_dispatch)
                 # Flush pre-tool text silently (no broadcast) so it persists,
                 # but keep the streaming message in place for correct tool ordering.
                 _flush_text_stream()

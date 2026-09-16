@@ -222,6 +222,41 @@ def note_coding_activity(
         logger.debug("wakatime: note_coding_activity failed", exc_info=True)
 
 
+def note_coding_dispatch(
+    project: str | None,
+    *,
+    config: KiroCrewConfig | None = None,
+) -> None:
+    """Record that a coding tool was dispatched mid-turn. Never raises, never awaits.
+
+    WakaTime derives coding-time DURATION from heartbeat cadence, so one
+    heartbeat per turn accrues almost none: there is nothing to interpolate
+    across. This enqueues a lightweight cadence heartbeat at each coding-tool
+    dispatch, so a turn that runs several coding tools spans several heartbeats
+    and WakaTime can accumulate its real duration.
+
+    The row carries only the entity/project label, category, and timestamp --
+    no token or line-change fields. Those aggregate deltas belong to the
+    end-of-turn ``note_coding_activity`` heartbeat; sending them here too would
+    double-count. WakaTime dedups the cadence rows into its own time buckets, so
+    repeated dispatch heartbeats extend duration without inflating counts.
+
+    Same opt-in gate as ``note_coding_activity``: a no-op unless both
+    ``wakatime.enabled`` and ``wakatime.send_heartbeats`` are set.
+    """
+    try:
+        cfg = config or KiroCrewConfig.load()
+        if not cfg.wakatime.enabled or not cfg.wakatime.send_heartbeats:
+            return
+        _buffer.append(_make_heartbeat(project))
+        if len(_buffer) > _MAX_BUFFERED:
+            del _buffer[:-_MAX_BUFFERED]
+        _maybe_schedule_flush()
+    except Exception:
+        # Producing a heartbeat must never disturb the turn that produced it.
+        logger.debug("wakatime: note_coding_dispatch failed", exc_info=True)
+
+
 def _maybe_schedule_flush() -> None:
     global _last_flush_monotonic, _delayed_flush_armed
     now = time.monotonic()

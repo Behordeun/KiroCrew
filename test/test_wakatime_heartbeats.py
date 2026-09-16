@@ -138,6 +138,29 @@ def test_zero_ai_fields_are_dropped_not_sent_as_zero() -> None:
     assert hb["category"] == "ai coding"
 
 
+def test_dispatch_enqueues_a_cadence_only_heartbeat() -> None:
+    cfg = _Cfg()
+    heartbeats.note_coding_dispatch("/tmp/my-repo", config=cfg)
+    assert len(heartbeats._buffer) == 1
+    hb = heartbeats._buffer[0]
+    assert hb["entity"] == "my-repo"
+    assert hb["project"] == "my-repo"
+    assert hb["category"] == "ai coding"
+    assert hb["is_write"] is True
+    # A cadence heartbeat carries no aggregate metric fields — those belong to
+    # the end-of-turn heartbeat, so sending them here too would double-count.
+    assert "ai_input_tokens" not in hb
+    assert "ai_output_tokens" not in hb
+    assert "ai_line_changes" not in hb
+    assert "ai_session" not in hb
+
+
+def test_dispatch_is_a_no_op_when_not_opted_in() -> None:
+    cfg = _Cfg(wakatime=_WakaCfg(enabled=True, send_heartbeats=False))
+    heartbeats.note_coding_dispatch("/tmp/my-repo", config=cfg)
+    assert heartbeats._buffer == []
+
+
 def test_line_changes_counts_added_and_removed() -> None:
     changes = [
         {"content": "a\nb\nc\n", "after": "a\nB\nc\nd\n"},  # 1 replace + 1 insert
