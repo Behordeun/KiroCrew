@@ -71,6 +71,8 @@ from kiro_crew.acp.client import (
     parse_slash_command,
     pick_served_default,
     prompt_timeout_for_ceiling,
+    registration_rate_limited_error,
+    registration_throttle_line,
     resolve_usable_model,
 )
 from kiro_crew.acp.liveness import (
@@ -861,6 +863,15 @@ class AcpSessionHandle:
         self._turn_done = asyncio.Event()
         self._turn_done.set()
         self._stale_eligible = False
+        # Latched on this session's FIRST text chunk or tool_call and never
+        # cleared: the registration-throttle death classification is refused
+        # once work has been observed, so the transient verdict it hands the
+        # retry ladders can only ever license replaying a session that provably
+        # did nothing. Per SESSION, not per turn or per process — replay safety
+        # is a fact about what THIS session's consumer may re-run, and the
+        # process-level fact (a stale throttle line in a shared runtime's ring)
+        # must not license replaying a sibling that already acted.
+        self._prompt_or_tool_seen = False
         # Set when a genuine stale turn is probed via session/cancel; read by the
         # unresponsive-cancel branch to distinguish a confirmed wedge (signal
         # auto-recovery) from an ordinary unacked cancel (unblock caller).
@@ -1008,6 +1019,18 @@ class AcpSessionHandle:
     def session_id(self) -> str:
         return self._session_id
 
+    @property
+    def prompt_or_tool_seen(self) -> bool:
+        """True once this session observed a text chunk or a tool call.
+
+        The registration-throttle death classification reads it (here and in
+        ``AcpSessionProvider._translate_dead``): the transient verdict may only
+        license replaying a session that provably produced no output and ran no
+        tool, so the window closes at the first observed event and never
+        reopens.
+        """
+        return self._prompt_or_tool_seen
+
     def _died(self, base: str) -> AcpProcessDied:
         """Build an AcpProcessDied carrying the runtime's death attribution.
 
@@ -1017,7 +1040,23 @@ class AcpSessionHandle:
         unattributed mid-turn deaths in five days were undiagnosable from the
         bare message alone. ``getattr``-guarded so a minimal runtime double
         without ``death_summary`` degrades to the bare message.
+
+        A death whose retained stderr shows a throttled dynamic registration
+        returns the typed transient subclass instead of the generic death — but
+        only while this session has seen NO text chunk and NO tool call
+        (``prompt_or_tool_seen``). A stale throttle line surviving in the ring
+        past real work must not hand the retry ladders a transient verdict for
+        a session whose replay could repeat side effects. The tail is read as
+        LINES (``redacted_stderr_tail``), because the summary folds them behind
+        a prefix that a per-line signature cannot match — the same reason the
+        sandbox corroboration reads it. The typed message keeps one retained
+        cause instead of the tail's repeated copies.
         """
+        if not self._prompt_or_tool_seen:
+            tail = getattr(self._runtime, "redacted_stderr_tail", lambda: "")()
+            cause = registration_throttle_line(tail) if tail else None
+            if cause is not None:
+                return registration_rate_limited_error(base, cause)
         summary = getattr(self._runtime, "death_summary", lambda: None)()
         return AcpProcessDied(f"{base} — {summary}" if summary else base)
 
@@ -3826,6 +3865,11 @@ class AcpSessionHandle:
                     if own_session:
                         continue
                     if ssid and tcid:
+                        # A child's tool call is this session's side effect for
+                        # replay purposes, whichever spelling carried it: close
+                        # the registration-throttle window here exactly as the
+                        # plain-spelling route does.
+                        self._prompt_or_tool_seen = True
                         yield AcpEvent(
                             kind=EVENT_SUBAGENT_ACTIVITY,
                             sub_session_id=ssid,
@@ -3833,6 +3877,10 @@ class AcpSessionHandle:
                             title=redact_text(str(upd.get("title") or "")),
                         )
                     elif ssid and su_text and su_kind == "agent_message_chunk" and not _su_thinking:
+                        # A child's streamed text closes the window too: work
+                        # was observed, and a child whose tool frame was lost or
+                        # differently spelled must not read as "did nothing".
+                        self._prompt_or_tool_seen = True
                         yield AcpEvent(
                             kind=EVENT_SUBAGENT_ACTIVITY,
                             sub_session_id=ssid,
@@ -4623,6 +4671,13 @@ class AcpSessionHandle:
         if not agent_subtask_id and not pipeline:
             return None
 
+        # ANY frame carrying subtask lineage means the wave has started: a
+        # spawned child can mutate state before its first activity frame is
+        # observed, so the parent lifecycle frame itself closes the
+        # registration-throttle window. Placed at the acceptance gate so the
+        # pipeline arm, the parent arm and the child fall-through all close it.
+        self._prompt_or_tool_seen = True
+
         # Pipeline frame: one entry per stage.
         if isinstance(pipeline, dict):
             stages = pipeline.get(kas_wire.FIELD_STAGES)
@@ -4715,6 +4770,9 @@ class AcpSessionHandle:
             # surface as visible sub-agent activity — parity with the kiro native
             # subagent path, which only forwards non-thinking agent_message_chunk.
             return []
+        # Observed child output: the wave did work, so the registration-throttle
+        # window closes — the same closure the tool prefix builder applies.
+        self._prompt_or_tool_seen = True
         return [
             AcpEvent(
                 kind=EVENT_SUBAGENT_ACTIVITY,
@@ -4739,6 +4797,11 @@ class AcpSessionHandle:
         tool_call_id = str(update.get("toolCallId") or "")
         if not tool_call_id:
             return []
+        # A KAS child's nested tool call is this session's side effect for
+        # replay purposes — the same closure every other child tool route
+        # applies. Latched here, in the one builder every caller shares, so a
+        # new call site cannot forget it.
+        self._prompt_or_tool_seen = True
         title = redact_text(str(update.get("title") or ""))
         return [
             AcpEvent(
@@ -4826,6 +4889,10 @@ class AcpSessionHandle:
             out: list[AcpEvent] = []
             for ev in child_events:
                 if ev.kind == EVENT_TOOL_CALL and ev.tool_call_id:
+                    # A child's tool call is this session's side effect for
+                    # replay purposes: the parent prompt spawned it, so a replay
+                    # would re-run it. Close the registration-throttle window.
+                    self._prompt_or_tool_seen = True
                     out.append(
                         AcpEvent(
                             kind=EVENT_SUBAGENT_ACTIVITY,
@@ -4835,6 +4902,9 @@ class AcpSessionHandle:
                         )
                     )
                 elif ev.kind == EVENT_TEXT_CHUNK and ev.text:
+                    # Same closure as the tool arm: observed child output means
+                    # the wave did work, so the zero-activity verdict is gone.
+                    self._prompt_or_tool_seen = True
                     out.append(
                         AcpEvent(
                             kind=EVENT_SUBAGENT_ACTIVITY,
@@ -4972,9 +5042,11 @@ class AcpSessionHandle:
             if ev.kind == EVENT_TEXT_CHUNK:
                 self.last_prompt_stats.text_chunks += 1
                 self._stale_eligible = True
+                self._prompt_or_tool_seen = True
             elif ev.kind == EVENT_TOOL_CALL:
                 self._stale_eligible = False
                 self._tool_dispatched = True
+                self._prompt_or_tool_seen = True
                 # The L1 verdict describes the LAST tool result, so a newly
                 # dispatched call retires the previous one's. Clearing here and
                 # not only on the next result is what covers a call that

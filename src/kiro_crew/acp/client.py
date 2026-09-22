@@ -2740,6 +2740,30 @@ class AcpSandboxInitFailed(AcpError):  # noqa: N818
         )
 
 
+class AcpRegistrationRateLimited(AcpProcessDied):  # noqa: N818
+    """The runtime died after its dynamic registration was throttled (HTTP 429).
+
+    A SUBCLASS of :class:`AcpProcessDied`, because the process IS gone and every
+    existing death handler must keep treating it as a death; the narrower fact is
+    WHY: the child's registration calls were rate-limited by the endpoint, which
+    is a transient property of the endpoint's capacity, not of this host or this
+    request. ``transient`` is fixed True so the retry ladders that read the
+    verdict off the exception (``llm_helpers.acp_error_is_transient``, and
+    through it the sub-agent run loop and ``stream_and_collect``) retry with
+    their existing bounded backoff instead of surfacing a terminal generic
+    death. Replay SAFETY stays where it already lives: every consumer's
+    zero-activity gate decides between a verbatim replay and a continue, so this
+    classification never widens what a retry may re-run.
+
+    The message carries ONE retained cause rather than the full stderr tail: the
+    throttle prints the identical line on every attempt, and five copies of it
+    behind a death summary is the repetitive wall this type exists to replace.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, transient=True)
+
+
 class AcpToolGateUnroutable(AcpError):  # noqa: N818
     """The harness's tool calls would not reach Kiro Crew's PreToolUse gate.
 
@@ -3172,6 +3196,73 @@ async def sandbox_init_failure_for_runtime(runtime: Any) -> "AcpSandboxInitFaile
         # themselves, so it gets them separately; passing the summary would leave
         # the launcher's own refusal unrecognisable and the trusted run unmade.
         corroboration_output=runtime.redacted_stderr_tail(),
+    )
+
+
+# A dynamic-registration call the endpoint throttled, read off the dead child's
+# stderr. Deliberately CONJUNCTIVE per line: a line must carry both the
+# registration context and an unambiguous too-many-requests marker before it
+# classifies, so neither a model-turn throttle (429 with no registration
+# context, which the provider-error path already classifies from its structured
+# frame) nor an unrelated registration failure (auth rejection, malformed
+# response — both terminal) can fire this. A bare ``429`` is deliberately NOT a
+# marker: a digit that lands in an exit code or a byte count must not upgrade a
+# crash to a throttle.
+#
+# Free-text stderr is an accepted evidence source here for the same reason it
+# is for :func:`is_auth_failure_output` and the sandbox latch: the child's
+# stderr is subprocess diagnostic output, not the structured frame the
+# compaction classifier insists on — but it is also the ONLY surface this
+# failure reaches, because the child dies before any frame can carry it. The
+# consequence of a false positive is bounded (a budgeted retry of a turn whose
+# replay safety is gated on observed activity by every consumer), which is why
+# the conjunctive signature above is the whole defence this needs.
+_RE_REGISTRATION_FAILED = re.compile(r"\bregistration failed\b", re.IGNORECASE)
+_RE_REGISTRATION_THROTTLE_MARK = re.compile(
+    r"\bHTTP 429\b|\btoo many requests\b|\brequested too many times\b", re.IGNORECASE
+)
+
+
+def registration_throttle_line(haystack: str) -> str | None:
+    """The first line of *haystack* showing a throttled registration, or ``None``.
+
+    *haystack* is a child's retained stderr (newline-joined lines). Matched per
+    LINE so the two tokens must describe the same event: a registration failure
+    early in the tail plus an unrelated throttle mention later must not combine
+    into a verdict neither line supports. Returns the line itself so the caller
+    can retain ONE sanitized cause instead of the tail's repeated copies.
+    """
+    for line in haystack.splitlines():
+        if _RE_REGISTRATION_FAILED.search(line) and _RE_REGISTRATION_THROTTLE_MARK.search(line):
+            return line.strip()
+    return None
+
+
+def is_registration_throttle_output(haystack: str) -> bool:
+    """True when *haystack* (a child's stderr) shows a throttled registration.
+
+    Shared by both ACP transports — ``AcpClient`` reads its own stderr ring
+    buffer, the shared-runtime death translations read
+    ``AcpRuntime.redacted_stderr_tail()`` — so the two cannot come to disagree
+    about what the signature IS, the same anti-drift reason
+    :func:`is_auth_failure_output` is one function.
+    """
+    return registration_throttle_line(haystack) is not None
+
+
+def registration_rate_limited_error(base: str, cause: str) -> "AcpRegistrationRateLimited":
+    """Build the typed error for a death whose evidence shows a registration throttle.
+
+    ONE composer for every translation site (the shared-runtime ``_died``, the
+    provider's ``_translate_dead``, the direct client's own death paths), so the
+    guidance and the one-retained-cause shape cannot drift apart. *base* is the
+    site's own death context; *cause* is the single matched stderr line, already
+    redacted by whichever reader captured it.
+    """
+    return AcpRegistrationRateLimited(
+        f"{base} — dynamic registration was rate-limited by the endpoint "
+        f"(HTTP 429); this is endpoint throttling, not a crash — retry later. "
+        f"Cause: {cause}"
     )
 
 
@@ -5002,6 +5093,14 @@ class AcpClient:
         # claude-agent-acp to reject the response.
         self._permission_options: dict[str | int, dict[str, str]] = {}
         self._stderr_lines: deque[str] = deque(maxlen=20)
+        # Latched on this process's FIRST non-thinking text chunk, tool call or
+        # tool result, cleared with the rest of the process state on respawn:
+        # the registration-throttle death classification is refused once work
+        # has been observed, so the transient verdict it hands the retry
+        # ladders can only ever license replaying a turn that provably did
+        # nothing. Per PROCESS (this client owns exactly one), matching the
+        # ring the evidence is read from.
+        self._prompt_or_tool_seen = False
         # Set by ``_spawn`` from the wrapped argv; only meaningful once a child
         # has been spawned. False before that, which is also the safe default for
         # the classifier: a spawn that never reached the wrap cannot have been
@@ -8558,6 +8657,10 @@ class AcpClient:
         self.last_prompt_stats.cost_session_usd = 0.0
         self._buffer.clear()
         self._stderr_lines.clear()
+        # A fresh process opens a fresh registration window: cleared WITH the
+        # ring, so the latch and the evidence it gates always describe the same
+        # child.
+        self._prompt_or_tool_seen = False
         if self._stderr_task and not self._stderr_task.done():
             self._stderr_task.cancel()
         self._stderr_task = None
@@ -9167,15 +9270,27 @@ class AcpClient:
                         if isinstance(exc, OSError):
                             await asyncio.sleep(_ACP_RESPAWN_BACKOFF_S)
                     else:
+                        # Read the ring BEFORE the cleanup below clears it: a
+                        # startup that died with a throttled registration on its
+                        # stderr is pre-prompt by construction, so the typed
+                        # transient subclass is the accurate verdict here too.
+                        _throttled = await self._registration_throttle_line()
                         # AcpAuthRequired subclasses AcpError; label it distinctly
                         # so a not-logged-in exit is never counted as a generic
                         # startup error. (The fork has no separate auth fail-fast
                         # branch — retry semantics stay unchanged.)
-                        _startup_outcome = (
-                            "auth_required" if isinstance(exc, AcpAuthRequired) else "error"
-                        )
+                        if isinstance(exc, AcpAuthRequired):
+                            _startup_outcome = "auth_required"
+                        elif _throttled is not None:
+                            _startup_outcome = "registration_rate_limited"
+                        else:
+                            _startup_outcome = "error"
                         await self._cleanup_failed_live_spawn()
                         self._reset_state()
+                        if _throttled is not None and not isinstance(exc, AcpAuthRequired):
+                            raise registration_rate_limited_error(
+                                "ACP session startup failed", _throttled
+                            ) from exc
                         raise
         finally:
             try:
@@ -9246,6 +9361,41 @@ class AcpClient:
             mode=self._sandbox_mode,
             extra_hidden_dirs=self._sandbox_hidden_dirs,
         )
+
+    async def _registration_throttle_line(self) -> str | None:
+        """One redacted stderr line showing a throttled registration, or ``None``.
+
+        Refuses to classify once this process has produced a non-thinking text
+        chunk or dispatched a tool (``_prompt_or_tool_seen``): the transient
+        verdict this evidence buys licenses the retry ladders to act, and a
+        stale throttle line surviving in the ring past real work must never
+        hand that verdict to a death whose replay could repeat side effects.
+        The latch clears with the ring on respawn, so a recovered throttle
+        followed by a fresh child opens a fresh window.
+
+        Returns ``None`` when nothing was retained, which is the case for a
+        restricted-memory session: stderr is not kept there by design, so this
+        cannot classify and must not guess. Those sessions keep the generic
+        death surface rather than getting a made-up verdict.
+
+        Settles the drain first, for the reason :meth:`_sandbox_init_failure`
+        does: the ring is filled by the drain task while the death that brings
+        us here is discovered on the stdout side, so a straight read can miss a
+        line already in the pipe. Redacted before it leaves: the line rides an
+        exception message that reaches session cards and persisted errors, and
+        child stderr is untrusted subprocess output that can echo a credential.
+        """
+        if getattr(self, "_prompt_or_tool_seen", True):
+            return None
+        await self._settle_stderr()
+        if not self._stderr_lines:
+            return None
+        line = registration_throttle_line("\n".join(self._stderr_lines))
+        if line is None:
+            return None
+        line, _ = redact_exfiltration_urls(line)
+        line, _ = redact_credentials(line)
+        return line
 
     async def shutdown(self) -> None:
         """Gracefully stop the ACP process."""
@@ -9936,6 +10086,16 @@ class AcpClient:
                     consecutive_empty += 1
                     if consecutive_empty >= _MAX_CONSECUTIVE_EMPTY and not self._is_process_alive():
                         rc = self._process.returncode if self._process else "?"
+                        # A death whose retained stderr shows a throttled
+                        # registration is endpoint throttling, not a crash:
+                        # raise the typed transient subclass so the retry
+                        # ladders recover it (a respawn through ensure_ready
+                        # genuinely retries registration on this transport).
+                        _throttled = await self._registration_throttle_line()
+                        if _throttled is not None:
+                            raise registration_rate_limited_error(
+                                f"Process exited during prompt (exit code {rc})", _throttled
+                            )
                         raise AcpProcessDied(f"Process exited during prompt (exit code {rc})")
                     # Staleness check: if caller set _stale_eligible (text was
                     # streamed) and kiro-cli has gone silent, exit early.
@@ -10459,6 +10619,7 @@ class AcpClient:
                     if not is_thinking:
                         self.last_prompt_stats.text_chunks += 1
                         self._stale_eligible = True
+                        self._prompt_or_tool_seen = True
                     yield AcpEvent(kind=kind, text=chunk, control_notice=_notice_chunk)
                     if not is_thinking and _is_tool_interrupted_marker(chunk):
                         # kiro-cli's built-in security filter cancelled the turn's tools.
@@ -10477,6 +10638,7 @@ class AcpClient:
                 tool_event = self._extract_tool_event(msg)
                 if tool_event:
                     self._stale_eligible = False
+                    self._prompt_or_tool_seen = True
                     # Arm the tool-stall watchdog: if no further data arrives
                     # within _TOOL_STALL_TIMEOUT, _prompt_loop treats the turn
                     # as dead instead of hanging to the full prompt timeout.
@@ -10560,6 +10722,11 @@ class AcpClient:
                     len(_subs) if isinstance(_subs, list) else "n/a",
                 )
                 if isinstance(_subs, list):
+                    # A roster means children exist: a spawned child can mutate
+                    # state before its first activity frame is observed, so the
+                    # roster itself closes the registration-throttle window.
+                    if _subs:
+                        self._prompt_or_tool_seen = True
                     # No runtime_global marking here: AcpClient owns a dedicated
                     # process with a single session, so an ownerless frame from
                     # it is this session's own roster, never a co-tenant's.
@@ -10591,6 +10758,12 @@ class AcpClient:
                 if _ssid and _ssid == (self._session_id or ""):
                     continue
                 if _ssid and _tcid:
+                    # A child's tool call is this process's side effect for
+                    # replay purposes — the parent prompt spawned it, so a
+                    # replay would re-run it. Close the registration-throttle
+                    # window, exactly as the shared-runtime handle does for its
+                    # fanned-out child tool calls.
+                    self._prompt_or_tool_seen = True
                     # Sub-agent output is LLM-influenced — redact the title before
                     # it reaches the dashboard/persisted message.
                     _su_title, _ = redact_exfiltration_urls(str(_upd.get("title") or ""))
@@ -10607,6 +10780,10 @@ class AcpClient:
                     # Skip reasoning/thinking blocks (is_thinking) — those are the
                     # sub-agent's internal reasoning, not user-visible output, and
                     # the flat pre-port read never surfaced them.
+                    # Observed child output also closes the registration-throttle
+                    # window: a child whose tool frame was lost or differently
+                    # spelled must not read as "did nothing".
+                    self._prompt_or_tool_seen = True
                     _su_text, _ = redact_exfiltration_urls(_su_text)
                     _su_text, _ = redact_credentials(_su_text)
                     yield AcpEvent(

@@ -17,6 +17,13 @@ AcpError (base, acp/client.py)          — carries `transient`, the retry verdi
 ├── AcpTimeoutError        — prompt timed out, has partial_output
 ├── AcpPermissionNeeded    — tool approval required
 ├── AcpProcessDied         — kiro-cli exited unexpectedly
+│   └── AcpRegistrationRateLimited — the death's stderr shows a throttled
+│                            dynamic registration (HTTP 429); transient, so the
+│                            retry ladders recover it instead of surfacing a
+│                            terminal generic death. Classified only while the
+│                            session has produced no text and run no tool, so
+│                            the verdict can never license a replay that
+│                            repeats side effects
 ├── AcpAuthRequired        — kiro-cli not authenticated; non-retryable
 ├── AcpToolGateUnroutable  — tool calls would bypass the PreToolUse gate;
 │                            non-retryable, wraps acp_tool_gate.ToolGateUnroutable
