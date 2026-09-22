@@ -782,6 +782,170 @@ class TestStreamMachinery:
         streamed = [kw["text"] for m, kw in rec.calls if m == "append_stream"]
         assert streamed == ["A ", "B "], streamed
 
+    def test_flush_on_edit_interval_does_not_tear_a_word_in_half(self):
+        """A model fragment boundary landing mid-word must not split it.
+
+        The throttled flush sends what is in ``_stream_buffer`` when the
+        edit-interval timer fires, and that timer knows nothing about where a
+        word ends. Two model fragments ("...ch" then "ạy...", the split shape
+        seen on a Vietnamese reply) land far enough apart to each cross the 1s
+        throttle, so each is a flush of its own; without a boundary check Slack
+        renders the word torn across two appended, unfixable segments.
+        """
+        rec = _RecSlack()
+        # turn_start, chunk 1 (@1000, flushes), chunk 2 (@1002, past interval,
+        # flushes), on_done (@1003).
+        clock = _FakeClock([1000.0, 1000.0, 1002.0, 1003.0])
+        renderer = SlackRenderer(rec, "C1", "t1", reactions_enabled=False, now=clock)
+        provider = _Provider(
+            [
+                AcpEvent(kind=EVENT_TEXT_CHUNK, text="Đang chạ"),
+                AcpEvent(kind=EVENT_TEXT_CHUNK, text="y trên máy.\n"),
+                AcpEvent(kind=EVENT_COMPLETE, stop_reason="end_turn"),
+            ]
+        )
+        asyncio.run(TurnDriver(provider, renderer, approval_mode="auto").run("hi"))
+        streamed = [kw["text"] for m, kw in rec.calls if m == "append_stream"]
+        # The first flush holds "chạ" back rather than sending it torn; it is
+        # only released once "y" arrives and completes the word.
+        assert streamed == ["Đang ", "chạy trên máy.\n"], streamed
+        assert "".join(streamed) == "Đang chạy trên máy.\n"
+
+    def test_held_word_is_released_at_on_done_even_with_no_trailing_space(self):
+        """A turn that ends mid-word must still deliver the whole word.
+
+        The held tail exists only until the true end of the turn -- ``on_done``
+        flushes unconditionally so a turn that happens to stop right after a
+        throttled cut never leaves a fragment permanently stuck in the
+        renderer's buffer.
+        """
+        rec = _RecSlack()
+        clock = _FakeClock([1000.0, 1000.0, 1002.0])
+        renderer = SlackRenderer(rec, "C1", "t1", reactions_enabled=False, now=clock)
+        provider = _Provider(
+            [
+                AcpEvent(kind=EVENT_TEXT_CHUNK, text="partial"),
+                AcpEvent(kind=EVENT_COMPLETE, stop_reason="end_turn"),
+            ]
+        )
+        asyncio.run(TurnDriver(provider, renderer, approval_mode="auto").run("hi"))
+        streamed = [kw["text"] for m, kw in rec.calls if m == "append_stream"]
+        assert "".join(streamed) == "partial", streamed
+
+    def test_a_script_written_without_spaces_still_streams_progressively(self):
+        """Whitespace is the only boundary here, so a script with none is sent.
+
+        Chinese, Japanese and Thai supply no whitespace for whole paragraphs. A
+        holdback that waited for one would re-hold the entire buffer on every
+        tick, so the reader would see nothing between newlines and the throttled
+        cadence the stream path exists for would be lost for exactly the
+        multibyte-script users a word-boundary guard is meant to help. Both
+        fragments below cross the throttle, so both must appear on their own.
+        """
+        rec = _RecSlack()
+        clock = _FakeClock([1000.0, 1000.0, 1002.0, 1003.0])
+        renderer = SlackRenderer(rec, "C1", "t1", reactions_enabled=False, now=clock)
+        provider = _Provider(
+            [
+                AcpEvent(kind=EVENT_TEXT_CHUNK, text="正在机器上运行"),
+                AcpEvent(kind=EVENT_TEXT_CHUNK, text="第二段文字。\n"),
+                AcpEvent(kind=EVENT_COMPLETE, stop_reason="end_turn"),
+            ]
+        )
+        asyncio.run(TurnDriver(provider, renderer, approval_mode="auto").run("hi"))
+        streamed = [kw["text"] for m, kw in rec.calls if m == "append_stream"]
+        assert streamed == ["正在机器上运行", "第二段文字。\n"], streamed
+
+    def test_an_over_long_run_is_sent_rather_than_held(self):
+        """The hold is bounded, so one unbroken run cannot stall the stream.
+
+        A run far longer than any word is not a token mid-flight; it is content
+        this rule cannot read -- a base64 blob, a minified line, a space-free
+        script after one leading space. Holding it would defer real output
+        waiting for a boundary that may never arrive, so it goes out as written.
+        Asserted on the boundary helper rather than through a turn because the
+        ref-hold can defer a long unbroken run for its own, unrelated reason,
+        which would make a stream-level assertion pass without this rule.
+        """
+        from kiro_crew.slack.renderer import _WORD_HOLD_MAX, _split_trailing_word
+
+        short = "y" * _WORD_HOLD_MAX
+        assert _split_trailing_word(f"pin {short}") == ("pin ", short)
+        over = "y" * (_WORD_HOLD_MAX + 1)
+        assert _split_trailing_word(f"pin {over}") == (f"pin {over}", "")
+        # No whitespace at all: nothing to hold against, so send as written.
+        assert _split_trailing_word("正在机器上运行") == ("正在机器上运行", "")
+
+    def test_a_tool_card_cannot_get_between_a_held_word_and_its_start(self):
+        """Prose before a tool must finish before the card, not after it.
+
+        The hold is only ever safe because the NEXT flush stitches it back onto
+        its own word. A tool boundary is the one place that premise fails: the
+        card is appended immediately after the flush, so a complete word the
+        model simply did not follow with a space is released on the FAR side of
+        it and reads as the opening of the post-tool sentence -- "Đang kiểm tra
+        máy " / card / "chủ và ...". Nothing is lost, which is why no test
+        caught it; the order is wrong, and appends are final on Slack's side,
+        so the reader cannot be given the sentence back.
+
+        The trailing word carries a non-ASCII character deliberately: the
+        driver's own StreamRedactor holds a trailing ASCII run back as a
+        possible credential prefix, which would satisfy this assertion without
+        the renderer's hold ever being exercised.
+        """
+        rec = _RecSlack()
+        clock = _FakeClock([1000.0, 1000.0, 1002.0, 1004.0])
+        renderer = SlackRenderer(rec, "C1", "t1", reactions_enabled=False, now=clock)
+        provider = _Provider(
+            [
+                # No trailing space, so the throttled flush has a word to hold.
+                AcpEvent(kind=EVENT_TEXT_CHUNK, text="Đang kiểm tra máy chủ"),
+                AcpEvent(kind=EVENT_TOOL_CALL, title="Bash", tool_name="Bash"),
+                AcpEvent(kind=EVENT_TEXT_CHUNK, text=" và ổ đĩa.\n"),
+                AcpEvent(kind=EVENT_COMPLETE, stop_reason="end_turn"),
+            ]
+        )
+        asyncio.run(TurnDriver(provider, renderer, approval_mode="auto").run("hi"))
+        # Split the interleaved call log at the first task card.
+        before, after, seen_card = "", "", False
+        for method, kw in rec.calls:
+            if method == "append_task":
+                seen_card = True
+            elif method == "append_stream":
+                if seen_card:
+                    after += kw["text"]
+                else:
+                    before += kw["text"]
+        assert seen_card, rec.calls
+        assert before == "Đang kiểm tra máy chủ", rec.calls
+        assert after == " và ổ đĩa.\n", rec.calls
+
+        """The rescued transcript must not end on half a word.
+
+        A dying turn is the one exit where the hold is released without a flush,
+        and the buffer behind it holds the rest of that same word. Releasing the
+        hold alone appends ``"chạ"`` as the last thing the durable transcript
+        establishes and drops the ``"y "`` that completes it -- the very tear the
+        throttled holdback exists to prevent, reintroduced on the failure path.
+        """
+        rec = _RecSlack()
+        clock = _FakeClock([1000.0, 1000.0])
+        renderer = SlackRenderer(rec, "C1", "t1", reactions_enabled=False, now=clock)
+        provider = _Provider([AcpEvent(kind=EVENT_TEXT_CHUNK, text="Đang chạ")])
+        asyncio.run(TurnDriver(provider, renderer, approval_mode="auto").run("hi"))
+        # The flush held "chạ"; the continuation then buffered behind it without
+        # crossing the throttle, so neither has reached Slack.
+        assert renderer._word_hold == "chạ", renderer._word_hold
+        renderer._stream_buffer = "y trên máy."
+
+        asyncio.run(renderer.release_held_word())
+
+        streamed = "".join(kw["text"] for m, kw in rec.calls if m == "append_stream")
+        assert streamed == "Đang chạy trên máy.", streamed
+        assert renderer.delivered_text == "Đang chạy trên máy.", renderer.delivered_text
+        # Both are consumed: a second call cannot re-send either.
+        assert renderer._word_hold == "" and renderer._stream_buffer == ""
+
     def test_append_failure_triggers_one_rotation(self):
         rec = _FlakyAppendSlack()
         renderer = SlackRenderer(rec, "C1", "t1", reactions_enabled=False)
