@@ -441,7 +441,37 @@ _GOOSE_BUILTIN_DEVELOPER = "developer"
 _ADAPTER_INTERPRETERS = frozenset({"node", "node.exe"})
 
 
-def _adapter_spawn_label(argv: Sequence[str], seam: str) -> str:
+def _is_adapter_package_entry(program: str, pkg_entry: Path) -> bool:
+    """Whether *program* is *pkg_entry* sitting under some node_modules root."""
+    parts = Path(program).parts
+    wanted = pkg_entry.parts
+    if len(parts) < len(wanted):
+        return False
+    return [p.casefold() for p in parts[-len(wanted) :]] == [p.casefold() for p in wanted]
+
+
+def _named_by_override(program: str, override_env: str | None) -> bool:
+    """Whether the operator's override is what supplied *program*.
+
+    The resolution ladder takes the override as its first candidate verbatim, so
+    an equality test against the resolved program is what separates a deliberate
+    override from the adapter's own installed entry.
+    """
+    if not override_env:
+        return False
+    override = os.environ.get(override_env, "").strip()
+    if not override:
+        return False
+    return os.path.normpath(os.path.expanduser(override)) == os.path.normpath(program)
+
+
+def _adapter_spawn_label(
+    argv: Sequence[str],
+    seam: str,
+    *,
+    pkg_entry: Path | None = None,
+    override_env: str | None = None,
+) -> str:
     """Keep a stable seam label while identifying the resolved program.
 
     Both ACP seams resolve their binary through a documented environment
@@ -453,8 +483,23 @@ def _adapter_spawn_label(argv: Sequence[str], seam: str) -> str:
     if not argv:
         return seam
     program = argv[0]
-    if Path(program).name.casefold() in _ADAPTER_INTERPRETERS and len(argv) > 1:
+    if Path(program).name.casefold() in _ADAPTER_INTERPRETERS:
+        # A bare interpreter identifies no adapter at all.
+        if len(argv) <= 1:
+            return seam
         program = argv[1]
+        # An adapter installed as a Node package resolves to its own
+        # `dist/index.js`, whose basename names the packaging rather than the
+        # adapter, so the seam alone is the useful identity there. That shortcut
+        # is only honest for the package's OWN entry under its own scope: a
+        # script the operator's override supplied, or any other `index.js`, is
+        # the one record of which build actually launched, so its path stays.
+        if (
+            pkg_entry is not None
+            and not _named_by_override(program, override_env)
+            and _is_adapter_package_entry(program, pkg_entry)
+        ):
+            return seam
     return f"{seam} via {program}" if program else seam
 
 
@@ -7664,8 +7709,18 @@ class AcpClient:
                     f"dependency), or set CLAUDE_AGENT_ACP_BIN to its entry script."
                 )
             argv: list[str] = claude_argv
-            spawn_label = _adapter_spawn_label(argv, CLAUDE_ACP_BIN)
-            stderr_label = _adapter_spawn_label(argv, "claude-acp")
+            spawn_label = _adapter_spawn_label(
+                argv,
+                CLAUDE_ACP_BIN,
+                pkg_entry=_CLAUDE_ACP_PKG_ENTRY,
+                override_env="CLAUDE_AGENT_ACP_BIN",
+            )
+            stderr_label = _adapter_spawn_label(
+                argv,
+                "claude-acp",
+                pkg_entry=_CLAUDE_ACP_PKG_ENTRY,
+                override_env="CLAUDE_AGENT_ACP_BIN",
+            )
         elif self._is_opencode:
             # This harness serves ACP from its own binary, so the argv is that binary
             # plus its ``acp`` subcommand: no adapter entry script, no node, and no
@@ -7833,7 +7888,9 @@ class AcpClient:
                     f"{_ENV_PI_ACP_PI_COMMAND} to the executable."
                 )
             argv = pi_acp_argv
-            spawn_label = _adapter_spawn_label(argv, PI_ACP_BIN)
+            spawn_label = _adapter_spawn_label(
+                argv, PI_ACP_BIN, pkg_entry=_PI_ACP_PKG_ENTRY, override_env=_ENV_PI_ACP_BIN
+            )
             stderr_label = spawn_label
             # Same refuse-then-mask preflight as the two enforced arms above, keyed
             # on the routing rather than on this harness's identity, and FIRST for
