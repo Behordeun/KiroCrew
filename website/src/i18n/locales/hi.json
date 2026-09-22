@@ -10470,10 +10470,12 @@
     },
     "chatPage": {
       "turn_minimap": "वार्तालाप के चरणों में जाएँ",
-      "turn_minimap_active": "चरण {{current}} / {{count}}: {{prompt}}",
-      "turn_minimap_active_windowed": "लोड किए गए {{count}} में से चरण {{current}}: {{prompt}}",
-      "turn_minimap_earlier": "पहले के चरण अभी लोड नहीं हुए हैं। पुराने संदेश लोड करें",
+      "turn_minimap_active": "{{position}}: {{prompt}}",
       "turn_minimap_landmark": "वार्तालाप के चरण",
+      "turn_minimap_meta_grouped": "{{count}} में से चरण {{first}}–{{last}}",
+      "turn_minimap_meta_grouped_windowed": "लोड किए गए {{count}} में से चरण {{first}}–{{last}}",
+      "turn_minimap_meta_position": "{{count}} में से चरण {{n}}",
+      "turn_minimap_meta_position_windowed": "लोड किए गए {{count}} में से चरण {{n}}",
       "agent_list": "एजेंट सूची",
       "agent_selector": "एजेंट चयनकर्ता",
       "autopilot_plans_before_executing_each_stage_need": "ऑटोपायलट पहले योजना बनाता है, फिर चलाता है। हर चरण के लिए तुम्हारी स्वीकृति चाहिए (या बिना रुके चलाने के लिए 'Go All' चुनें)। सब-एजेंट अपने-आप सौंपे जाते हैं। योजना से मिली सीख सेशनों के बीच बनी रहती है।",
@@ -13818,7 +13820,12 @@
         "feature_videos_downloads_disabled": "वीडियो डाउनलोड बंद हैं। केवल पहले से सहेजे गए क्लिप चलेंगे।",
         "feature_videos_download_all": "सभी अभी डाउनलोड करें",
         "failed_to_load_feature_video_status": "फ़ीचर वीडियो कैश स्थिति लोड नहीं हो सकी",
-        "failed_to_start_feature_video_download": "डाउनलोड शुरू नहीं हो सका"
+        "failed_to_start_feature_video_download": "डाउनलोड शुरू नहीं हो सका",
+        "minimap_side_left": "बाएँ",
+        "minimap_side_right": "दाएँ",
+        "minimap": "मिनीमैप",
+        "minimap_location": "मिनीमैप का स्थान",
+        "minimap_location_desc": "दाएँ किनारे पर होने पर मिनीमैप स्क्रॉलबार की जगह लेता है।"
       },
       "computerUsePanel": {
         "accessibility": "सुगम्यता",

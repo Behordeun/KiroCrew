@@ -10614,10 +10614,12 @@
     },
     "chatPage": {
       "turn_minimap": "Navegar por los turnos de la conversación",
-      "turn_minimap_active": "Turno {{current}} de {{count}}: {{prompt}}",
-      "turn_minimap_active_windowed": "Turno {{current}} de {{count}} cargados: {{prompt}}",
-      "turn_minimap_earlier": "Los turnos anteriores aún no están cargados. Cargar mensajes anteriores",
+      "turn_minimap_active": "{{position}}: {{prompt}}",
       "turn_minimap_landmark": "Turnos de la conversación",
+      "turn_minimap_meta_grouped": "Turnos {{first}}–{{last}} de {{count}}",
+      "turn_minimap_meta_grouped_windowed": "Turnos {{first}}–{{last}} de {{count}} cargados",
+      "turn_minimap_meta_position": "Turno {{n}} de {{count}}",
+      "turn_minimap_meta_position_windowed": "Turno {{n}} de {{count}} cargados",
       "agent_list": "Lista de agentes",
       "agent_selector": "Selector de agente",
       "autopilot_plans_before_executing_each_stage_need": "El piloto automático planifica antes de ejecutar. Cada etapa necesita tu aprobación (o selecciona \"Go All\" para que se ejecute de forma autónoma). Los subagentes se delegan automáticamente. Las lecciones del plan se conservan entre sesiones.",
@@ -14005,7 +14007,12 @@
         "feature_videos_downloads_disabled": "Las descargas de vídeo están desactivadas. Solo se reproducirán los clips ya guardados.",
         "feature_videos_download_all": "Descargar todo ahora",
         "failed_to_load_feature_video_status": "No se pudo cargar el estado de la caché de vídeos de funciones",
-        "failed_to_start_feature_video_download": "No se pudo iniciar la descarga"
+        "failed_to_start_feature_video_download": "No se pudo iniciar la descarga",
+        "minimap_side_left": "Izquierda",
+        "minimap_side_right": "Derecha",
+        "minimap": "Minimapa",
+        "minimap_location": "Ubicación del minimapa",
+        "minimap_location_desc": "Cuando está en el borde derecho, el minimapa reemplaza la barra de desplazamiento."
       },
       "computerUsePanel": {
         "accessibility": "Accesibilidad",

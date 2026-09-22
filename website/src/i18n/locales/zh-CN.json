@@ -10326,10 +10326,12 @@
     },
     "chatPage": {
       "turn_minimap": "在对话轮次间导航",
-      "turn_minimap_active": "第 {{current}} / {{count}} 轮：{{prompt}}",
-      "turn_minimap_active_windowed": "已加载 {{count}} 个轮次中的第 {{current}} 个：{{prompt}}",
-      "turn_minimap_earlier": "更早的轮次尚未加载。加载更早的消息",
+      "turn_minimap_active": "{{position}}：{{prompt}}",
       "turn_minimap_landmark": "对话轮次",
+      "turn_minimap_meta_grouped": "第 {{first}}–{{last}} 轮，共 {{count}} 轮",
+      "turn_minimap_meta_grouped_windowed": "第 {{first}}–{{last}} 轮，已加载 {{count}} 轮",
+      "turn_minimap_meta_position": "第 {{n}} 轮，共 {{count}} 轮",
+      "turn_minimap_meta_position_windowed": "第 {{n}} 轮，已加载 {{count}} 轮",
       "agent_list": "代理列表",
       "agent_selector": "代理选择器",
       "autopilot_plans_before_executing_each_stage_need": "自动驾驶会先规划再执行。每个阶段都需要你批准（或选择“Go All”以自主运行）。子代理会自动委派。规划经验会跨会话保留。",
@@ -13630,7 +13632,12 @@
         "feature_videos_downloads_disabled": "视频下载已关闭。只有已保存的片段才能播放。",
         "feature_videos_download_all": "立即下载全部",
         "failed_to_load_feature_video_status": "无法加载功能视频缓存状态",
-        "failed_to_start_feature_video_download": "无法开始下载"
+        "failed_to_start_feature_video_download": "无法开始下载",
+        "minimap_side_left": "左侧",
+        "minimap_side_right": "右侧",
+        "minimap": "小地图",
+        "minimap_location": "小地图位置",
+        "minimap_location_desc": "位于右边缘时，小地图将取代滚动条。"
       },
       "computerUsePanel": {
         "accessibility": "辅助功能",

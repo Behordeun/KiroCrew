@@ -10326,10 +10326,12 @@
     },
     "chatPage": {
       "turn_minimap": "대화 턴 탐색",
-      "turn_minimap_active": "{{current}}/{{count}}번째 턴: {{prompt}}",
-      "turn_minimap_active_windowed": "불러온 {{count}}개 중 턴 {{current}}: {{prompt}}",
-      "turn_minimap_earlier": "이전 턴이 아직 불러오지 않았습니다. 이전 메시지 불러오기",
+      "turn_minimap_active": "{{position}}: {{prompt}}",
       "turn_minimap_landmark": "대화 턴",
+      "turn_minimap_meta_grouped": "{{count}}개 중 턴 {{first}}–{{last}}",
+      "turn_minimap_meta_grouped_windowed": "불러온 {{count}}개 중 턴 {{first}}–{{last}}",
+      "turn_minimap_meta_position": "{{count}}개 중 턴 {{n}}",
+      "turn_minimap_meta_position_windowed": "불러온 {{count}}개 중 턴 {{n}}",
       "agent_list": "에이전트 목록",
       "agent_selector": "에이전트 선택",
       "autopilot_plans_before_executing_each_stage_need": "오토파일럿은 실행 전에 계획을 세웁니다. 각 단계에는 승인이 필요합니다 (자율로 실행하려면 ‘Go All’을 선택하세요). 서브에이전트는 자동으로 위임됩니다. 계획 학습 내용은 세션 간에 유지됩니다.",
@@ -13630,7 +13632,12 @@
         "feature_videos_downloads_disabled": "동영상 다운로드가 꺼져 있습니다. 이미 저장된 클립만 재생됩니다.",
         "feature_videos_download_all": "지금 모두 다운로드",
         "failed_to_load_feature_video_status": "기능 소개 영상 캐시 상태를 불러오지 못했습니다",
-        "failed_to_start_feature_video_download": "다운로드를 시작할 수 없습니다"
+        "failed_to_start_feature_video_download": "다운로드를 시작할 수 없습니다",
+        "minimap_side_left": "왼쪽",
+        "minimap_side_right": "오른쪽",
+        "minimap": "미니맵",
+        "minimap_location": "미니맵 위치",
+        "minimap_location_desc": "오른쪽 가장자리에 있으면 미니맵이 스크롤바를 대체합니다."
       },
       "computerUsePanel": {
         "accessibility": "손쉬운 사용",

@@ -10758,10 +10758,12 @@
     },
     "chatPage": {
       "turn_minimap": "Перейти к репликам диалога",
-      "turn_minimap_active": "Реплика {{current}} из {{count}}: {{prompt}}",
-      "turn_minimap_active_windowed": "Реплика {{current}} из {{count}} загруженных: {{prompt}}",
-      "turn_minimap_earlier": "Более ранние реплики ещё не загружены. Загрузить старые сообщения",
+      "turn_minimap_active": "{{position}}: {{prompt}}",
       "turn_minimap_landmark": "Реплики диалога",
+      "turn_minimap_meta_grouped": "Реплики {{first}}–{{last}} из {{count}}",
+      "turn_minimap_meta_grouped_windowed": "Реплики {{first}}–{{last}} из {{count}} загруженных",
+      "turn_minimap_meta_position": "Реплика {{n}} из {{count}}",
+      "turn_minimap_meta_position_windowed": "Реплика {{n}} из {{count}} загруженных",
       "agent_list": "Список агентов",
       "agent_selector": "Выбор агента",
       "autopilot_plans_before_executing_each_stage_need": "Автопилот сначала строит план, затем выполняет. Каждый этап требует твоего подтверждения (или выбери «Go All» для автономного запуска). Субагенты делегируются автоматически. Выводы по планам сохраняются между сессиями.",
@@ -14192,7 +14194,12 @@
         "feature_videos_downloads_disabled": "Загрузка видео отключена. Будут воспроизводиться только уже сохранённые клипы.",
         "feature_videos_download_all": "Загрузить все сейчас",
         "failed_to_load_feature_video_status": "Не удалось загрузить состояние кэша видео о возможностях",
-        "failed_to_start_feature_video_download": "Не удалось начать загрузку"
+        "failed_to_start_feature_video_download": "Не удалось начать загрузку",
+        "minimap_side_left": "Слева",
+        "minimap_side_right": "Справа",
+        "minimap": "Мини-карта",
+        "minimap_location": "Расположение мини-карты",
+        "minimap_location_desc": "У правого края мини-карта заменяет полосу прокрутки."
       },
       "computerUsePanel": {
         "accessibility": "Универсальный доступ",

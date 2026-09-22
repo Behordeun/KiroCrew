@@ -10470,10 +10470,12 @@
     },
     "chatPage": {
       "turn_minimap": "কথোপকথনের পালাগুলোর মধ্যে যান",
-      "turn_minimap_active": "পালা {{current}} / {{count}}: {{prompt}}",
-      "turn_minimap_active_windowed": "লোড হওয়া {{count}}টির মধ্যে {{current}} নম্বর পালা: {{prompt}}",
-      "turn_minimap_earlier": "আগের পালাগুলো এখনও লোড হয়নি। পুরোনো বার্তা লোড করুন",
+      "turn_minimap_active": "{{position}}: {{prompt}}",
       "turn_minimap_landmark": "কথোপকথনের পালা",
+      "turn_minimap_meta_grouped": "{{count}}টির মধ্যে পালা {{first}}–{{last}}",
+      "turn_minimap_meta_grouped_windowed": "লোড হওয়া {{count}}টির মধ্যে পালা {{first}}–{{last}}",
+      "turn_minimap_meta_position": "{{count}}টির মধ্যে পালা {{n}}",
+      "turn_minimap_meta_position_windowed": "লোড হওয়া {{count}}টির মধ্যে পালা {{n}}",
       "agent_list": "এজেন্ট তালিকা",
       "agent_selector": "এজেন্ট নির্বাচক",
       "autopilot_plans_before_executing_each_stage_need": "Autopilot চালানোর আগে পরিকল্পনা করে। প্রতিটি ধাপে তোমার অনুমোদন লাগে (বা নিজে থেকে চালাতে 'Go All' বেছে নাও)। সাবএজেন্টকে স্বয়ংক্রিয়ভাবে দায়িত্ব দেওয়া হয়। পরিকল্পনার শিক্ষা সেশনজুড়ে থেকে যায়।",
@@ -13818,7 +13820,12 @@
         "feature_videos_downloads_disabled": "ভিডিও ডাউনলোড বন্ধ আছে। শুধু আগে সংরক্ষিত ক্লিপগুলিই চলবে।",
         "feature_videos_download_all": "এখনই সব ডাউনলোড করুন",
         "failed_to_load_feature_video_status": "ফিচার ভিডিও ক্যাশের অবস্থা লোড করা যায়নি",
-        "failed_to_start_feature_video_download": "ডাউনলোড শুরু করা যায়নি"
+        "failed_to_start_feature_video_download": "ডাউনলোড শুরু করা যায়নি",
+        "minimap_side_left": "বাম",
+        "minimap_side_right": "ডান",
+        "minimap": "মিনিম্যাপ",
+        "minimap_location": "মিনিম্যাপের অবস্থান",
+        "minimap_location_desc": "ডান প্রান্তে থাকলে মিনিম্যাপ স্ক্রলবারের জায়গা নেয়।"
       },
       "computerUsePanel": {
         "accessibility": "সহজগম্যতা",
