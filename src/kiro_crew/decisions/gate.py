@@ -298,6 +298,24 @@ def _consented_for(
 _unscoped_warned: set[str] = set()
 
 
+#: Which KEYSTONE FIELD each scoped point's consent is recorded in, as
+#: ``point -> state key``. Built from the same three sets the enforcement table below
+#: is, so the sets stay the single source: a point added to either one is both
+#: enforced and listed with the right switch, and neither side can learn about a
+#: scope the other does not.
+#:
+#: It exists because the dashboard needs the FIELD NAME -- the card's per-point panel
+#: writes that exact key back through ``PUT /api/decisions/consent`` -- while the
+#: table below needs a reader and a category to refuse and to warn with. Same
+#: membership, different projections of it. ``test_decisions_gate.py`` pins the two
+#: against each other, so a further scope set cannot be added to one alone.
+POINT_SCOPE_KEYS: dict[str, str] = {
+    **{p: _consent.STATE_KEY_TOOL_ARGS for p in POINTS_NEEDING_TOOL_ARGS},
+    **{p: _consent.STATE_KEY_COMPACTION for p in POINTS_NEEDING_COMPACTION},
+    **{p: _consent.STATE_KEY_MEMORY_TEXT for p in POINTS_NEEDING_MEMORY_TEXT},
+}
+
+
 #: What each scoped point needs, as ``point -> (keystone reader, the switch's own
 #: words)``. ONE table rather than a predicate per scope: every entry is the same
 #: three facts, and a second copy of the walk is a second place to forget a scope --
