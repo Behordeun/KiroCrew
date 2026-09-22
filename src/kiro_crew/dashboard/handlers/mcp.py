@@ -130,22 +130,52 @@ _MCP_LOCK_PATH = _GLOBAL_MCP_JSON.with_suffix(".lock")
 
 
 class _McpFileLock:
-    """Async context manager wrapping a cross-platform file lock for mcp.json."""
+    """Async context manager wrapping a cross-platform file lock for mcp.json.
+
+    Both failure modes are REPORTED here before they propagate, mirroring
+    :func:`kiro_crew.agent.agents_spec_lock`, because several callers treat
+    this lock as best-effort work and swallow the refusal at a level no
+    operator reads. Without a report at WARNING a gateway that skipped its
+    mcp.json write reads in the log exactly like one that completed it. An
+    unwritable lock path (a read-only ``~/.kiro/settings`` mount, or a sidecar
+    whose own mode denies write) refuses BEFORE any lock is attempted;
+    ``platform_compat.acquire_lock`` bounds the acquire itself, so neither
+    failure mode can present as a hang. Both reports cover the setup and the
+    acquire alone -- the caller's body runs only after ``__aenter__`` returns,
+    so a caller-body error can never be mislabelled as a lock failure.
+    """
 
     async def __aenter__(self) -> None:
-        _GLOBAL_MCP_JSON.parent.mkdir(parents=True, exist_ok=True)
-        _MCP_LOCK_PATH.touch(exist_ok=True)
-        # Open the lock fd WRITABLE and non-truncating. Windows msvcrt.locking()
-        # requires write access on the handle -- an "r" fd fails with EACCES and
-        # platform_compat.acquire_lock swallows that (best-effort semantics),
-        # silently degrading this to a no-op and letting concurrent
-        # /api/mcp/toggle requests race the atomic-rename write of mcp.json
-        # (one flip is lost). "r+" keeps the shared file present (no truncate);
-        # see platform_compat.open_lock_file for the full Windows rationale
-        # (GH-9248). Kept inline rather than routed through that helper: the fd
-        # is stored on self._fd and released in __aexit__, so it must OUTLIVE
-        # this method -- the with-scoped helper would close it at method return.
-        fd = open(_MCP_LOCK_PATH, "r+")
+        try:
+            _GLOBAL_MCP_JSON.parent.mkdir(parents=True, exist_ok=True)
+            _MCP_LOCK_PATH.touch(exist_ok=True)
+            # Open the lock fd WRITABLE and non-truncating. Windows msvcrt.locking()
+            # requires write access on the handle -- an "r" fd fails with EACCES and
+            # platform_compat.acquire_lock swallows that (best-effort semantics),
+            # silently degrading this to a no-op and letting concurrent
+            # /api/mcp/toggle requests race the atomic-rename write of mcp.json
+            # (one flip is lost). "r+" keeps the shared file present (no truncate);
+            # see platform_compat.open_lock_file for the full Windows rationale
+            # (GH-9248). Kept inline rather than routed through that helper: the fd
+            # is stored on self._fd and released in __aexit__, so it must OUTLIVE
+            # this method -- the with-scoped helper would close it at method return.
+            fd = open(_MCP_LOCK_PATH, "r+")
+        except OSError as exc:
+            # Naming the path AND the errno is the point: "Read-only file
+            # system" on this specific path is what tells the operator what to
+            # change, and it is not something retrying can recover. No
+            # KIRO_HOME remedy: _GLOBAL_MCP_JSON resolves from a fixed
+            # Path.home() that ignores KIRO_HOME, so moving it cannot move
+            # this lock -- naming the config the lock guards is what stays
+            # true.
+            logger.warning(
+                "cannot open the mcp config lock %s (%s) -- writes to %s cannot be "
+                "serialized, so this update is being skipped",
+                _MCP_LOCK_PATH,
+                exc.strerror or exc,
+                _GLOBAL_MCP_JSON,
+            )
+            raise
         # Run blocking lock acquire in a thread to avoid blocking the event
         # loop. Bind self._fd ONLY AFTER a successful acquire — otherwise a
         # raise inside run_in_executor (executor shutdown RuntimeError,
@@ -157,8 +187,21 @@ class _McpFileLock:
                 None,
                 lambda: platform_compat.acquire_lock(fd.fileno(), exclusive=True),
             )
-        except BaseException:
+        except BaseException as exc:
             fd.close()
+            # Report the lock's OWN refusal only: acquire_lock fails closed
+            # with an OSError, at once for a real fd defect or past its
+            # bounded ceiling for a stuck holder. A CancelledError while
+            # pending or an executor-shutdown RuntimeError is this caller's
+            # lifecycle, not a lock failure, and reporting it would send an
+            # operator after a holder that does not exist. A stuck holder also
+            # calls for a DIFFERENT operator action (find the process still
+            # holding the lock) than an unwritable path, so this carries no
+            # remedy. No BlockingIOError case: this acquire is always a
+            # WAITING one, so a refusal here is never a caller's own "do not
+            # wait" choice.
+            if isinstance(exc, OSError):
+                logger.warning("mcp config lock %s: %s", _MCP_LOCK_PATH, exc)
             raise
         self._fd = fd
 
@@ -190,15 +233,32 @@ class _McpFileLockSync:
     """
 
     def __enter__(self) -> None:
-        _GLOBAL_MCP_JSON.parent.mkdir(parents=True, exist_ok=True)
-        _MCP_LOCK_PATH.touch(exist_ok=True)
-        # Non-truncating "r+", kept inline for the same reason as
-        # :class:`_McpFileLock` above.
-        fd = open(_MCP_LOCK_PATH, "r+")
+        try:
+            _GLOBAL_MCP_JSON.parent.mkdir(parents=True, exist_ok=True)
+            _MCP_LOCK_PATH.touch(exist_ok=True)
+            # Non-truncating "r+", kept inline for the same reason as
+            # :class:`_McpFileLock` above.
+            fd = open(_MCP_LOCK_PATH, "r+")
+        except OSError as exc:
+            # Same report, same rationale as :class:`_McpFileLock`: the sweep
+            # that takes this lock runs under a request's finally, so its
+            # refusal is otherwise swallowed with the rest of the cleanup.
+            logger.warning(
+                "cannot open the mcp config lock %s (%s) -- writes to %s cannot be "
+                "serialized, so this update is being skipped",
+                _MCP_LOCK_PATH,
+                exc.strerror or exc,
+                _GLOBAL_MCP_JSON,
+            )
+            raise
         try:
             platform_compat.acquire_lock(fd.fileno(), exclusive=True)
-        except BaseException:
+        except BaseException as exc:
             fd.close()
+            # OSError only, as in :class:`_McpFileLock`: the lock's own
+            # refusal, never this caller's lifecycle.
+            if isinstance(exc, OSError):
+                logger.warning("mcp config lock %s: %s", _MCP_LOCK_PATH, exc)
             raise
         self._fd = fd
 
