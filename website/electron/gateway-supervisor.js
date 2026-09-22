@@ -1504,9 +1504,24 @@ function createGatewaySupervisor({
   /** Reveal only states which need a human decision. */
   function revealForUserDecision(window) {
     if (!window || window.isDestroyed() || quitting()) return;
+    // The main window can own an app-level fullscreen hide while this
+    // needs-user state belongs to a connection window. Disarm that owner before
+    // app.show() or its reassertion hides every window again.
+    const primaryWindow = mainWindow();
+    if (
+      primaryWindow
+      && primaryWindow !== window
+      && !primaryWindow.isDestroyed()
+    ) {
+      cancelTrayHide(primaryWindow);
+    }
     // Cancel before leaving fullscreen: the fullscreen-exit event can fire the
     // deferred hide listener and immediately undo this reveal.
     cancelTrayHide(window);
+    // A fullscreen tray-close hides the whole APP (hide-to-tray.js), and a
+    // hidden app ignores a window-level show. Unhide it first or the dialog
+    // this reveal precedes parks invisibly. Harmless when the app is visible.
+    if (IS_MAC && typeof app.show === "function") app.show();
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();

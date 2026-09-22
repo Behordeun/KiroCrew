@@ -611,6 +611,49 @@ unit-testable without mocking globals.
   app to the tray on window close; the composition root delegates quit-time
   gateway teardown to the supervisor, which performs the graceful shutdown and
   signal escalation contract.
+- On macOS, leaving native fullscreen is an asynchronous AppKit transition that
+  can stall: the Space switches back and the real window is re-ordered in, but
+  the full-display snapshot overlay AppKit animates during the exit stays on
+  screen and `leave-full-screen` never fires. The overlay is not one of the
+  shell's windows (no traffic lights, cannot be moved or resized, covers every
+  other app), and hiding the real window underneath it leaves the user with only
+  the overlay. Two guards in the shell handle this:
+  [`hide-to-tray.js`](../../website/electron/hide-to-tray.js) waits for
+  `leave-full-screen` plus a short settle and then hides the **application**;
+  if the event never comes, its backstop takes the same app-level path. In both
+  cases `app.hide()` can order the overlay out together with the real window,
+  whereas `win.hide()` would leave the overlay behind;
+  [`fullscreen-transition-watch.js`](../../website/electron/fullscreen-transition-watch.js)
+  watches every transition from its first `resize` and, when an exit has not
+  completed after four seconds, logs `fullscreen: exit transition did not
+  complete` to `gateway-launch.log` and cycles `app.hide()` / `app.show()`,
+  which clears the overlay and restores the real window at its normal frame.
+  Both terminal fullscreen events are journaled (`fullscreen: entered` /
+  `fullscreen: left`) so a stalled transition is legible after the fact.
+- The same overlay is reachable without any stall, and that route is the common
+  one: AppKit does **not** queue a fullscreen toggle issued while one of its own
+  transitions is animating. It abandons the running transition, leaving that
+  transition's overlay orphaned on screen while every terminal event still
+  arrives normally, so no missing-event detector can see it. Its completion
+  callback is not the all-clear either — measured on macOS 26,
+  `enter-full-screen` lands well before the Space animation ends, and a close
+  issued after it still orphaned an overlay in roughly a third of runs (and the
+  hide itself was swallowed, so the window stayed on screen). The close path
+  therefore gates its exit on **quiet time** rather than on an event:
+  `fullscreen-transition-watch.js` exposes `quietFor()` (milliseconds since the
+  window last moved in fullscreen terms) and `hide-to-tray.js` issues
+  `setFullScreen(false)` only once that clears 700ms, then hides after the usual
+  settle and re-asserts the hide once a second later. Measured on the same
+  harness: 0 orphaned overlays in 20 randomized runs and the window hidden every
+  time, against 7 of 20 and 10 of 20 without the gate. A transition abandoned
+  some other way (a user toggling fullscreen twice inside one animation) is
+  reported as `fullscreen: … transition abandoned` and repaired like a stall,
+  with the unhide suppressed while a close-to-tray hide is pending so the repair
+  never re-surfaces a window the user just dismissed.
+- Because the fullscreen close hides the **application**, every user-intent show
+  path (`showMainWindow`, `activateMainWindow`, and therefore the tray items and
+  the summon hotkey) calls `app.show()` first: a hidden app ignores
+  `win.show()`.
 
 ## Code signing & notarization (macOS)
 
