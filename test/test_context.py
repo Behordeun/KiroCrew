@@ -1362,13 +1362,17 @@ class TestLoadSteeringResources:
 
 class TestLessonsCap:
     def test_over_cap_preserves_complete_explicit_rules(self, tmp_path):
-        from kiro_crew.context import _LESSONS_CAP
+        from kiro_crew.context import _LESSONS_STARTUP_CAP
         from kiro_crew.learn import Lesson
 
         lessons = LessonStore(base_dir=tmp_path)
         # Save enough long lessons that the formatted context exceeds the cap.
+        # The budget that BINDS the startup rule tier is ``_LESSONS_STARTUP_CAP``
+        # (the window-independent authored-tier allowance passed as the startup
+        # renderers' ``directive_budget``), not the ordinary ``_LESSONS_CAP``, so
+        # the fixture is sized to overflow that one.
         rule = "x" * 1000
-        for i in range(_LESSONS_CAP // 1000 + 5):
+        for i in range(_LESSONS_STARTUP_CAP // 1000 + 5):
             lessons.save(Lesson(ts=str(i), rule=f"{i}-{rule}", category="knowledge"))
 
         builder = ContextBuilder(
@@ -1384,7 +1388,7 @@ class TestLessonsCap:
         # a partial rule: trimming is by whole entry, so every rule that appears
         # appears in full, and the ones that did not fit are reported with exact
         # counts instead of vanishing.
-        total = _LESSONS_CAP // 1000 + 5
+        total = _LESSONS_STARTUP_CAP // 1000 + 5
         # Match the whole rendered entry, not the rule text: these fixture rules
         # are prefix-ambiguous ("0-xxx…" is a substring of "10-xxx…"), so a bare
         # ``in`` reports a rule as present that was never emitted. Anchoring on the
@@ -1408,7 +1412,7 @@ class TestLessonsCap:
         # And the block stays inside the budget it names.
         start = ctx.index("[Learned corrections")
         end = ctx.index("[End of learned corrections]", start)
-        assert end - start <= _LESSONS_CAP
+        assert end - start <= _LESSONS_STARTUP_CAP
 
     def test_under_cap_no_error_block(self, tmp_path):
         from kiro_crew.learn import Lesson
