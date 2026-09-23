@@ -127,8 +127,9 @@ Both write a warning to the server log and nothing to the record, so a dispatche
 worker running on a model nobody chose looks identical to one deliberately on auto.
 
 `session/opened` therefore also carries `model_requested`, the model the gateway
-SELECTED through the slot pin, the crew pin and the resolved default. The value is
-bound once at allocation, handed to the provider, and retained with the live slot so
+SELECTED through the slot pin, the crew pin, the resolved default, and the
+allocation's own resolution. The value is bound once at allocation, handed to the
+provider, and retained with the live slot so
 the first turn cannot replace it with a newer config resolution when it claims a
 pre-warmed session. It is written whenever that allocation resolved a tier, and its
 presence is NOT conditioned on `model`. When this process did not observe the
@@ -136,6 +137,24 @@ allocation -- for example, on re-attach -- the field is absent rather than infer
 from the observing turn. Selection is not transmission: the provider withholds a
 model this account cannot run rather than sending it, so the field names the choice,
 not a message the backend received.
+
+The fourth tier is read rather than resolved. A caller whose own three tiers all
+defer passes no model, and `get_or_create` then resolves one from config inside a
+call that returns the provider, `is_new` and `resumed` -- so the caller has no
+selection of its own to record while the session runs on a concrete id. The
+allocation stamps the id it hands the provider on the live session, and the caller
+reads that stamp FIRST (`SessionManager.allocation_requested_model`), falling back to
+its own selection only when nothing was stamped.
+
+That order is what the consumed observation forces. `is_new` with `resumed` false
+says the caller consumed a fresh first-turn observation, NOT that the caller
+allocated the session: a prewarmed session that started fresh arms exactly that
+observation, so a claim of one is indistinguishable from a cold start in the return
+value. The stamp is the allocation's own selection by construction and is therefore
+right for both. The caller's own resolution is right only for the cold start -- on a
+prewarmed claim it re-resolves a config that may have moved since, which would name a
+model the session never ran on in an entry nothing rewrites. One string therefore
+reaches both the provider and this entry.
 
 That unconditional rule is the point, because both ways of conditioning it lose
 the record. Suppressing it when it DIFFERS from `model` reports an honoured request
