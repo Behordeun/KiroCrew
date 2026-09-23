@@ -1150,6 +1150,7 @@
       "action_ask": "Fragen",
       "ask_agent": "Den Agenten fragen: „{{query}}“",
       "group_attention": "Braucht dich",
+      "group_recent_sessions": "Letzte Sitzungen",
       "action_enter": "Ansicht öffnen",
       "action_continue": "Weiter",
       "action_open": "Öffnen",
