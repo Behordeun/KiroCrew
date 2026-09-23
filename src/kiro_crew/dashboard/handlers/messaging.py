@@ -8,6 +8,7 @@ import importlib.util
 import json
 import logging
 import os
+import platform
 import re
 import time
 from pathlib import Path
@@ -4328,10 +4329,33 @@ async def api_channel_folder_backfill(request: web.Request) -> web.Response:
         # It is also a whole sentence naming the remedy, not a fragment: a
         # reader who does not already know what "the local machine" is has
         # nothing to act on, which is a dead end rather than a refusal.
+        #
+        # And it NAMES that machine. "The computer that hosts this dashboard"
+        # tells a remote reader what kind of computer to look for, not which
+        # one: a blind read of that sentence recorded "I have no idea how I'd
+        # find out which computer that is". The host's first DNS label is the
+        # same stand-in `session_transfer.local_instance_label` uses for the
+        # same reader, and the same fallback shape: a host with no name keeps
+        # the description alone, never a blank or an exception on a refusal path.
         # The `code` is unchanged, so nothing machine-readable moves with this.
+        try:
+            host = platform.node().split(".")[0]
+        except Exception:
+            host = ""
+        # It also states the reader's own situation first. A remote viewer IS
+        # looking at a dashboard, so "open the dashboard there" read as circular
+        # to a blind reader who then stopped; "this same page on <host>" tells
+        # them what to do with the name.
+        where = (
+            f"{host}, the computer that hosts this dashboard"
+            if host
+            else "the computer that hosts this dashboard"
+        )
+        there = f"on {host}" if host else "there"
         return _deny(
-            "Filing runs only on the computer that hosts this dashboard. "
-            "Open the dashboard there and click again.",
+            "You are viewing this page from another computer. "
+            f"Filing runs only on {where}. "
+            f"Open this same page {there} and click again.",
             "read_only_remote",
             status=403,
         )
