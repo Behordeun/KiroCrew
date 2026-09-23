@@ -1856,7 +1856,7 @@ export function useWebSocket() {
               voiceProgressRef.current = null
             }
             if (!isPassiveNote && data.slot && (data.role === 'user' || data.role === 'inject' || data.role === 'subagent')) {
-              dispatch(setSlotStatusDetail({ slot: data.slot, kind: 'thinking', text: 'Thinking…', ts: Date.now() }))
+              dispatch(setSlotStatusDetail({ slot: data.slot, kind: 'thinking', ts: Date.now() }))
             }
             break
           case 'chat_message_update':
@@ -1979,7 +1979,7 @@ export function useWebSocket() {
               // The gateway generation that numbered the seqs (see floorForGen).
               if (typeof data.gen === 'string') entry.gen = data.gen
               if (store.getState().chat.slotStatusDetail[cs]?.kind !== 'streaming') {
-                dispatch(setSlotStatusDetail({ slot: cs, kind: 'streaming', text: 'Streaming', ts: Date.now() }))
+                dispatch(setSlotStatusDetail({ slot: cs, kind: 'streaming', ts: Date.now() }))
               }
               // A hidden window never runs the scheduled frame; past the
               // threshold, drain now so the buffer cannot hold a whole turn.
@@ -2006,10 +2006,10 @@ export function useWebSocket() {
               // tools run in parallel a refinement of one cannot inherit a
               // sibling's purpose.
               //
-              // `text` holds the PURPOSE ALONE and stays empty when the agent
+              // `purpose` holds the PURPOSE ALONE and stays empty when the agent
               // supplied none — the fallback to the tool title belongs to
               // toolStatusLabel, which owns the label rule. Storing the title
-              // in `text` instead would make the two indistinguishable here,
+              // in `purpose` instead would make the two indistinguishable here,
               // and a purpose-less call would then pin the initial stub title
               // ("Terminal") for the whole call instead of advancing to the
               // refined command.
@@ -2045,7 +2045,7 @@ export function useWebSocket() {
               dispatch(setSlotStatusDetail({
                 slot: data.slot,
                 kind: 'tool',
-                text: purpose || mergeInto?.text || '',
+                purpose: purpose || mergeInto?.purpose || '',
                 toolName: toolName || mergeInto?.toolName || '',
                 derivedTitle: derivedTitle || mergeInto?.derivedTitle || '',
                 ...(derivedAction
@@ -2328,7 +2328,7 @@ export function useWebSocket() {
             // made explicit.
             const detailKind = data.slot ? store.getState().chat.slotStatusDetail[data.slot]?.kind : undefined
             if (data.slot && detailKind !== 'streaming' && detailKind !== 'thinking') {
-              dispatch(setSlotStatusDetail({ slot: data.slot, kind: 'thinking', text: 'Thinking…', ts: Date.now() }))
+              dispatch(setSlotStatusDetail({ slot: data.slot, kind: 'thinking', ts: Date.now() }))
             }
             break
           }
@@ -2344,7 +2344,7 @@ export function useWebSocket() {
           }
           case 'chat_status':
             if (data.slot && data.status) {
-              dispatch(setSlotStatusDetail({ slot: data.slot, kind: 'thinking', text: data.status, ts: Date.now() }))
+              dispatch(setSlotStatusDetail({ slot: data.slot, kind: 'thinking', label: data.status, ts: Date.now() }))
             }
             break
           case 'chat_variant_switch':
@@ -2439,7 +2439,7 @@ export function useWebSocket() {
               emitSlotRead(data.slot, doneTs)
             }
             if (data.slot) {
-              dispatch(setSlotStatusDetail({ slot: data.slot, kind: 'idle', text: 'Ready', ts: Date.now() }))
+              dispatch(setSlotStatusDetail({ slot: data.slot, kind: 'idle', ts: Date.now() }))
             }
             if (data.slot) dispatch(refreshSlot(data.slot))
             if (data.slot) {
