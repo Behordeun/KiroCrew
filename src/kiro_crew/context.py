@@ -1450,6 +1450,37 @@ def _group_included(groups: frozenset[str] | None, group: str) -> bool:
     return groups is None or group in groups
 
 
+def _config_scoped_groups(
+    context_groups: frozenset[str] | None, cfg: "KiroCrewConfig | None" = None
+) -> frozenset[str] | None:
+    """The caller-passed scope intersected with the operator's config toggles.
+
+    ``memory.inject_memory`` / ``memory.inject_lessons`` (with
+    ``memory.persistence_enabled`` as the global switch) withhold a group on
+    EVERY surface. Intersecting here — instead of at each call site — keeps a
+    new context entry point from silently escaping the config;
+    ``build_session_context``, the v2 essentials builder and the
+    post-compaction re-injection all route through this.
+    Subagent narrowing is preserved: config can only remove groups from the
+    caller-passed scope, never add one back. Only the memory and lessons groups
+    are ever subtracted, so a project-group gate reads the caller scope
+    directly. The ``[CONTEXT SCOPE]`` block
+    stays keyed to the caller-passed value, because "your parent withheld"
+    describes per-spawn narrowing, not the operator's standing choice.
+    """
+    if cfg is None:
+        cfg = KiroCrewConfig.load()
+    withheld: set[str] = set()
+    if not (cfg.memory.persistence_enabled and cfg.memory.inject_memory):
+        withheld.add(CONTEXT_GROUP_MEMORY)
+    if not (cfg.memory.persistence_enabled and cfg.memory.inject_lessons):
+        withheld.add(CONTEXT_GROUP_LESSONS)
+    if not withheld:
+        return context_groups
+    base = SWITCHABLE_CONTEXT_GROUPS if context_groups is None else context_groups
+    return frozenset(base) - withheld
+
+
 def _build_context_scope_section(groups: frozenset[str] | None) -> str:
     """Name the groups a parent withheld, or ``""`` when nothing was withheld.
 
@@ -3346,6 +3377,21 @@ class ContextBuilder:
         template = member_template or template
         if not owner:
             return ""
+        # Same config intersection as build_session_context: this builder is a
+        # second context entry point, so a group the operator disabled must be
+        # withheld here too rather than only on the main path.
+        #
+        # EXCEPT when profile_overrides is supplied. That argument makes this a
+        # VALIDATOR (_validate_private_profile_update), not a context build: the
+        # candidate profile is appended only under the memory-group gate below,
+        # and render_essentials' combined-budget refusal is what rejects a
+        # profile that fits per-file but overflows the combined cap. Scoping the
+        # groups here would drop that gate whenever injection is disabled, so an
+        # oversized profile would save and then break every later member build.
+        # A validation pass must see the complete candidate set regardless of
+        # what the operator currently injects.
+        if profile_overrides is None:
+            context_groups = _config_scoped_groups(context_groups)
         reads = not blocks_reads and _group_included(context_groups, CONTEXT_GROUP_MEMORY)
         identity = self._build_member_section(owner, strict=True, include_briefing=reads)
         documents = documents_for_member(
@@ -3650,6 +3696,19 @@ class ContextBuilder:
         # member capability gate below — one read per context build.
         _cfg = KiroCrewConfig.load()
 
+        # Config-driven injection toggles (memory.inject_memory /
+        # memory.inject_lessons, with memory.persistence_enabled as the global
+        # switch): a group the operator disabled is withheld on EVERY surface —
+        # dashboard, channels, cron, heartbeat, task runner, eval, subagents —
+        # by intersecting here, the one method all context builds pass through,
+        # rather than at the eleven call sites that would each have to remember
+        # to pass ``context_groups``. The caller-passed ``context_groups`` keeps
+        # driving the [CONTEXT SCOPE] block below: its "Your parent withheld"
+        # prose describes subagent narrowing, and a config withholding is the
+        # operator's standing choice, not the parent's per-spawn one, so it is
+        # deliberately silent there.
+        effective_groups = _config_scoped_groups(context_groups, _cfg)
+
         if mode == _member_mode and _member_backend_can_dispatch(_cfg):
             append_required(
                 f"[CREW MEMBER OPERATING MODE]\n"
@@ -3715,7 +3774,7 @@ class ContextBuilder:
         # the sub-agent reads the scope as framing rather than discovering a gap.
         append_required(_build_context_scope_section(context_groups))
 
-        if _group_included(context_groups, CONTEXT_GROUP_LESSONS):
+        if _group_included(effective_groups, CONTEXT_GROUP_LESSONS):
             profile_ctx = _build_user_profile_section(_cfg)
             if profile_ctx:
                 parts.append(profile_ctx)
@@ -3895,7 +3954,7 @@ class ContextBuilder:
         memory = None
         member_vectors = None
         if not blocks_reads and any(
-            _group_included(context_groups, group)
+            _group_included(effective_groups, group)
             for group in (CONTEXT_GROUP_MEMORY, CONTEXT_GROUP_LESSONS)
         ):
             if private:
@@ -3912,7 +3971,7 @@ class ContextBuilder:
                     )
             else:
                 memory = self.get_memory_for(workspace, memory_store)
-        if not blocks_reads and _group_included(context_groups, CONTEXT_GROUP_MEMORY):
+        if not blocks_reads and _group_included(effective_groups, CONTEXT_GROUP_MEMORY):
             if private:
                 append_required(
                     "[Memory tools]\n"
@@ -4026,7 +4085,7 @@ class ContextBuilder:
         lessons_renderer: Callable[[int], str] | None = None
         lessons_part_index: int | None = None
         if (memory is not None or member_vectors is not None) and _group_included(
-            context_groups, CONTEXT_GROUP_LESSONS
+            effective_groups, CONTEXT_GROUP_LESSONS
         ):
             # V1 only: the JSONL store answers when the vector store is absent OR not yet
             # populated, and stays silent once it holds lessons.
@@ -4128,7 +4187,7 @@ class ContextBuilder:
             session_key
             and self.conversation_log
             and not blocks_reads
-            and _group_included(context_groups, CONTEXT_GROUP_MEMORY)
+            and _group_included(effective_groups, CONTEXT_GROUP_MEMORY)
         ):
             provenance = self.conversation_log.recent_with_provenance(
                 session_key, exclude_last_n=exclude_last_n
@@ -4634,7 +4693,13 @@ class ContextBuilder:
         # mapping excludes and an unmapped custom agent cannot receive a block
         # its session-start context never contained.
         if not is_new_session and needs_reinjection:
-            if not blocks_reads and _group_included(context_groups, CONTEXT_GROUP_MEMORY):
+            # The stored-memory half routes through the same config intersection
+            # as the session-start build: this path restores a block that build
+            # withheld, so reading the caller scope alone would hand back the
+            # activity index the operator's inject_memory setting excluded.
+            if not blocks_reads and _group_included(
+                _config_scoped_groups(context_groups), CONTEXT_GROUP_MEMORY
+            ):
                 memory = self.get_memory_for(workspace, memory_store)
                 parts.append(_neutralize_structural_markers(memory.activity_index()))
                 parts.append(
