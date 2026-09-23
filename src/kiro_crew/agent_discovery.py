@@ -17,9 +17,10 @@ import functools
 import logging
 import os
 import threading
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Generic, Iterator, TypeVar
 
 from kiro_crew import agent_state, hooks
 from kiro_crew.agent_files import (
@@ -1320,6 +1321,22 @@ def agent_welcome_message(
     return spec_welcome_message(data)
 
 
+def _iter_spec_entries(d: Path) -> Iterator[os.DirEntry[str]]:
+    """The one ``scandir`` walk behind the stat-only fingerprints of an agents dir.
+
+    Yields every entry with a recognised spec suffix and nothing else; the
+    caller decides what to ``stat`` and how. Case-insensitive: a
+    case-insensitive filesystem serves ``Foo.JSON`` to ``glob("*.json")``
+    consumers, so a case-sensitive suffix here would omit from a fingerprint a
+    file the scans include -- its edits would never invalidate. A directory that
+    cannot be listed raises the ``OSError``; each caller decides what that means.
+    """
+    with os.scandir(d) as it:
+        for entry in it:
+            if is_agent_spec_name(entry.name):
+                yield entry
+
+
 def _dir_signature(d: Path) -> _ListAgentsSig:
     """Cheap stat-only signature of the agents dir.
 
@@ -1333,25 +1350,181 @@ def _dir_signature(d: Path) -> _ListAgentsSig:
     change the stem-derived agent name and the anchoring of relative
     ``skill://`` globs. Invalidates the :func:`list_agents`, project-names,
     and parsed-specs caches.
+
+    Always a tuple, never ``None``: the catalog caches it revalidates stay on
+    for a symlinked or freshly edited directory. :func:`agents_dir_revision`
+    is the stricter fingerprint, for answers that must never be served stale.
     """
     entries: list[tuple[str, int]] = []
     try:
-        with os.scandir(d) as it:
-            for entry in it:
-                # Case-insensitive: a case-insensitive filesystem serves
-                # ``Foo.JSON`` to ``glob("*.json")`` consumers, so a
-                # case-sensitive suffix here would omit from the signature a
-                # file the scans include — its edits would never invalidate.
-                if not is_agent_spec_name(entry.name):
-                    continue
-                try:
-                    m = entry.stat().st_mtime_ns
-                except OSError:
-                    m = 0
-                entries.append((entry.name, m))
+        for entry in _iter_spec_entries(d):
+            try:
+                m = entry.stat().st_mtime_ns
+            except OSError:
+                m = 0
+            entries.append((entry.name, m))
     except OSError:
         pass
     return tuple(sorted(entries))
+
+
+_SpecStatRevision = tuple[str, int, int, int, int, int, int]
+AgentsDirRevision = tuple[int, tuple[_SpecStatRevision, ...], int]
+# ``st_ctime_ns`` is creation time on Windows, so entry metadata cannot prove
+# that an in-place rewrite did not happen; the revision is unavailable there.
+AGENTS_DIR_MEMO_ENABLED = not _WINDOWS
+# Above this many spec entries no revision is taken, and a read costs what it costs.
+_AGENTS_DIR_REVISION_MAX_ENTRIES = 4096
+# Follow the racy-git precedent: metadata younger than this window is untrusted.
+_AGENTS_DIR_RACY_WINDOW_NS = 2_000_000_000
+# An answer set that reaches this many keys is cleared whole, so a churn of names cannot grow it.
+_AGENTS_DIR_MEMO_MAX_KEYS = 256
+_AGENTS_DIR_REVISION_LOCK = threading.Lock()
+_AGENTS_DIR_REVISION_OVERFLOW_WARNED: set[str] = set()  # Guarded by the lock above.
+
+
+def agents_dir_revision(agents_dir: Path) -> AgentsDirRevision | None:
+    """Stat-only fingerprint of *agents_dir* strong enough to pin a read answer to.
+
+    ``None`` means "cannot prove freshness; do not memoize". Where
+    :func:`_dir_signature` answers every call with a tuple because the catalog
+    caches it serves tolerate a same-tick edit, this refuses whenever entry
+    metadata could miss a rewrite: no spec is opened or parsed either way.
+
+    The directory's own mtime catches an entry added, removed, renamed or
+    re-linked; each spec entry's name, timestamps, size, identity and mode catch
+    ordinary in-place edits and metadata changes. The in-process spec
+    generation (:func:`spec_cache_generation`) is part of the tuple, so
+    :func:`clear_list_agents_cache` -- which the in-process spec writers call --
+    moves every revision at once, closing the sub-tick window. An entry whose
+    mtime or ctime is within the last two seconds gives ``None``, so a
+    same-size rewrite that lands in the same filesystem timestamp tick as the
+    previous one cannot be served stale (the racy-git rule).
+
+    A symlinked spec gives ``None``: its entry metadata cannot see edits to its
+    target. On Windows the answer is always ``None``: ``st_ctime_ns`` is
+    creation time there, so entry metadata cannot prove an in-place rewrite did
+    not happen. A directory past :data:`_AGENTS_DIR_REVISION_MAX_ENTRIES` gives
+    ``None`` and logs one warning per directory.
+
+    Only entries with a recognised spec suffix (``is_agent_spec_name``) are
+    fingerprinted; that is a superset of what the spec scans parse (a Markdown
+    spec shadowed by its JSON twin is still fingerprinted), so the revision can
+    only be more sensitive than the scan, never less. Adding or removing a stray
+    file still invalidates through the directory mtime, but the stray file itself
+    is omitted from the entry tuples. A ``stat`` that fails records zeros: the
+    entry is still named, so its appearance and disappearance are revisions. An
+    entry whose kind cannot be determined gives ``None``, and so does a
+    directory that cannot be listed: an unlistable directory is not an empty one.
+    """
+    if not AGENTS_DIR_MEMO_ENABLED:
+        return None
+    try:
+        dir_mtime = agents_dir.stat().st_mtime_ns
+    except OSError:
+        dir_mtime = 0
+    entries: list[_SpecStatRevision] = []
+    try:
+        for entry in _iter_spec_entries(agents_dir):
+            try:
+                if entry.is_symlink():
+                    return None
+            except OSError:
+                return None
+            try:
+                st = entry.stat(follow_symlinks=False)
+                entries.append(
+                    (
+                        entry.name,
+                        st.st_mtime_ns,
+                        st.st_ctime_ns,
+                        st.st_size,
+                        st.st_ino,
+                        st.st_dev,
+                        st.st_mode,
+                    )
+                )
+            except OSError:
+                entries.append((entry.name, 0, 0, 0, 0, 0, 0))
+            if len(entries) > _AGENTS_DIR_REVISION_MAX_ENTRIES:
+                key = str(agents_dir)
+                with _AGENTS_DIR_REVISION_LOCK:
+                    should_warn = key not in _AGENTS_DIR_REVISION_OVERFLOW_WARNED
+                    _AGENTS_DIR_REVISION_OVERFLOW_WARNED.add(key)
+                if should_warn:
+                    logger.warning(
+                        "agents-dir memo disabled for %s: %d spec entries exceed %d",
+                        agents_dir,
+                        len(entries),
+                        _AGENTS_DIR_REVISION_MAX_ENTRIES,
+                    )
+                return None
+    except OSError:
+        return None
+    cutoff = time.time_ns() - _AGENTS_DIR_RACY_WINDOW_NS
+    if dir_mtime > cutoff or any(entry[1] > cutoff or entry[2] > cutoff for entry in entries):
+        return None
+    return dir_mtime, tuple(sorted(entries)), spec_cache_generation()
+
+
+T = TypeVar("T")
+
+
+class AgentsDirMemo(Generic[T]):
+    """Answers computed from one walk of an agents directory, pinned to its revision.
+
+    The two ``spec_by_declared_name`` callers (the KAS projection and the
+    tool-policy read) each parse every spec in the directory to resolve one
+    name, and each keeps its own instance here so their SEL ``operation``
+    labels never share an answer. The store and hit rules live once:
+
+    - a revision is taken before ``compute`` and again after it, and the answer
+      is stored only when both are equal and not ``None``, so a write landing
+      during the read is never memoized under the revision that preceded it;
+    - an exception from ``compute`` propagates and nothing is stored;
+    - one answer set per directory, replaced whole on a new revision and
+      cleared when it reaches :data:`_AGENTS_DIR_MEMO_MAX_KEYS`, so a churn of
+      keys cannot grow it.
+
+    An in-process spec write that calls :func:`clear_list_agents_cache` moves
+    the spec generation, which is part of every revision, so the stored answers
+    stop matching without the memo being told.
+
+    The answer returned is the stored object itself, so a caller that hands it
+    to code which may mutate it must copy (the KAS projection deep-copies; the
+    tool-policy read's answer is serialized and never mutated). Two threads
+    missing at once compute redundantly and last-write-wins, the same answer
+    from the same revision. The lock guards the dict only; callers run on
+    worker threads.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._answers: dict[str, tuple[AgentsDirRevision, dict[str, T]]] = {}
+
+    def get(self, agents_dir: Path, key: str, compute: Callable[[], T]) -> T:
+        """Return the memoized answer for *key* under *agents_dir*, or ``compute()``."""
+        dir_key = str(agents_dir)
+        revision = agents_dir_revision(agents_dir)
+        if revision is None:
+            return compute()
+        with self._lock:
+            cached = self._answers.get(dir_key)
+            if cached is not None and cached[0] == revision and key in cached[1]:
+                return cached[1][key]
+        answer = compute()
+        if agents_dir_revision(agents_dir) != revision:
+            return answer
+        with self._lock:
+            cached = self._answers.get(dir_key)
+            if cached is None or cached[0] != revision:
+                cached = (revision, {})
+                self._answers[dir_key] = cached
+            answers = cached[1]
+            if len(answers) >= _AGENTS_DIR_MEMO_MAX_KEYS:
+                answers.clear()
+            answers[key] = answer
+        return answer
 
 
 def clear_list_agents_cache() -> None:

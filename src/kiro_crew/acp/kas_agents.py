@@ -63,6 +63,7 @@ the field absent, which is the all-``ask`` case above.
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 from pathlib import Path
@@ -73,6 +74,7 @@ from kiro_crew.acp.kas_permissions import (
     merge_user_permissions,
 )
 from kiro_crew.agent_discovery import (
+    AgentsDirMemo,
     AmbiguousAgentSpecError,
     read_agent_spec_strict,
     spec_by_declared_name,
@@ -830,6 +832,12 @@ def to_client_custom_agent(
     return out
 
 
+# The declared-name scan's resolved answers, pinned to the agents directory's
+# stat-only revision. Its own instance, not the tool-policy read's: the two
+# scans carry different SEL ``operation`` labels and must not share answers.
+_SPEC_SCAN_MEMO: AgentsDirMemo[dict[str, Any] | None] = AgentsDirMemo()
+
+
 def load_agent_spec(agents_dir: Path, agent_id: str) -> dict[str, Any]:
     """Read a materialized agent spec.
 
@@ -851,7 +859,7 @@ def load_agent_spec(agents_dir: Path, agent_id: str) -> dict[str, Any]:
     undefined, and picking either would project an agent the operator did not
     name.
 
-    The scan's parsed spec is returned as is: it was read under the hardened
+    The scan's parsed spec is what the projection uses: it was read under the hardened
     reader's guards, labelled ``kas_agent_projection`` so a denial is
     attributed to the projection, and reopening the file it came from would
     read it a second time with none of them. The fallback read of
@@ -860,6 +868,20 @@ def load_agent_spec(agents_dir: Path, agent_id: str) -> dict[str, Any]:
     with the failure class kept; a spec declaring no name at all, or a name
     other than its stem, reaches the projection only through it.
 
+    A resolved scan answer is served from :data:`_SPEC_SCAN_MEMO`, the
+    directory-revision memo, while the directory is unchanged: every KAS
+    session start otherwise hardened-reads every spec in the directory to
+    find one. That keeps the freshness contract above, because the revision
+    is a ``stat`` of the directory and of every spec entry in it, taken
+    before and after the read -- an edit changes it, and a directory
+    containing a symlinked spec, or one written inside the racy window, is
+    never memoized (:func:`kiro_crew.agent_discovery.agents_dir_revision`,
+    which also refuses a spec entry whose kind cannot be read and a directory
+    past its entry cap). The answer handed
+    back is a deep copy, so it is still a parse the caller owns and a caller's
+    mutation cannot reach a later session. The fallback read below is one file
+    and is not memoized.
+
     The scan and the fallback read raise :class:`KasAgentTranslationError` on
     an ``OSError`` for the same reason: every caller of this module handles the
     translation error, not an ``OSError``. On 3.12 ``Path.glob`` propagates one
@@ -867,20 +889,24 @@ def load_agent_spec(agents_dir: Path, agent_id: str) -> dict[str, Any]:
     run no such probe), and the strict reader raises one for a file it cannot
     resolve or open on every supported version, so an unsearchable agents dir
     reaches this function as an ``OSError`` and the conversion is what makes
-    the failure uniform.
+    the failure uniform. Neither exception leaves anything in the memo.
     """
     candidates = agent_spec_candidates(agents_dir, agent_id)
     path = candidates[0]
     try:
-        declared = spec_by_declared_name(
-            agents_dir, agent_id, operation="kas_agent_projection", source="unknown"
+        declared = _SPEC_SCAN_MEMO.get(
+            agents_dir,
+            agent_id,
+            lambda: spec_by_declared_name(
+                agents_dir, agent_id, operation="kas_agent_projection", source="unknown"
+            ),
         )
     except AmbiguousAgentSpecError as exc:
         raise KasAgentTranslationError(str(exc)) from exc
     except OSError as exc:
         raise KasAgentTranslationError(f"agent spec {path} is unreadable: {exc}") from exc
     if declared is not None:
-        return declared
+        return copy.deepcopy(declared)
     # ``<id>.json`` first: beside an ``<id>.md`` twin the JSON wins, the same
     # rule the directory scan applies (see ``agent_spec_format``).
     present = [p for p in candidates if p.is_file()]
