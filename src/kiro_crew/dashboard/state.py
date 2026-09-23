@@ -4396,7 +4396,7 @@ class _ChatSlot:
             "total": len(links),
         }
 
-    def to_dict(self, *, include_check_status: bool = False, dashboard_user: bool = False) -> dict:
+    def _summary_source_links(self) -> list[dict]:
         # Skip extraction itself when the chips are off, not just the two fields
         # the projection derives from it: `_pr_source_links()` scans the transcript
         # under a per-call parse budget, and paying for a payload nothing renders
@@ -4407,7 +4407,30 @@ class _ChatSlot:
             session_card_source_links_enabled,
         )
 
-        source_links = self._pr_source_links() if session_card_source_links_enabled() else []
+        return self._pr_source_links() if session_card_source_links_enabled() else []
+
+    def source_links_view(
+        self, *, include_check_status: bool = False, dashboard_user: bool = False
+    ) -> list[dict]:
+        """The ``source_links`` field ``to_dict`` emits for one audience.
+
+        ``include_check_status`` and ``dashboard_user`` change NOTHING in the
+        slot summary except this field (``slot_projection.SlotProjection.to_dict``
+        reads them only through ``project_source_links``). The broadcast uses
+        that: it serializes each slot once and swaps this field per audience
+        instead of re-running the projection body (last-message markdown strip,
+        credential redaction, options parse) three times per slot on the event
+        loop. The source-link transcript scan itself is memoized per slot
+        revision, so it was never the repeated cost.
+        """
+        return _project_source_links(
+            _budgeted_source_links(self._summary_source_links()),
+            include_check_status,
+            dashboard_user=dashboard_user,
+        )
+
+    def to_dict(self, *, include_check_status: bool = False, dashboard_user: bool = False) -> dict:
+        source_links = self._summary_source_links()
         return self._projection.to_dict(
             self,
             include_check_status=include_check_status,
@@ -7619,6 +7642,60 @@ class DashboardState:
             out.append(d)
         return out
 
+    def serialize_slot_views(
+        self, *, owner: bool
+    ) -> tuple[list[dict], list[dict], list[dict] | None]:
+        """One serialization pass, three audience views of the slot list.
+
+        Returns ``(bare, dashboard_user, owner)``; ``owner`` is ``None`` when
+        ``owner`` is False (no owner socket to build it for).
+
+        The three views the broadcast ships differ ONLY in each slot's
+        ``source_links`` field -- the audience gates are read nowhere else in the
+        summary (see ``_ChatSlot.source_links_view``). Serializing the list three
+        times therefore ran the per-slot projection body (last-message markdown
+        strip, credential redaction, options parse) and the source-link
+        budgeting three times for identical output, synchronously on the
+        event loop: measured at ~200 ms per pass on a sidebar of ~80 tabs, so a
+        broadcast stalled the loop for ~600 ms. Those stalls read as host pressure
+        to the adaptive concurrency controller (``loop_lag >= 250 ms`` is a
+        sufficient-alone decrease signal) and pinned the subagent cap at its floor
+        on an idle machine. Serialize once, then re-project only the one field.
+
+        The derived dicts are shallow copies: every other value is shared with
+        the bare list. Nothing mutates a slot payload after serialization (the
+        bare list is ``json.dumps``-ed for SSE and the WS frames are built from
+        the lists as-is), so sharing is safe and avoids a deep copy per audience.
+        A payload whose key has no live slot (a patched ``serialize_slots`` in
+        tests, or a slot closed between the two loops) is carried over unchanged.
+        """
+        bare = self.serialize_slots()
+        return (
+            bare,
+            self._reproject_slots(bare, dashboard_user=True),
+            self._reproject_slots(bare, include_check_status=True) if owner else None,
+        )
+
+    def _reproject_slots(
+        self,
+        slots_data: list[dict],
+        *,
+        include_check_status: bool = False,
+        dashboard_user: bool = False,
+    ) -> list[dict]:
+        out: list[dict] = []
+        for payload in slots_data:
+            slot = self._slots.get(payload.get("key", ""))
+            if slot is None or "source_links" not in payload:
+                out.append(payload)
+                continue
+            view = dict(payload)
+            view["source_links"] = slot.source_links_view(
+                include_check_status=include_check_status, dashboard_user=dashboard_user
+            )
+            out.append(view)
+        return out
+
     def _drop_orphaned_mcp_report(self, slot: "_ChatSlot") -> None:
         """Drop a slot's MCP report unless it describes the slot's CURRENT session.
 
@@ -7843,8 +7920,13 @@ class DashboardState:
         # allowed that route. Keep the broadcast list bare and put
         # the public-repo enrichment only on the WS path, where
         # ``_serialize_for_client`` re-filters app tokens.
-        slots_data = self.serialize_slots()
-        slots_data_ws = self.serialize_slots(dashboard_user=True)
+        #
+        # One serialization pass for all three audiences -- see
+        # ``serialize_slot_views`` for why three passes stalled the event loop.
+        owner_ws_clients = getattr(self, "_owner_ws_clients", None)
+        slots_data, slots_data_ws, owner_slots = self.serialize_slot_views(
+            owner=bool(owner_ws_clients)
+        )
         # The evidenced way this broadcast fails is a non-serializable value in
         # slot state: the dump raises, and the bare TypeError
         # names neither the slot nor the field. Serialize up front and annotate
@@ -7924,9 +8006,7 @@ class DashboardState:
         # invalidation, so a subset here leaves the owner without them. Both frames
         # are built by `_slots_ws_frame`, so a key cannot reach one and not the
         # other.
-        owner_ws_clients = getattr(self, "_owner_ws_clients", None)
-        if owner_ws_clients:
-            owner_slots = self.serialize_slots(include_check_status=True)
+        if owner_ws_clients and owner_slots is not None:
             self._send_ws_owners(
                 _slots_ws_frame(
                     owner_slots,
