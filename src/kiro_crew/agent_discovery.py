@@ -166,6 +166,12 @@ _PARSED_SPECS_REFRESHING: set[str] = set()  # Guarded by _PARSED_SPECS_LOCK.
 _PARSED_SPECS_GEN = 0
 
 
+def spec_cache_generation() -> int:
+    """Return the generation of in-process agent-spec content."""
+    with _PARSED_SPECS_LOCK:
+        return _PARSED_SPECS_GEN
+
+
 @dataclass
 class AgentInfo:
     """Metadata for an installed kiro-cli agent."""
@@ -1359,6 +1365,8 @@ def clear_list_agents_cache() -> None:
     Invalidation is normally automatic via the directory signature; call this
     only to force an immediate refresh (e.g. right after writing an agent
     file).
+
+    The generation invalidates spec-derived caches in other modules.
     """
     _LIST_AGENTS_CACHE.clear()
     global _PARSED_SPECS_GEN
