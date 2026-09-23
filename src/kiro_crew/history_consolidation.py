@@ -23,6 +23,10 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from kiro_crew.config import live
 from kiro_crew.executors import run_in_embed_pool
 from kiro_crew.frontmatter import SKILL_UPDATE, frontmatter_value
+from kiro_crew.lesson_validation import (
+    LESSON_APPLIES_INSTRUCTION,
+    extracted_lesson_applies,
+)
 from kiro_crew.llm_helpers import (
     ToolApprovalPolicy,
     background_turn,
@@ -1210,7 +1214,10 @@ class HistoryConsolidator:
                     '"lessons": Array of corrections the user taught '
                     '(e.g. "no, do X", "always Y", "never Z"). '
                     'Each: {"rule": "...", "negative": "...", "category": "tool|preference|knowledge", '
-                    '"repo_scope": "..."}. '
+                    '"repo_scope": "...", "applies": "always|on_topic"}. '
+                    # The same instruction learn_add's schema carries, from one
+                    # constant, so both writers ask the model the same question.
+                    f'"applies": {LESSON_APPLIES_INSTRUCTION} '
                     '"repo_scope" is OPTIONAL: include it ONLY when the correction is '
                     "genuinely specific to one codebase worked on in the chat. Give a "
                     "RELATIVE directory path inside that repository that is distinctive "
@@ -1670,6 +1677,15 @@ class HistoryConsolidator:
             return None, True
         return raw, False
 
+    def _lesson_tier(self, item: dict) -> str | None:
+        """The lesson's authored ``applies`` tier to forward, or ``None`` for unstated.
+
+        One policy for every consolidation write path, so the member-store path
+        in ``VectorMemoryStore.apply_consolidation`` and this one cannot drift:
+        see ``extracted_lesson_applies``.
+        """
+        return extracted_lesson_applies(item.get("applies"), self._logger)
+
     def _save_lessons(
         self,
         raw: object,
@@ -1729,6 +1745,9 @@ class HistoryConsolidator:
                         # Gated by _gated_lesson_scope above; write_lesson
                         # canonicalises and re-checks admissibility itself.
                         repo_scope=scope,
+                        # Already normalized by _lesson_tier, so write_lesson's
+                        # own raising check cannot fire on it.
+                        applies=self._lesson_tier(item),
                         facets=facets,
                     )
                     if ok:
@@ -1758,6 +1777,9 @@ class HistoryConsolidator:
                         # Gated by _gated_lesson_scope above (LessonStore.save
                         # canonicalises but never checks admissibility itself).
                         repo_scope=scope,
+                        # None is dropped by _serializable, so an unstated row
+                        # is byte-identical to one written before the field.
+                        applies=self._lesson_tier(item),
                     )
                 )
                 if outcome != "refused":
