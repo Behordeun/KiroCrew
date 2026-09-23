@@ -1,7 +1,7 @@
 """The packaged Remote Crew page's code-coupled claims are pinned to the code.
 
 ``scripts/docs_lint.py`` gates a doc's paths and links, never what it claims, so
-``src/kiro_crew/docs/remote-instances.md`` is free to quote a config key that was
+``src/kiro_crew/docs/remote-crew.md`` is free to quote a config key that was
 renamed, a default that moved, or a diagnosis code that was retired, with the lint
 green. The claims most exposed to that are the ones a reader ACTS on — the nine
 ``instances.*`` keys the Tuning table tells them to set, the numbers beside them,
@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-DOC = ROOT / "src" / "kiro_crew" / "docs" / "remote-instances.md"
+DOC = ROOT / "src" / "kiro_crew" / "docs" / "remote-crew.md"
 
 
 @pytest.fixture(scope="module")
