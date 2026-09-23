@@ -3693,6 +3693,16 @@ exclude). To keep it off the per-message filesystem/config hot path:
   explicitly injected config honours that config rather than resolving a cap the
   injected document never carried (the absent-key default is 0, which would
   suppress every skill);
+- that cap is read BEFORE the scan, and a cap of 0 (the shipped default) skips
+  the scan entirely: the message is not tokenized, no visible-skill walk,
+  frontmatter read, `repo_scope` fence check or trigger score runs, and no
+  `skill_trigger` audit row is written -- a `!` veto at cap 0 excludes nothing
+  that could have been injected, so it is not a permission DENY. The matcher's
+  own per-message cost at cap 0 is the one snapshot read. `select` is still
+  called at cap 0, but the selection point owns its own zero-cap refusal and
+  answers `None` there (see [decisions.md](decisions.md)), which keeps the empty
+  match and writes no row. Only a `select` that returns a pick or `[]` at cap 0
+  is injected and audited as a selection;
 - `extra_paths` is re-resolved by `reconfigure(cfg)` on a config write, running
   the SAME screening as construction — expanduser, resolve, `is_sensitive_path`
   reject, existence check — and failing closed per entry, so a root added by hand

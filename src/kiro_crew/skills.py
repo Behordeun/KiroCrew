@@ -6402,14 +6402,27 @@ class SkillsLoader:
         is written; it returns ``None`` to keep the match. It is a callable, not
         a list, so the caller pays for it only when the match is being audited.
 
-        Returns up to ``max_triggered`` skills sorted by best overlap score.
+        Returns at most ``max_triggered`` matcher results sorted by best overlap
+        score; the cap does not apply to a list *select* returns, which replaces
+        them as given. A cap of zero (the shipped default) is the matcher
+        switched off: no skill is scanned or scored and no trigger audit row is
+        written; only *select* can still name skills.
         """
-        text_words = words_of(text)
         scored: list[tuple[str, float]] = []
         # Skills a negative trigger actively excluded — a permission DENY that
         # must still be audited (see the audit event below).
         negated_skills: list[str] = []
-        for name, skill_file, _within in self._iter_visible(project_dir):
+        # The cap is read BEFORE the scan. At zero every skill scored below would
+        # be sliced away, so the walk -- a frontmatter read, a repo-scope fence
+        # check and a trigger score per visible skill, on every message -- would
+        # buy nothing, and a `!` veto it recorded would be a DENY for a grant that
+        # could never have happened. Tokenizing the message feeds only that
+        # scoring, so it waits for the cap too. `select` still gets its turn: a
+        # selection point owns its own zero-cap refusal.
+        cap = self._max_triggered_now()
+        visible = self._iter_visible(project_dir) if cap > 0 else ()
+        text_words: set[str] = words_of(text) if cap > 0 else set()
+        for name, skill_file, _within in visible:
             meta = self._cached_frontmatter(skill_file, within=_within)
             if meta.get("always", "").strip().lower() == "true":
                 continue
@@ -6441,7 +6454,7 @@ class SkillsLoader:
                 scored.append((name, best_overlap))
 
         scored.sort(key=lambda x: x[1], reverse=True)
-        triggered = [name for name, _ in scored[: self._max_triggered_now()]]
+        triggered = [name for name, _ in scored[:cap]]
 
         # An external *select* runs BEFORE the audit below so the one row records
         # what is actually injected. Its three readings: a list replaces the
