@@ -292,6 +292,7 @@ from .exfil import (
     canonicalize_ip,
     diagnose_oauth_url_credential,
     exfil_query_min_len,
+    oauth_rejection_is_endpoint_exemptible,
     oauth_url_contains_credential,
     redact_exfiltration_urls,
     scan_exfiltration_urls,
@@ -701,7 +702,8 @@ def sanitized_oauth_endpoint(url: str) -> tuple[str, str] | None:
       and a credential-bearing HOSTNAME makes the whole helper return ``None``
       — a host is an identity, so a redacted host would name nothing;
     * both components are length-capped, so a pathological URL cannot bloat a
-      banner or a log line.
+      banner or a log line; a capped component ends in ``…`` so a reader can
+      tell a chopped name from a whole one.
 
     Returns ``None`` when the URL does not parse to a hostname, so callers fall
     back to their existing unnamed message. Deliberately independent of WHY the
@@ -752,13 +754,59 @@ def sanitized_oauth_endpoint(url: str) -> tuple[str, str] | None:
         # transformed form and refuse to name it.
         if _oauth_component_is_unsafe(host):
             return None
-    host = host[:_SANITIZED_OAUTH_HOST_MAX_LEN]
+    if len(host) > _SANITIZED_OAUTH_HOST_MAX_LEN:
+        # Marked like the path below: a silently chopped host reads as a whole
+        # hostname that nothing on disk will ever match.
+        host = host[:_SANITIZED_OAUTH_HOST_MAX_LEN] + "…"
     path = parsed.path or "/"
     if _oauth_component_is_unsafe(path):
         path = _REDACTED_CREDENTIAL_TAG
     elif len(path) > _SANITIZED_OAUTH_PATH_MAX_LEN:
         path = path[:_SANITIZED_OAUTH_PATH_MAX_LEN] + "…"
     return host, path
+
+
+def sanitized_oauth_endpoint_display(url: str) -> str | None:
+    """A rejected endpoint as one copy-ready ``host/path`` string, or ``None``.
+
+    :func:`sanitized_oauth_endpoint` answers a diagnostic ``(host, path)`` pair
+    and, by contract, may hand back a component that is NOT pasteable: the
+    shared redaction tag for a credential-bearing path, or a ``…``-capped host
+    or path. A surface whose whole point is "write THIS into
+    ``oauth_endpoints.json``" must not join those into text that reads as
+    actionable and is not.
+
+    So this helper returns a string only when writing the entry would WORK:
+
+    * the host matches ``_OAUTH_EXTENSION_HOST_RE`` (lowercase DNS name with a
+      letter TLD — so ``localhost``, IP literals and a capped host are refused);
+    * the path passes ``_valid_oauth_extension_path`` (leading ``/``, no
+      ``; ? # % \\ ..`` or whitespace) and is neither redacted nor capped;
+    * the rejection is one the allowlist can clear
+      (:func:`oauth_rejection_is_endpoint_exemptible`): the gate is re-run as
+      if the endpoint were approved, and only a URL that then PASSES is named.
+      A URL refused for a fixed credential, userinfo, a fragment, path
+      parameters, heavy percent-encoding, ``http`` or an explicit port would be
+      refused again after the entry is added, so it stays unnamed rather than
+      advertise a remedy that cannot work.
+
+    Callers fall back to their unnamed message on ``None``. Because the
+    counterfactual re-runs the gate, this can stat the operator file (memoized),
+    so callers treat it like the gate itself and run it off the event loop.
+    """
+    endpoint = sanitized_oauth_endpoint(url)
+    if endpoint is None:
+        return None
+    host, path = endpoint
+    # A capped host needs no check of its own: the host rule below ends in a
+    # letter TLD, which a trailing "…" can never satisfy.
+    if path == _REDACTED_CREDENTIAL_TAG or path.endswith("…"):
+        return None
+    if not _OAUTH_EXTENSION_HOST_RE.fullmatch(host) or not _valid_oauth_extension_path(path):
+        return None
+    if not oauth_rejection_is_endpoint_exemptible(url):
+        return None
+    return f"{host}{path}"
 
 
 # ── Binary File MIME Allowlist ──

@@ -4622,6 +4622,8 @@
       "mint_failure_timed_out": "Authorization setup timed out before an approval address was ready. Try connecting again.",
       "mint_failure_unknown": "Authorization setup failed before an approval address was ready. Try connecting again.",
       "mint_failure_url_rejected": "The provider returned an approval address containing credential-like data, so it was not displayed.",
+      "mint_failure_url_rejected_endpoint": "The approval address from {{endpoint}} looked like it carried a credential, so it was not displayed.",
+      "mint_failure_url_rejected_endpoint_detail": "If {{endpoint}} is a trusted identity provider that {{productName}} does not recognize, add it to oauth_endpoints.json (the Documentation link shows where and how). Otherwise ask whoever runs that server to fix the URL.",
       "needs_attention": "Needs attention",
       "no_matching_services": "No services match this search.",
       "not_connected": "Not connected",

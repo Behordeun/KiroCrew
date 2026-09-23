@@ -10751,6 +10751,8 @@
       "mint_failure_timed_out": "授权设置在批准地址准备好之前超时。请重试连接。",
       "mint_failure_unknown": "授权设置在批准地址准备好之前失败。请重试连接。",
       "mint_failure_url_rejected": "服务商返回的批准地址包含类似凭据的数据，因此未予显示。",
+      "mint_failure_url_rejected_endpoint": "来自 {{endpoint}} 的批准地址看起来带有凭据，因此未予显示。",
+      "mint_failure_url_rejected_endpoint_detail": "如果 {{endpoint}} 是 {{productName}} 尚未识别但可信的身份提供方，请把它添加到 oauth_endpoints.json（位置与写法见文档链接）。否则，请让运行该服务器的人修正该 URL。",
       "needs_attention": "需要处理",
       "no_matching_services": "没有与搜索匹配的服务。",
       "not_connected": "未连接",
