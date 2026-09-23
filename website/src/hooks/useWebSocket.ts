@@ -1675,24 +1675,34 @@ export function useWebSocket() {
             if (!reconnectingRef.current) {
               dispatchMcNotification(APPROVAL_KIND)
             }
-            // Browser notification when tab not focused (permission must be granted via UI interaction elsewhere)
-            if (typeof Notification !== 'undefined' && document.hidden && Notification.permission === 'granted') {
-              // Android Chrome throws "Illegal constructor" for page-context
-              // Notification; an uncaught throw here kills the whole message
-              // handler, so the native toast is best-effort.
-              try {
-                new Notification(i18nT('hooks.useWebSocket.approval_required'), { body: data.tool || i18nT('hooks.useWebSocket.a_task_needs_your_decision'), silent: true, tag: 'kirocrew-approval' })
-              } catch {
-                /* unsupported platform */
-              }
-            }
-            dispatch(addNotification({
+            // No OS toast here. The addNotification below is what reaches the
+            // OS: useNativeNotification watches the unacked count and posts ONE
+            // toast per new note, tagged with its approval_id, only while the
+            // user is away from the window. A second constructor on this path
+            // carried a different tag, so the OS showed two banners for one
+            // approval.
+            //
+            // The owning slot rides on the note so the in-app banner's
+            // `targetsCurrentView` gate can tell "this chat is on screen" (the
+            // inline permission card below already shows it there) from "the
+            // user is on another surface" (the banner is the interrupt).
+            const approvalSlot = typeof data.slot === 'string' && data.slot ? data.slot : ''
+            const approvalNote = {
               kind: 'approval',
               title: i18nT('hooks.useWebSocket.tool_approval', { name: data.tool || i18nT('hooks.useWebSocket.unknown') }),
               body: approvalNotificationBody(data.source, data.tool_input, data.tool_purpose),
               ts: String(data.ts || Date.now() / 1000),
               approval_id: data.id,
-            } as Notification))
+              ...(approvalSlot ? { slot: approvalSlot } : {}),
+            } as Notification
+            dispatch(addNotification(approvalNote))
+            // The in-app banner hears LIVE arrivals only, same as the
+            // `notification` frame above: a reconnect catch-up replays
+            // approvals the bell already holds. While the window is focused
+            // this banner is the visible interrupt for a blocking approval
+            // (the OS toast stays quiet for a focused window); away from the
+            // window the toast takes over and `shouldBannerNote` skips it.
+            if (!reconnectingRef.current) dispatchLiveNotification(approvalNote)
             // Inject inline in the OWNING chat only. An approval with no
             // explicit slot has no owning conversation (an unowned cron /
             // taskrunner command): falling back to activeSlot planted the card
@@ -1701,7 +1711,7 @@ export function useWebSocket() {
             // 404'd as soon as the short background window elapsed. Unowned
             // approvals live on the global surface (notification feed) only —
             // the addNotification above already delivered it there.
-            const targetSlot = data.slot || ''
+            const targetSlot = approvalSlot
             if (targetSlot) {
               dispatch(sseChatMessage({
                 slot: targetSlot,
