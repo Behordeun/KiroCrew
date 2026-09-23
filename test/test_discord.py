@@ -4936,3 +4936,56 @@ class TestDrainSenderIdentity:
         await self._queue(d, sess, _inbound("hello", user_id="u1", conversation_id="c1"))
 
         assert _queued_origin(sess.queued[0][2]) == _dc_origin("u1", "c1")
+
+
+class TestRedactionNotice:
+    """When redaction rewrote what landed, one follow-up notice says so.
+
+    Discord edits its answer in place and rotates segments, so the tally counts
+    each LANDED message's final state and the notice goes out once, at the end
+    of ``on_done``. The shared wording is pinned in
+    ``test_credential_redaction_notice.py``.
+    """
+
+    _SECRET_URI = "postgresql://user:SuperSecret123@db.example.com:5432/prod"
+
+    @pytest.mark.asyncio
+    async def test_redacted_answer_is_followed_by_one_notice(self) -> None:
+        cli = FakeClient()
+        r = DiscordRenderer(cli, "chan1", DISCORD_CAPABILITIES, session_key="sk")  # type: ignore[arg-type]
+        await r.on_text_chunk(f"Run: psql {self._SECRET_URI}")
+        await r.on_done()
+
+        texts = [t for t, _c in cli.sent] + [t for _i, t, _c in cli.edits]
+        assert not any("SuperSecret123" in t for t in texts)
+        notices = [t for t, _c in cli.sent if "Security notice" in t]
+        assert len(notices) == 1
+        assert "SuperSecret123" not in notices[0]
+
+    @pytest.mark.asyncio
+    async def test_clean_answer_sends_no_notice(self) -> None:
+        cli = FakeClient()
+        r = DiscordRenderer(cli, "chan1", DISCORD_CAPABILITIES, session_key="sk")  # type: ignore[arg-type]
+        await r.on_text_chunk("All green, deploy finished.")
+        await r.on_done()
+
+        assert not any("Security notice" in t for t, _c in cli.sent)
+
+    @pytest.mark.asyncio
+    async def test_notice_send_failure_does_not_fail_a_delivered_turn(self) -> None:
+        cli = FakeClient()
+        real_send = cli.send_message
+
+        async def send_but_fail_the_notice(channel_id, text, **kw):
+            if "Security notice" in text:
+                raise RuntimeError("discord down after the answer")
+            return await real_send(channel_id, text, **kw)
+
+        cli.send_message = send_but_fail_the_notice  # type: ignore[method-assign]
+        r = DiscordRenderer(cli, "chan1", DISCORD_CAPABILITIES, session_key="sk")  # type: ignore[arg-type]
+        await r.on_text_chunk(f"Run: psql {self._SECRET_URI}")
+        await r.on_done()  # must not raise
+        # The answer itself landed.
+        assert any("[REDACTED: credential]" in t for t, _c in cli.sent) or any(
+            "[REDACTED: credential]" in t for _i, t, _c in cli.edits
+        )

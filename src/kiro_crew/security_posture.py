@@ -1699,6 +1699,22 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         "imessage/client.py",
         "imessage/transport.py",
         "imessage/transport_dispatch.py",
+        # The WhatsApp turn lifecycle. What the scan matches here is the
+        # post-answer redaction NOTICE pair -- ``count_redaction_tags`` over the
+        # delivered chunks and ``redaction_notice`` to build the follow-up
+        # sentence -- which tallies placeholders already written by a redaction
+        # pass and rewrites no outbound byte itself. The pass that carries this
+        # channel's guarantee is ``whatsapp/renderer.py``'s render pipeline
+        # (``render_chunks`` / ``display_safe_text``), registered as the sink
+        # above; its row names this module as the wire-writer those screened
+        # forms ship through.
+        "whatsapp/turn_renderer.py",
+        # ``feishu/renderer.py`` is deliberately NOT in this list even though it
+        # carries the same redaction-notice pair as the WhatsApp entry above: it
+        # is a real egress sink -- its ``text()`` override screens the answer
+        # body through ``redact_for_target`` at the send boundary -- and is
+        # registered as one above. The notice pair rides along in a module the
+        # sink registry already classifies.
         # The tool-permission prompt and its SEL record. Neither crosses a
         # machine boundary: the prompt is written to the operator's OWN terminal
         # in their own process, and the audit line goes to the local SEL log. The
