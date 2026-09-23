@@ -25,6 +25,7 @@ from kiro_crew.acp.client import advertised_model_ids, model_is_unusable
 from kiro_crew.acp_backends import (
     ACP_BACKEND_CLAUDE,
     ACP_BACKEND_CODEX,
+    ACP_BACKEND_KIRO,
     model_registry_namespace,
     selectable_backend_values,
 )
@@ -1965,11 +1966,18 @@ def _entitled_kiro_models(request: web.Request, models: list[dict]) -> list[dict
     session already resolved", so it stays selectable even on a backend that does
     not advertise it by name.
 
-    Fails open in every unknowable case — no live session, a backend that
-    advertises nothing, or an advertised set that does not intersect the catalog
-    at all (a namespace mismatch rather than an entitlement, e.g. the claude
-    backend's bare ids). Filtering on any of those would empty the picker, which
-    is worse than listing one model too many.
+    Only a session whose ids live in the catalog's own namespace can narrow it
+    (``capabilities_of(provider).model_id_namespace``, the same gate
+    :func:`_advertised_cc_models` applies). A live claude session advertises
+    ``global.anthropic.…[1m]`` ids; ``resolve_pin_spelling`` folds those onto the
+    catalog's bare ids because they name the same models, so without the gate a
+    claude list would rewrite kiro's picker rows into claude's spelling and narrow
+    them to claude's entitlements. Namespace is the question here, not spelling.
+
+    Fails open in every unknowable case — no live session in this namespace, a
+    backend that advertises nothing, or an advertised set that does not intersect
+    the catalog at all under any spelling. Filtering on any of those would empty
+    the picker, which is worse than listing one model too many.
     """
     try:
         state: DashboardState = request.app["state"]
@@ -1984,6 +1992,10 @@ def _entitled_kiro_models(request: web.Request, models: list[dict]) -> list[dict
     # entitlements, i.e. keep offering exactly the models this narrowing exists to
     # hide. The most recently started session carries the most recent snapshot.
     for provider in reversed(providers):
+        if capabilities_of(provider).model_id_namespace != model_registry_namespace(
+            ACP_BACKEND_KIRO
+        ):
+            continue
         getter = getattr(provider, "available_models", None)
         if not callable(getter):
             continue
@@ -2421,9 +2433,33 @@ async def api_models(request: web.Request) -> web.Response:
         # seeding above uses kiro's authoritative context_window_tokens to give
         # the backfill real GPT/DeepSeek/Qwen windows, independent of the
         # wire-format choice.
-        if model_registry.refresh_kiro_windows(models):
+        #
+        # The same rows also warm the ``acp`` advertised-model cache, kiro's
+        # VOCABULARY: which ids are kiro's own, so model_scope can tell a pin
+        # chosen for another harness from one chosen here before any session
+        # exists (the chip and the provider factory judge from the cache; the
+        # wire holds the live list). ONE admission feeds both caches
+        # (refresh_kiro_catalog), so an id the bound refuses gets no row in
+        # either. Fed from the UNFILTERED catalog on purpose: a deprecated or
+        # unentitled row is still a kiro id, and dropping it here would make
+        # model_scope call a native pin foreign. Entitlement stays with the
+        # live ``session/new`` list downstream (_entitled_kiro_models,
+        # model_is_unusable) -- ``--list-models`` is a catalog and no reader
+        # of this cache treats it as more. Sourced here rather than from any
+        # ``session/new`` payload because the registry attributes that payload
+        # to claude-agent-acp and a kiro session's list is scoped to the agent
+        # that session started. In-memory updates on the loop, disk persists
+        # off it.
+        windows_changed, advertised_changed = model_registry.refresh_kiro_catalog(
+            models, model_registry_namespace(ACP_BACKEND_KIRO)
+        )
+        if windows_changed:
             await asyncio.get_running_loop().run_in_executor(
                 maintenance_executor(), model_registry.persist_kiro_windows
+            )
+        if advertised_changed:
+            await asyncio.get_running_loop().run_in_executor(
+                maintenance_executor(), model_registry.persist_advertised_models
             )
         models = [m for m in models if not is_deprecated_model(m.get("model_name", ""))]
         models = _entitled_kiro_models(request, models)
