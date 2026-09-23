@@ -1265,7 +1265,13 @@ The coordinator is keyed by event loop so embedded/test loops never share an
 `asyncio.Semaphore`; cancellation while queued or starting returns the permit,
 and the existing spawn guard still kills a subprocess when initialization is
 cancelled or fails. It uses only asyncio/threading primitives and has no POSIX-only
-behavior.
+behavior. A spawn-level `OSError` gets exactly one retry after two seconds while
+holding its permit: this bridges a Kiro CLI self-update that replaces its executable
+in place without exceeding the cold-start cap. The post-exec shim retries its own
+`execv` on `ENOENT`/`ETXTBSY` (six tries over two seconds), so the same replacement
+window does not surface as an exec failure on the shim path, where the parent's
+spawn has already succeeded and only exit 127 would be left to report it.
+Authentication, protocol, and configuration errors are not retried.
 
 Structured `acp_cold_start` logs distinguish queue wait and spawn, and include
 bounded active/queued counts, outcome, duration, backend class, and coarse process

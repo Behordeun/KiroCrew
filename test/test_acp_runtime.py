@@ -1762,6 +1762,21 @@ async def test_cold_start_exception_releases_admission_slot(monkeypatch):
     assert admission.active == 0
 
 
+@pytest.mark.asyncio
+async def test_runtime_spawn_retries_one_creation_failure_after_backoff(monkeypatch):
+    import kiro_crew.acp.runtime as runtime_mod
+
+    process = MagicMock()
+    sleep = AsyncMock()
+    create = AsyncMock(side_effect=[FileNotFoundError("kiro-cli is being replaced"), process])
+    monkeypatch.setattr(runtime_mod.asyncio, "sleep", sleep)
+
+    assert await runtime_mod._retrying_spawn_factory(create) is process
+
+    assert create.await_count == 2
+    sleep.assert_awaited_once_with(runtime_mod._ACP_RUNTIME_RESPAWN_BACKOFF_S)
+
+
 def test_cold_start_admission_registry_releases_contended_closed_loop(monkeypatch):
     import kiro_crew.acp.runtime as runtime_mod
 

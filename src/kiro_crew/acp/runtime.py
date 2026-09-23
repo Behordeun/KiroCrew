@@ -917,6 +917,9 @@ _TERMINATE_TIMEOUT = 5.0
 # cost across many background prompts.
 _DEFAULT_MAX_AGE_SECS = 6 * 3600  # 6 hours
 _DEFAULT_MAX_RSS_MB = 500.0  # 500 MiB
+# The Kiro CLI replaces its own executable in place during an update. A spawn
+# that lands in that short window can fail with OSError and succeeds after this delay.
+_ACP_RUNTIME_RESPAWN_BACKOFF_S = 2.0
 
 # Below this uptime the RSS staleness probe is skipped entirely (see
 # _is_stale()). A freshly-(re)used runtime has not had time to grow, so this
@@ -1503,6 +1506,37 @@ class _MirroredSessionMcp(NamedTuple):
     it costs session start no scheduling point of its own (H13). ``None`` when the
     spec is unreadable, which the guard treats as nothing to say.
     """
+
+
+async def _retrying_spawn_factory(
+    factory: "Callable[..., Awaitable[asyncio.subprocess.Process]]", **kwargs: Any
+) -> asyncio.subprocess.Process:
+    """Drive a subprocess factory, retrying ONE creation failure after a backoff.
+
+    Shaped as the factory
+    :func:`kiro_crew.platform_compat.create_windows_cleanup_owned_process`
+    drives: on Windows that call passes ``windows_cleanup_owner`` down to
+    whatever it invokes, so the keyword has to survive the hop to the bound
+    :func:`create_subprocess_limited`. The Kiro CLI replaces its own executable
+    in place during an update; a spawn that lands in that short window fails
+    with ``OSError`` and succeeds after ``_ACP_RUNTIME_RESPAWN_BACKOFF_S``.
+    Retried before this runtime records process state, so a failed attempt is
+    indistinguishable from never having tried. Never a loop: the exit condition
+    is the CLI finishing its own replacement.
+    """
+    for attempt in range(2):
+        try:
+            return await factory(**kwargs)
+        except OSError as exc:
+            if attempt:
+                raise
+            logger.warning(
+                "ACP runtime subprocess creation failed (%s), retrying after "
+                "adapter replacement window...",
+                exc,
+            )
+            await asyncio.sleep(_ACP_RUNTIME_RESPAWN_BACKOFF_S)
+    raise AssertionError("unreachable: the second attempt returns or re-raises")
 
 
 class AcpRuntime:
@@ -2626,33 +2660,36 @@ class AcpRuntime:
         try:
             self._process = await platform_compat.create_windows_cleanup_owned_process(
                 functools.partial(
-                    create_subprocess_limited,
-                    *argv,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=self._spawn_work_dir,
-                    limit=_STDOUT_BUFFER_LIMIT,
-                    # POSIX: setsid so kill() can killpg the whole tree. Windows:
-                    # start_new_session is silently ignored; CREATE_NEW_PROCESS_GROUP
-                    # makes the child tree taskkill /T-reapable (see platform_compat
-                    # spawn-isolation note). CREATE_NO_WINDOW suppresses the console
-                    # window Windows would otherwise pop for this console child spawned
-                    # from the windowless gateway (0 on POSIX, so no effect there).
-                    start_new_session=platform_compat.IS_POSIX,
-                    creationflags=(
-                        platform_compat.CREATE_NEW_PROCESS_GROUP
-                        | platform_compat._SUBPROCESS_NO_WINDOW
-                        | platform_compat.CREATE_SUSPENDED
+                    _retrying_spawn_factory,
+                    functools.partial(
+                        create_subprocess_limited,
+                        *argv,
+                        stdin=asyncio.subprocess.PIPE,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=self._spawn_work_dir,
+                        limit=_STDOUT_BUFFER_LIMIT,
+                        # POSIX: setsid so kill() can killpg the whole tree. Windows:
+                        # start_new_session is silently ignored; CREATE_NEW_PROCESS_GROUP
+                        # makes the child tree taskkill /T-reapable (see platform_compat
+                        # spawn-isolation note). CREATE_NO_WINDOW suppresses the console
+                        # window Windows would otherwise pop for this console child spawned
+                        # from the windowless gateway (0 on POSIX, so no effect there).
+                        start_new_session=platform_compat.IS_POSIX,
+                        creationflags=(
+                            platform_compat.CREATE_NEW_PROCESS_GROUP
+                            | platform_compat._SUBPROCESS_NO_WINDOW
+                            | platform_compat.CREATE_SUSPENDED
+                        ),
+                        # None off macOS, where nothing binds. When set, the child enters
+                        # the workspace through this verified descriptor instead of
+                        # resolving ``cwd``'s pathname, which a same-UID symlink retarget
+                        # could aim elsewhere in between; ``cwd`` stays the same directory
+                        # by name so the spawn keeps reporting a real path.
+                        chdir_fd=self._bound_workspace_fd,
+                        env=env,
+                        profile=RLIMIT_PROFILE_SESSION_HOST,
                     ),
-                    # None off macOS, where nothing binds. When set, the child enters
-                    # the workspace through this verified descriptor instead of
-                    # resolving ``cwd``'s pathname, which a same-UID symlink retarget
-                    # could aim elsewhere in between; ``cwd`` stays the same directory
-                    # by name so the spawn keeps reporting a real path.
-                    chdir_fd=self._bound_workspace_fd,
-                    env=env,
-                    profile=RLIMIT_PROFILE_SESSION_HOST,
                 ),
             )
         except BaseException:
