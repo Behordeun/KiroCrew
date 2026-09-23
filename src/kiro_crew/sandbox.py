@@ -100,6 +100,8 @@ _MOUNT_SOURCE_MAX_AGE_SECONDS = 24 * 3600
 # that observed a vanish rescans newly appeared pids; past this many passes
 # coverage is reported as unproven instead of looping.
 _PIN_SCAN_MAX_PASSES = 3
+_MOUNT_TABLE_CACHE_MAX_ENTRIES = 256
+_MOUNT_TABLE_CACHE_MAX_BYTES = 64 * 1024 * 1024
 
 
 class _PinScanCoverage:
@@ -8318,30 +8320,62 @@ def _mount_pinned_source_names(
     # foreign-uid forgiveness) — for a different name shape, instead of a
     # second scan that gets those cases subtly wrong.
     match = matcher or (lambda name: name.startswith(_MOUNT_SOURCE_PREFIX))
-    # Fast pre-filter per line; only valid for the default shape, since a
-    # custom matcher may accept names without the prefix.
-    line_hint = _MOUNT_SOURCE_PREFIX if matcher is None else None
+    # Fast pre-filter, applied to the whole table before any line is split;
+    # only valid for the default shape, since a custom matcher may accept
+    # names without the prefix.
+    line_hint = _MOUNT_SOURCE_PREFIX.encode() if matcher is None else None
+    # Mount tables already parsed this scan, by their exact bytes. Every
+    # thread of a group shares its leader's mount namespace unless it
+    # ``unshare``d one, so the thousands of sibling reads the coverage
+    # accounting requires are near-duplicates of a few dozen distinct tables:
+    # measured 12.5k tasks, 1.3M mountinfo lines, 18 distinct tables on one
+    # host. Identical bytes contribute identical pins, so a table is split
+    # into lines and matched once; a repeat costs the read alone (which
+    # releases the GIL) and no Python-level per-line work. The read itself is
+    # still issued for every task, so the OSError each caller keys its
+    # coverage accounting on is unaffected.
+    # Cache only a bounded number and volume of distinct tables. Once either
+    # limit is reached, tables already present still deduplicate while every
+    # uncached table is parsed directly without being retained.
+    parsed_tables: set[bytes] = set()
+    parsed_table_bytes = 0
+    cache_full = False
 
     def _collect(mountinfo_path: str) -> None:
         """Add every matching bind SOURCE named in one mountinfo to ``pinned``.
 
-        Propagates ``OSError`` exactly as ``open`` would, so each caller decides
-        what an unreadable task means for coverage. A source removed while
-        still bound reads ``.../name//deleted``; the suffix is stripped so the
-        real name is what pins.
+        Propagates ``OSError`` exactly as ``open`` and a read would, so each
+        caller decides what an unreadable task means for coverage. A source
+        removed while still bound reads ``.../name//deleted``; the suffix is
+        stripped so the real name is what pins.
         """
-        with open(mountinfo_path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if line_hint is not None and line_hint not in line:
-                    continue
-                fields = line.split()
-                if len(fields) > 3:
-                    source = fields[3]
-                    if source.endswith("//deleted"):
-                        source = source[: -len("//deleted")]
-                    source = os.path.basename(source)
-                    if match(source):
-                        pinned.add(source)
+        nonlocal cache_full, parsed_table_bytes
+        with open(mountinfo_path, "rb") as fh:
+            data = fh.read()
+        if line_hint is not None and line_hint not in data:
+            return
+        if data in parsed_tables:
+            return
+        for line in data.decode("utf-8", errors="replace").splitlines():
+            if line_hint is not None and _MOUNT_SOURCE_PREFIX not in line:
+                continue
+            fields = line.split()
+            if len(fields) > 3:
+                source = fields[3]
+                if source.endswith("//deleted"):
+                    source = source[: -len("//deleted")]
+                source = os.path.basename(source)
+                if match(source):
+                    pinned.add(source)
+        if not cache_full:
+            if (
+                len(parsed_tables) >= _MOUNT_TABLE_CACHE_MAX_ENTRIES
+                or parsed_table_bytes + len(data) > _MOUNT_TABLE_CACHE_MAX_BYTES
+            ):
+                cache_full = True
+            else:
+                parsed_tables.add(data)
+                parsed_table_bytes += len(data)
 
     # Coverage accounting for ``coverage``. A task of this uid (or the overflow
     # uid) that could not be read is never re-read (it is in ``seen``), so it
