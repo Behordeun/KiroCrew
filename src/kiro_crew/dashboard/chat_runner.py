@@ -351,6 +351,11 @@ from kiro_crew.trust_patterns import (  # noqa: F401 -- compatibility re-export
     split_command_segments as _split_command_segments,
 )
 from kiro_crew.validation import ValidationError, validate_ask_user_question
+from kiro_crew.wakatime.heartbeats import (
+    is_coding_event,
+    line_changes_from_file_changes,
+    note_coding_activity,
+)
 from kiro_crew.widget_artifacts import register_widgets_off_loop
 
 logger = logging.getLogger(__name__)
@@ -8539,6 +8544,10 @@ async def _run_chat(
     # turn no dispatch claimed is a user turn -- never a guess read off the
     # message, which the user writes.
     _crew_log_actor = _turn_actor or ("autonudge" if _directive_self_wake else "user")
+    # A set_project directive can update the slot while this turn is still
+    # streaming. Heartbeats describe coding done during this turn, so bind
+    # their project to the same start-of-turn state as the actor above.
+    _wt_turn_project = slot.project or None
 
     # Append-only the session's log identity, declared HERE rather than only where
     # it is filled in below: the mid-turn steer cut flushes a segment from a
@@ -9361,6 +9370,24 @@ async def _run_chat(
     # subtract them (see _answer_text_only) without re-parsing the prose.
     _compaction_notice_chunks: list[str] = []
     _turn_tool_calls = 0  # tool dispatches this turn (refusal diagnostic)
+    # Every unambiguous coding tool call retains the turn's shared bounded key
+    # (`_tcid_identity_key`, a fixed 16-char digest) until its permission
+    # decision, so a statusless call that a later denial rejects is never
+    # counted. Collapsed ids are withheld, while ids omitted by the shared cap
+    # contribute to `_wt_pending_dropped`. A key still held at turn end had no
+    # gating denial and counts then.
+    _wt_pending_coding: set[str] = set()
+    _wt_coded_this_turn = False
+    _wt_deciding_coding = False
+    _wt_pending_dropped = 0
+
+    def _wt_note_approved(event) -> None:  # noqa: ANN001 -- ACP event union
+        """Count one approved coding call without retaining its id."""
+        nonlocal _wt_coded_this_turn, _wt_deciding_coding
+        if _wt_deciding_coding:
+            _wt_coded_this_turn = True
+        _wt_deciding_coding = False
+
     # Positive backend provenance for builtin identity. It starts fail-closed and
     # is set only after get_or_create returns the live provider below.
     _builtin_identity_trusted = False
@@ -11766,6 +11793,29 @@ async def _run_chat(
                 _turn_thought = True
             elif event.kind == EVENT_TOOL_CALL:
                 _turn_tool_calls += 1
+                if event.tool_call_id:
+                    if is_coding_event(
+                        event.tool_name or "",
+                        event.tool_kind or "",
+                        bool(event.is_shell),
+                        event.mcp_server_name or "",
+                    ):
+                        # Retain only ids that the turn's shared identity tracker
+                        # still proves name one call. Its first-source map is
+                        # already capped at `_MAX_TCID_SOURCES`, so this set stays
+                        # within the same bound without an independent admission
+                        # cap. A key omitted by that cap is tallied; a collapsed
+                        # key is withheld as ambiguous rather than misreported as
+                        # a cap drop.
+                        _wt_key = _tcid_identity_key(event.tool_call_id)
+                        if (
+                            _wt_key
+                            and _wt_key in _tcid_first_source
+                            and _wt_key not in _tcid_collapsed
+                        ):
+                            _wt_pending_coding.add(_wt_key)
+                        elif _wt_key and _wt_key not in _tcid_first_source:
+                            _wt_pending_dropped += 1
                 _turn_tool_identities.append(
                     (
                         event.tool_call_id or "",
@@ -12831,6 +12881,15 @@ async def _run_chat(
                 except Exception:
                     logger.debug("PostToolUse hook error", exc_info=True)
             elif event.kind == EVENT_PERMISSION_REQUEST:
+                # Drain the key as soon as its permission decision begins. The
+                # stream handles one decision at a time, so one bounded key is
+                # enough for every approval arm below; denials need no state.
+                # The key is the same digest the add site stored, so the two
+                # ends agree by construction.
+                _wt_key = _tcid_identity_key(event.tool_call_id)
+                _wt_deciding_coding = bool(_wt_key and _wt_key in _wt_pending_coding)
+                if _wt_key:
+                    _wt_pending_coding.discard(_wt_key)
                 # Permission is part of the tool group, not a break in it —
                 # leaving in_tool_group True ensures the post-tool text fallback
                 # (above, in EVENT_TEXT_CHUNK) still fires once the tool resolves
@@ -13101,6 +13160,7 @@ async def _run_chat(
                                 )
                                 continue
                             await client.approve_tool(event.request_id)
+                            _wt_note_approved(event)
                             _tool_title = _broadcast_auto_tool(state, slot, event)
                             # Defense-in-depth: _broadcast_auto_tool already
                             # returns a redacted title, but re-redact before this
@@ -13196,6 +13256,7 @@ async def _run_chat(
                         event.request_id,
                     )
                     await client.approve_tool(event.request_id)
+                    _wt_note_approved(event)
                     _tool_title = _broadcast_auto_tool(state, slot, event)
                     # Defense-in-depth: re-redact before this second external
                     # surface (activity feed + sel log). event.title is
@@ -13315,6 +13376,7 @@ async def _run_chat(
                             )
                             continue
                         await client.approve_tool(event.request_id)
+                        _wt_note_approved(event)
                         _tool_title = _broadcast_auto_tool(state, slot, event)
                         _tool_title, _ = redact_exfiltration_urls(_tool_title)
                         _tool_title, _ = redact_credentials(_tool_title)
@@ -13390,6 +13452,7 @@ async def _run_chat(
                             )
                             continue
                         await client.approve_tool(event.request_id)
+                        _wt_note_approved(event)
                         _tool_title = _broadcast_auto_tool(state, slot, event)
                         slot.append(
                             "tool",
@@ -13475,6 +13538,7 @@ async def _run_chat(
                     # always=False — KiroCrew owns trust scope; per-call request_permission
                     # is required for PreToolUse hooks to run on every tool invocation.
                     await client.approve_tool(event.request_id)
+                    _wt_note_approved(event)
                     _tool_title = _broadcast_auto_tool(state, slot, event)
                     # Defense-in-depth: re-redact before the sel log (idempotent).
                     _tool_title, _ = redact_exfiltration_urls(_tool_title)
@@ -14089,6 +14153,7 @@ async def _run_chat(
                         if event.is_shell and cmd:
                             await asyncio.to_thread(pin_human_approval, cmd)
                         await client.approve_tool(event.request_id)
+                        _wt_note_approved(event)
                         _approved_title = _redact_display_text(event.title)
                         slot.append(
                             "tool", f"✅ {_approved_title}", "msg msg-tool", meta=_tool_meta(event)
@@ -14571,6 +14636,93 @@ async def _run_chat(
                 # is asymmetric (a duplicate re-announce versus a pruned result).
                 if event.stop_reason == STOP_REASON_END_TURN:
                     await _report_consumed()
+                    # A coding key still held here reached no permission
+                    # decision, so it executed without a gating denial and
+                    # counts as activity. One bounded summary for any keys the
+                    # cap shed this turn, instead of a line per drop.
+                    if _wt_pending_coding:
+                        _wt_coded_this_turn = True
+                    if _wt_pending_dropped:
+                        logger.warning(
+                            "wakatime pending-coding cap (%d) shed %d tool key(s) this turn",
+                            _MAX_TCID_SOURCES,
+                            _wt_pending_dropped,
+                        )
+                    # A restricted (incognito/temporary) session persists no
+                    # durable state, and a heartbeat is an external, irreversible
+                    # write of session metadata (project label, token and
+                    # line-change deltas). Gate on the same slot.is_restricted
+                    # signal the artifact and history writers key off, so the
+                    # privacy-mode guarantee holds for this path too. Also skip
+                    # app-owned slots (slot._app): the config help scopes this
+                    # feature to the gateway chat loop and states the app /
+                    # task-runner exclusion as deliberate, and a persistent
+                    # app slot would otherwise emit despite that. Finally, only
+                    # interactive user turns emit: cron, autonudge, sub-agent,
+                    # and other injected turns are outside the declared scope.
+                    # Restored queue rows have lost their actor stamp, so their
+                    # explicit provenance guard keeps the user fallback from
+                    # misclassifying a gateway-restart replay as interactive.
+                    if (
+                        _wt_coded_this_turn
+                        and _crew_log_actor == "user"
+                        and not _turn_provenance_restored
+                        and not slot.is_restricted
+                        and not slot._app
+                    ):
+                        # The opt-in gate, config load, per-file snapshot reads,
+                        # and line-change diff touch disk or run quadratic work,
+                        # so they run off the event loop. Destination credentials
+                        # are deliberately resolved later, inside the send task.
+                        def _wt_collect() -> tuple[Any, int] | None:
+                            _cfg = KiroCrewConfig.load()
+                            if not (_cfg.wakatime.enabled and _cfg.wakatime.send_heartbeats):
+                                return None
+                            _changes = getattr(slot, "_file_changes", None)
+                            _seen: set[str] = set()
+                            _resolved: list[dict[str, str]] = []
+                            if isinstance(_changes, list):
+                                for _fc in _changes:
+                                    if not isinstance(_fc, dict):
+                                        continue
+                                    _p = _fc.get("path")
+                                    if not isinstance(_p, str) or _p in _seen:
+                                        continue
+                                    _seen.add(_p)
+                                    _after = _safe_read_snapshot(_p)
+                                    # An unreadable after-snapshot is unknown, not
+                                    # an empty file: skip it rather than diff the
+                                    # before against "" and fabricate a full-file
+                                    # deletion in the line-change count.
+                                    if _after is None:
+                                        continue
+                                    # A truncated snapshot on either side is a
+                                    # partial file; diffing it would report a
+                                    # false line-change total. Both sources carry
+                                    # a truncation flag (the before on the change
+                                    # entry, the after on the snapshot), so skip
+                                    # the pair rather than send a fabricated count.
+                                    if _fc.get("truncated") or _after.truncated:
+                                        continue
+                                    _resolved.append(
+                                        {
+                                            "content": _fc.get("content") or "",
+                                            "after": _after.content,
+                                        }
+                                    )
+                            return _cfg, line_changes_from_file_changes(_resolved)
+
+                        _wt_out = await asyncio.to_thread(_wt_collect)
+                        if _wt_out is not None:
+                            _wt_cfg, _wt_line_changes = _wt_out
+                            _wt_usage = event.usage
+                            note_coding_activity(
+                                _wt_turn_project,
+                                ai_input_tokens=getattr(_wt_usage, "input_tokens", 0) or 0,
+                                ai_output_tokens=getattr(_wt_usage, "output_tokens", 0) or 0,
+                                ai_line_changes=_wt_line_changes,
+                                config=_wt_cfg,
+                            )
                 # Turn-end diagnostics. Read only from `event`, which nothing in
                 # this arm mutates, so the position is free — kept below the
                 # consumption gate because that gate's adjacency to the arm's start

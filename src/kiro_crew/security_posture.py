@@ -1462,6 +1462,16 @@ _REDACTION_SINKS: tuple[tuple[str, str, str], ...] = (
         "write the sentinel back over the file.",
     ),
     (
+        "WakaTime coding-activity heartbeats",
+        "wakatime/heartbeats.py",
+        "The project label sent as the heartbeat entity and project fields when "
+        "WakaTime send-heartbeats is enabled. The label is the agent/user-selected "
+        "project directory basename, so a directory whose name is itself "
+        "credential- or URL-shaped would otherwise be POSTed verbatim to WakaTime. "
+        "The basename passes through the shared credential + exfiltration-URL chain "
+        "in `_entity_for_project` before it can leave for the external API.",
+    ),
+    (
         "Crew webview panels",
         "agent_panel.py",
         "Everything a crew publishes into its drawer webview: every string in the "
