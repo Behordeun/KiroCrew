@@ -2585,6 +2585,99 @@ class TestStartNextQueuedTurn:
         assert len(slot._queue) == 1
 
     @pytest.mark.asyncio
+    async def test_run_now_bypasses_the_child_hold_for_the_selected_message(self, tmp_path):
+        """The explicit card action runs one selected user message beside child work."""
+        state, slot = _state(tmp_path), _slot()
+        q1 = slot.queue_append("first")
+        q2 = slot.queue_append("second")
+        state.subagents = MagicMock(running_agents_for=MagicMock(return_value=["agent-1"]))
+
+        with (
+            patch.object(chat_runner.KiroCrewConfig, "load") as load,
+            patch.object(chat_runner, "spawn_guarded_turn", return_value=MagicMock()) as spawn,
+            patch.object(
+                chat_runner, "_run_chat", new=MagicMock(return_value=MagicMock())
+            ) as run_chat,
+        ):
+            load.return_value.dashboard.merge_queued_messages = False
+            started = await chat_runner._start_next_queued_turn(
+                state,
+                slot,
+                allow_user_during_subagents=True,
+                required_queue_id=q2,
+            )
+
+        assert started is True
+        assert spawn.call_count == 1
+        assert run_chat.call_args.args[2] == "second"
+        assert [item["id"] for item in slot._queue] == [q1]
+
+    @pytest.mark.asyncio
+    async def test_run_now_never_merges_unselected_cards(self, tmp_path):
+        """The selected card runs alone even when ordinary queue merging is on."""
+        state, slot = _state(tmp_path), _slot()
+        q1 = slot.queue_append("first")
+        q2 = slot.queue_append("selected")
+        q3 = slot.queue_append("third")
+        state.subagents = MagicMock(running_agents_for=MagicMock(return_value=["agent-1"]))
+
+        with (
+            patch.object(chat_runner.KiroCrewConfig, "load") as load,
+            patch.object(chat_runner, "spawn_guarded_turn", return_value=MagicMock()) as spawn,
+            patch.object(
+                chat_runner, "_run_chat", new=MagicMock(return_value=MagicMock())
+            ) as run_chat,
+        ):
+            load.return_value.dashboard.merge_queued_messages = True
+            started = await chat_runner._start_next_queued_turn(
+                state,
+                slot,
+                allow_user_during_subagents=True,
+                required_queue_id=q2,
+            )
+
+        assert started is True
+        assert spawn.call_count == 1
+        assert run_chat.call_args.args[2] == "selected"
+        assert [item["id"] for item in slot._queue] == [q1, q3]
+
+    @pytest.mark.asyncio
+    async def test_run_now_starts_nothing_when_the_selected_card_is_gone(self, tmp_path):
+        """Selection identity prevents a stale click from starting another card."""
+        state, slot = _state(tmp_path), _slot()
+        qid = slot.queue_append("another card")
+        state.subagents = MagicMock(running_agents_for=MagicMock(return_value=["agent-1"]))
+
+        started = await chat_runner._start_next_queued_turn(
+            state,
+            slot,
+            allow_user_during_subagents=True,
+            required_queue_id="missing",
+        )
+
+        assert started is False
+        assert [item["id"] for item in slot._queue] == [qid]
+
+    @pytest.mark.asyncio
+    async def test_run_now_does_not_bypass_an_active_stage(self, tmp_path):
+        """The override is narrow: an orchestrator stage still owns dispatch."""
+        state, slot = _state(tmp_path), _slot()
+        q1 = slot.queue_append("stage-owned first")
+        q2 = slot.queue_append("wait for the stage")
+        slot._in_stage_execution = True
+        state.subagents = MagicMock(running_agents_for=MagicMock(return_value=["agent-1"]))
+
+        started = await chat_runner._start_next_queued_turn(
+            state,
+            slot,
+            allow_user_during_subagents=True,
+            required_queue_id=q2,
+        )
+
+        assert started is False
+        assert [item["id"] for item in slot._queue] == [q1, q2]
+
+    @pytest.mark.asyncio
     async def test_reset_notice_is_emitted_for_a_stopping_slot(self, tmp_path):
         state, slot = _state(tmp_path), _slot()
         slot.queue_append("next please")

@@ -5142,13 +5142,13 @@ async def api_chat_slot_end_wait(request: web.Request) -> web.Response:
 
 
 async def api_chat_slot_interrupt(request: web.Request) -> web.Response:
-    """POST /api/chat/slots/{slot}/interrupt — interrupt current turn and
-    immediately process the next queued message.
+    """POST /api/chat/slots/{slot}/interrupt — run a selected queued message.
 
-    Unlike /stop which clears the queue, this preserves it so the dequeue
-    loop in chat_runner's finally block picks up the next message.
-    Optionally accepts {"queue_id": "..."} to promote a specific queued
-    message to the front before stopping.
+    A running parent turn is stopped while its queue is preserved for the normal
+    tail drain. An idle parent requires ``{"queue_id": "..."}`` and dispatches
+    that selected queue card directly; this is the explicit override for a user
+    who does not want to wait for attached subagents. A running parent accepts
+    ``queue_id`` optionally to promote one card before the preserved queue drains.
     """
     state: DashboardState = request.app["state"]
     name = request.match_info["slot"]
@@ -5167,7 +5167,86 @@ async def api_chat_slot_interrupt(request: web.Request) -> web.Response:
     if denied is not None:
         return denied
     if not slot.running:
-        return web.json_response({"ok": True, "info": "not running"})
+        if not slot._queue:
+            return web.json_response({"ok": True, "info": "not running"})
+        refusal = remote_bound_refusal(slot)
+        if refusal is not None:
+            return refusal
+        body, body_err = await read_bounded_json(request, allow_absent=True)
+        if body_err is not None:
+            return body_err
+        assert body is not None  # read_bounded_json returns (dict, None) on success
+        raw_queue_id = body.get("queue_id")
+        if raw_queue_id is not None and not isinstance(raw_queue_id, str):
+            return web.json_response(
+                {"error": "queue_id must be a string", "code": "invalid_queue_id"},
+                status=400,
+            )
+        queue_id = (raw_queue_id or "").strip() or None
+        # The idle bypass is the "run THIS selected card while attached
+        # subagents keep going" action, and nothing else. Requiring an explicit
+        # queue_id keeps `allow_user_during_subagents=True` and the dispatch
+        # itself bound to a card the user picked: without one there is no
+        # selection to justify bypassing the child-work hold, and dispatching
+        # whatever sits at the queue front would run — and acknowledge —
+        # unselected work the user never chose. Reject rather than fall back.
+        if queue_id is None:
+            return web.json_response(
+                {"error": "queue_id required for idle interrupt", "code": "invalid_queue_id"},
+                status=400,
+            )
+        async with slot._lock:
+            # The request body and lock acquisition both yield. A close followed
+            # by same-name recreation during either await must not let this stale
+            # object dispatch work into the replacement's session namespace.
+            if _slot_replaced_while_queued(state, slot, name, request, "chat.slot_interrupt"):
+                return _slot_not_found()
+            if slot.running:
+                return web.json_response(
+                    {"error": "slot started running", "code": "slot_running"}, status=409
+                )
+            if slot._in_stage_execution:
+                return web.json_response(
+                    {"error": "slot is orchestrating", "code": "slot_orchestrating"},
+                    status=409,
+                )
+            if slot._stopping or slot._stop_state != "idle":
+                return web.json_response(
+                    {"error": "a stop is in progress", "code": "slot_stopping"}, status=409
+                )
+            # The body read above can race a cron/workflow rebind on this same
+            # live slot. Re-authorize the session the queued turn will use while
+            # holding the dispatch lock, immediately before starting it.
+            denied = _app_cancel_denied(
+                request, slot, "chat_interrupt", effective_session_key(slot)
+            )
+            if denied is not None:
+                return denied
+            started = await _start_next_queued_turn(
+                state,
+                slot,
+                allow_user_during_subagents=True,
+                required_queue_id=queue_id,
+            )
+        if not started:
+            return web.json_response(
+                {
+                    "error": "queued message is no longer available",
+                    "code": "queue_item_unavailable",
+                },
+                status=409,
+            )
+        sel().log_tool_invocation(
+            session_key=_history_key_for(name),
+            agent=getattr(slot, "agent", "") or "kirocrew",
+            source="dashboard",
+            tool_name="dashboard_interrupt",
+            tool_kind="command",
+            outcome="started",
+            metadata={"slot": name, "queue_id": queue_id},
+        )
+        state.push_slots_update()
+        return web.json_response({"ok": True, "outcome": "started"})
     # Idempotent guard: interrupt already in progress. State alone decides —
     # do NOT also require _stop_event_id: after the early soft_pending claim
     # below, a concurrent request can arrive before the stop card is created

@@ -7175,8 +7175,20 @@ def _session_stop_generation_for(sessions: Any, session_key: str) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
-async def _start_next_queued_turn(state: DashboardState, slot: _ChatSlot) -> bool:
-    """Dequeue and start one ready Kiro turn, preserving queue semantics."""
+async def _start_next_queued_turn(
+    state: DashboardState,
+    slot: _ChatSlot,
+    *,
+    allow_user_during_subagents: bool = False,
+    required_queue_id: str | None = None,
+) -> bool:
+    """Dequeue and start one ready Kiro turn, preserving queue semantics.
+
+    ``allow_user_during_subagents`` is the explicit queued-card Run-now path. It
+    bypasses only the child-work hold; an active stage still owns dispatch.
+    ``required_queue_id`` binds the action to the selected card after admission
+    revalidation, so a stale click never starts a different queued message.
+    """
 
     # FIRST, before anything reads the queue: re-assert each entry's
     # admission-time containment and drop every entry that has stopped
@@ -7516,7 +7528,8 @@ async def _start_next_queued_turn(state: DashboardState, slot: _ChatSlot) -> boo
     in_stage = bool(slot._in_stage_execution)
     hold_users = bool(
         (
-            state.subagents is not None
+            not allow_user_during_subagents
+            and state.subagents is not None
             and state.subagents.running_agents_for(f"dashboard:{slot.key}")
         )
         or in_stage
@@ -7528,6 +7541,8 @@ async def _start_next_queued_turn(state: DashboardState, slot: _ChatSlot) -> boo
         # S1: an active stage may consume only delivery owned by its boundary.
         # The generic system fallback would pull another parent's completion into
         # this stage; leave it queued until stage execution releases the gate.
+        return False
+    if required_queue_id and not slot.queue_promote_by_id(required_queue_id):
         return False
     if hold_users:
         # During a multi-stage plan hold cron notifications too: each stage is
@@ -7545,7 +7560,13 @@ async def _start_next_queued_turn(state: DashboardState, slot: _ChatSlot) -> boo
             ),
         )
     else:
-        next_msg, consumed = _dequeue_next_message(slot, merge_enabled=merge)
+        # ``required_queue_id`` is an explicit request to run exactly one card.
+        # Promotion selects it; merging here would consume unrelated queued user
+        # prompts in the same turn and falsely acknowledge work the user did not
+        # choose.
+        next_msg, consumed = _dequeue_next_message(
+            slot, merge_enabled=merge and not required_queue_id
+        )
     if next_msg is None:
         return False
 

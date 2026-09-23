@@ -2097,6 +2097,30 @@ so absence clears it.
   window rows it never wrote, and the queue signal cannot cover them once the
   overtaking writer has satisfied it.
 
+- **Run now dispatches an idle queued card; it does not cancel child work.**
+  `POST /api/chat/slots/{slot}/interrupt` keeps its stop-and-preserve behavior
+  while the parent turn is running. When the parent is idle, the endpoint
+  **requires** an explicit `queue_id` naming the selected card: it revalidates
+  that exact card and starts it directly. A missing, empty, or non-string
+  `queue_id` on the idle path is rejected with `400 invalid_queue_id` — the
+  bypass exists only to run a card the user chose, so it never falls back to the
+  queue front or dispatches unselected work. The running path leaves
+  `queue_id` optional: a running-parent interrupt is a stop-and-preserve, and
+  the `queue_id` there only promotes the matching card to the front, so a value
+  that matches no card is a no-op rather than a refusal.
+  This explicit action bypasses only the background-subagent user-message hold;
+  an active stage, a stop in progress, or a remote-bound slot still refuses it.
+  Attached subagents keep running, and their later completion injections use the
+  ordinary busy-slot queue. If admission revalidation removed the selected card,
+  the endpoint returns `409 queue_item_unavailable` so the client releases its
+  pending-action latch instead of treating a no-op as accepted. Interrupt requests
+  that produce a command outcome are audited to the SEL as a
+  `dashboard_interrupt` command: the idle dispatch logs `outcome="started"`, a
+  running press logs the `stop_turn` outcome (`soft` / `hard` / `idle`), and a
+  superseded or already-in-progress press logs `outcome="noop"`. Requests
+  rejected before a command outcome, including validation and idle-dispatch
+  race refusals, are recorded by the generic mutating-API audit instead.
+
 - **Only a plain user prompt is durable.** An entry carrying a `kind` is an
   injection whose producer is gone (a cron notification names an event, and a
   restart is not that event happening again); an entry carrying a `payload` is a
