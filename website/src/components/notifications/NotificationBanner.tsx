@@ -104,6 +104,17 @@ export default function NotificationBanner({ bellRef, popoverOpen, onOpenNote }:
   const deadline = useRef(0)
   const remaining = useRef<number | null>(null)
   const paused = useRef(false)
+  // The two independent reasons a card is held open, tracked apart. One boolean
+  // cannot say WHICH of them still holds: with a single flag the pointer
+  // leaving released a hold the KEYBOARD had taken, so a card the user had
+  // tabbed into flew off under their focus, and a blur released the POINTER's
+  // hold, hiding a card still under the cursor. `paused` stays the one thing
+  // the timer reads; these two say who is asking for it.
+  const hovering = useRef(false)
+  const focusedWithin = useRef(false)
+  // The element the two handler pairs are bound to: what "inside the banner"
+  // means when the holds are re-read from the DOM after a removal.
+  const stackRef = useRef<HTMLDivElement>(null)
   const pendingRef = useRef(pending)
   pendingRef.current = pending
 
@@ -151,26 +162,51 @@ export default function NotificationBanner({ bellRef, popoverOpen, onOpenNote }:
     armTimer(BANNER_AUTO_HIDE_MS)
   }, [armTimer])
 
-  const pause = useCallback(() => {
-    if (paused.current) return
-    paused.current = true
-    if (timer.current !== null) {
-      remaining.current = Math.max(0, deadline.current - Date.now())
-      clearTimer()
+  /** Apply the holds: pause while either owner wants it, resume only when
+   *  BOTH have let go. */
+  const syncPaused = useCallback(() => {
+    const hold = hovering.current || focusedWithin.current
+    if (hold === paused.current) return
+    paused.current = hold
+    if (hold) {
+      if (timer.current !== null) {
+        remaining.current = Math.max(0, deadline.current - Date.now())
+        clearTimer()
+      }
+      return
     }
-  }, [clearTimer])
-
-  const resume = useCallback(() => {
-    if (!paused.current) return
-    paused.current = false
     const hasDefault = pendingRef.current.some(n => notePriority(n) !== 'critical')
     if (hasDefault && remaining.current !== null) {
       armTimer(remaining.current)
       remaining.current = null
     }
-  }, [armTimer])
+  }, [armTimer, clearTimer])
 
   useEffect(() => clearTimer, [clearTimer])
+
+  // Re-derive the holds from the DOM after every change to the deck, because a
+  // card's removal destroys the ownership without firing the event that
+  // releases it: an unmounted focused element sends no blur, so `blurCapture`
+  // never runs and a hold taken on a card the user then dismissed would go on
+  // pausing the cards that outlive it.
+  //
+  // The two owners are re-read differently because they are owned at different
+  // levels. FOCUS is owned by an ELEMENT, so the only truthful answer is
+  // whether the stack still contains the active one -- true while a SURVIVING
+  // card holds it, false the moment the holder is unmounted (focus falls to
+  // `body`). The POINTER is owned by the CONTAINER, and removing a card inside
+  // it does not move the boundary the enter/leave pair is measured at, so a
+  // pointer hold stays owned and only a real `pointerleave` releases it -- the
+  // one exception being an empty deck, where there is no box left to be over.
+  //
+  // Runs as an effect, not inside `removeNotes`: the handler fires BEFORE React
+  // commits the removal, so `document.activeElement` there is still the button
+  // that is about to disappear.
+  useEffect(() => {
+    focusedWithin.current = !!stackRef.current?.contains(document.activeElement)
+    if (pendingRef.current.length === 0) hovering.current = false
+    syncPaused()
+  }, [pending, syncPaused])
 
   // ---- arrival -----------------------------------------------------------------
   useEffect(() => {
@@ -290,11 +326,16 @@ export default function NotificationBanner({ bellRef, popoverOpen, onOpenNote }:
       className={`fixed z-[59] pointer-events-none top-safe-offset-[50px] ${isMobile ? 'left-safe-offset-3 right-safe-offset-3' : 'right-safe-offset-3 w-[340px]'}`}
     >
       <div
+        ref={stackRef}
         className={`relative pointer-events-auto ${expanded ? 'flex flex-col gap-2' : ''}`}
-        onPointerEnter={pause}
-        onPointerLeave={resume}
-        onFocusCapture={pause}
-        onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) resume() }}
+        onPointerEnter={() => { hovering.current = true; syncPaused() }}
+        onPointerLeave={() => { hovering.current = false; syncPaused() }}
+        onFocusCapture={() => { focusedWithin.current = true; syncPaused() }}
+        onBlurCapture={e => {
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+          focusedWithin.current = false
+          syncPaused()
+        }}
       >
         <AnimatePresence custom={exitDeltas.current} initial={false}>
           {visible.map((n, idx) => {
