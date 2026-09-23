@@ -44,11 +44,14 @@ from collections import deque
 from dataclasses import dataclass, field, replace
 from typing import Any, Awaitable, Callable, Optional, Protocol
 
-from kiro_crew.metrics.events import ADAPTIVE_DECISIONS, emit_counter
+from kiro_crew.metrics.events import ADAPTIVE_DECISIONS, LOOP_LAG_MS, emit_counter, emit_histogram
 
 from .policy import (
+    ACTION_DECREASE,
     ACTION_FIXED,
     ACTION_HOLD,
+    ACTION_PAUSE,
+    ACTION_RESUME,
     AdaptivePolicy,
     Decision,
     PolicyParams,
@@ -63,6 +66,8 @@ DEFAULT_SAMPLE_SECS = 5.0
 SAMPLE_RING = 60
 #: Evidence window the per-tick rates are computed over.
 WINDOW_SECS = 60.0
+#: Cap-changing decisions kept for the state snapshot, newest last.
+RECENT_DECISIONS = 32
 
 #: Substrings of a run's ``error`` that mark a CONGESTION failure: a start or
 #: turn that timed out, a stall, a backend that never initialised. Anything
@@ -238,6 +243,7 @@ class AdaptiveController:
         self._last_error: str = ""
         self._ticks = 0
         self._counts = {"decrease": 0, "increase": 0, "pause": 0, "probe": 0, "resume": 0}
+        self._recent: deque[dict[str, Any]] = deque(maxlen=RECENT_DECISIONS)
         self._config_sub: Any = None
         try:
             from kiro_crew.config import live
@@ -357,16 +363,26 @@ class AdaptiveController:
 
     async def run(self) -> None:
         while True:
-            t0 = self._clock()
-            await self._sleep(self._sample_secs)
-            lag_ms = max(0.0, (self._clock() - t0 - self._sample_secs) * 1000.0)
-            try:
-                await self.tick(loop_lag_ms=lag_ms)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # the loop must outlive any one bad sample
-                self._last_error = f"{type(exc).__name__}: {exc}"
-                logger.debug("adaptive controller tick failed", exc_info=True)
+            await self._sample_and_tick()
+
+    async def _sample_and_tick(self) -> None:
+        """One cycle of :meth:`run`: wait, measure how late the timer fired,
+        publish that lag, tick. Separate from ``tick`` so tests can drive the
+        measured path while ``tick`` keeps taking synthetic lag."""
+        t0 = self._clock()
+        # Read the period once: a hot-reload of controller_sample_secs that
+        # lands during the sleep must not be measured as loop lag.
+        secs = self._sample_secs
+        await self._sleep(secs)
+        lag_ms = max(0.0, (self._clock() - t0 - secs) * 1000.0)
+        emit_histogram(LOOP_LAG_MS, lag_ms, {"process": "gateway"}, unit="ms")
+        try:
+            await self.tick(loop_lag_ms=lag_ms)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # the loop must outlive any one bad sample
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            logger.debug("adaptive controller tick failed", exc_info=True)
 
     # -- one cycle -----------------------------------------------------------
 
@@ -495,22 +511,62 @@ class AdaptiveController:
         return decision
 
     async def apply(self, decision: Decision) -> None:
+        prev_exec, prev_gate = self._applied_exec, self._applied_gate
         if decision.effective_exec_cap != self._applied_exec:
             self._apply_exec(decision.effective_exec_cap)
         if decision.spawn_gate_capacity != self._applied_gate:
             self._gate_pending = decision.spawn_gate_capacity
         await self._flush_gate()
+        # Movement is judged on what the actuators confirmed, after they ran:
+        # a gate update the daemon did not answer stays pending and is not a
+        # move. A cap's first application (``None`` before) is not one either.
+        moved = (prev_exec is not None and self._applied_exec != prev_exec) or (
+            prev_gate is not None and self._applied_gate != prev_gate
+        )
         if decision.action in self._counts:
             self._counts[decision.action] += 1
         if decision.changed and decision.action not in (ACTION_HOLD, ACTION_FIXED):
             emit_counter(ADAPTIVE_DECISIONS, {"action": decision.action})
-            logger.info(
+            # gateway.log keeps WARNING and above, and a cap reduction, and
+            # the resume that closes a pause, are the events an operator later
+            # needs to explain; growth stays at INFO.
+            log = (
+                logger.warning
+                if decision.action in (ACTION_DECREASE, ACTION_PAUSE, ACTION_RESUME)
+                else logger.info
+            )
+            log(
                 "adaptive concurrency %s: exec_cap=%d gate_cap=%d paused=%s (%s)",
                 decision.action,
                 decision.effective_exec_cap,
                 decision.spawn_gate_capacity,
                 decision.paused,
                 decision.reason,
+            )
+        if moved or (decision.changed and decision.action not in (ACTION_HOLD, ACTION_FIXED)):
+            # Any confirmed move belongs in the history, whatever the decision
+            # said: a hold after a live ``agent.max_subagents`` drop clamps the
+            # cap, a fixed-mode hot-reload from a reduced AIMD cap restores it,
+            # and a restarted daemon accepting a long-pending gate cap moves it
+            # under an unchanged decision. A changed non-hold decision is
+            # recorded even when its actuator has not confirmed yet. The first
+            # fixed decision pins caps applied at construction: not a move.
+            last = self._samples[-1] if self._samples else None
+            # Wall-clock, not ``self._clock``: the entry is read from outside
+            # the process, to line a cap drop up against gateway.log. The caps
+            # are the CONFIRMED ones: what the actuators hold after this
+            # decision, not what it asked for (a gate update the daemon did
+            # not answer is still pending and shows the previous value).
+            self._recent.append(
+                {
+                    "at": time.time(),
+                    "action": decision.action,
+                    "reason": decision.reason,
+                    "exec_cap": self._applied_exec,
+                    "gate_cap": self._applied_gate,
+                    "paused": decision.paused,
+                    "loop_lag_ms": round(last.loop_lag_ms, 1) if last else None,
+                }
             )
 
     def _apply_exec(self, cap: Optional[int]) -> None:
@@ -533,7 +589,10 @@ class AdaptiveController:
         if applied is None:
             # Daemon not answering: keep it pending, retry next tick.
             return
-        self._applied_gate = wanted
+        # What the daemon answered, not what was asked: an adopted daemon with
+        # narrower bounds clamps the request, and the history and
+        # ``applied_gate_cap`` must report the capacity actually in force.
+        self._applied_gate = applied
         self._gate_pending = None
 
     # -- manager observation -------------------------------------------------
@@ -620,6 +679,7 @@ class AdaptiveController:
                 if last
                 else None
             ),
+            "recent_decisions": list(self._recent),
             **self._policy.snapshot(),
         }
 

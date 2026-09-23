@@ -306,6 +306,10 @@ _HISTOGRAM_BUCKETS_MS: dict[str, list[float]] = {
     # seconds.
     "kirocrew.embed.queue_wait": _FAST_BUCKETS_MS,
     "kirocrew.embed.inference": _FAST_BUCKETS_MS,
+    # Event-loop lag per adaptive-controller sample. Healthy is sub-millisecond
+    # to a few ms; a stall that trips the controller is 250ms to seconds, and
+    # _FAST_BUCKETS_MS (0.5ms..60s) resolves both ends.
+    "kirocrew.loop.lag_ms": _FAST_BUCKETS_MS,
 }
 
 # Per-turn billed amount. Calibrated against 17,240 real per-turn credit rows

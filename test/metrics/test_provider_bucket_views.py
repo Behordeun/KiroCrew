@@ -123,6 +123,53 @@ def _emitted_histogram_names() -> set[str]:
     return set(_emitted_histogram_units().keys())
 
 
+@lru_cache(maxsize=1)
+def _sampler_histogram_names() -> frozenset[str]:
+    """Instruments passed to ``kiro_crew.metrics.events.emit_histogram``.
+
+    The sampler-cadence series (loop lag, queue depth, recovery duration) are
+    recorded through that helper with a constant imported from ``events.py``,
+    so neither scan above sees them: the name scan wants a ``.duration`` suffix
+    and the call scan resolves only same-file constants of a ``histogram`` call.
+    This resolves the first argument against ``events.py``'s module-level string
+    constants so a registered sampler histogram counts as live.
+    """
+    events_path = _SRC / "metrics" / "events.py"
+    consts: dict[str, str] = {}
+    for node in ast.parse(events_path.read_text(encoding="utf-8")).body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if isinstance(target, ast.Name) and isinstance(node.value, ast.Constant):
+            if isinstance(node.value.value, str):
+                consts[target.id] = node.value.value
+    found: set[str] = set()
+    for path in _SRC.rglob("*.py"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "emit_histogram(" not in text:
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            fn = node.func
+            fname = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if fname != "emit_histogram":
+                continue
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                found.add(first.value)
+            elif isinstance(first, ast.Name) and first.id in consts:
+                found.add(consts[first.id])
+    return frozenset(found)
+
+
 class TestCompleteness:
     def test_source_scan_finds_the_known_instruments(self):
         """Guard the guard: a scan that matches nothing would pass vacuously."""
@@ -140,14 +187,28 @@ class TestCompleteness:
             "map with boundaries covering its real range."
         )
 
+    def test_sampler_millisecond_histograms_have_bounds(self):
+        """The sampler scan must find the loop-lag instrument, and every
+        millisecond instrument it finds must be in the ms map; dropping the
+        ``kirocrew.loop.lag_ms`` entry fails here, not only in the stale check.
+        The sampler's non-millisecond series (queue depth, wait and recovery
+        seconds) predate this map and are outside it."""
+        names = _sampler_histogram_names()
+        assert "kirocrew.loop.lag_ms" in names
+        ms_names = {name for name in names if name.endswith("_ms")}
+        missing = sorted(ms_names - set(_HISTOGRAM_BUCKETS_MS))
+        assert not missing, f"sampler millisecond histograms without bounds: {missing}"
+
     def test_no_stale_map_entries(self):
         """A name dropped from the source should not linger in the map.
 
-        Checked against the union of both scans: the ms map legitimately holds
-        millisecond histograms whose names do not end in ``.duration`` (the embed
-        pair), which the name scan alone cannot see.
+        Checked against the union of all three scans: the ms map legitimately
+        holds millisecond histograms whose names do not end in ``.duration`` (the
+        embed pair), which the name scan alone cannot see, and sampler
+        histograms recorded through ``events.emit_histogram`` (loop lag), which
+        neither of the other two scans resolves.
         """
-        live = _source_histogram_names() | _emitted_histogram_names()
+        live = _source_histogram_names() | _emitted_histogram_names() | _sampler_histogram_names()
         stale = sorted(set(_HISTOGRAM_BUCKETS_MS) - live)
         assert not stale, f"map entries with no emitting call site: {stale}"
 

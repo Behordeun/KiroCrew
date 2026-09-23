@@ -414,7 +414,7 @@ Tests: `test/metrics/test_resource_attrs.py`.
 | `kirocrew.taskq.effective_cap` | histogram (1) | `lane_kind` (`subagents`, `spawn_gate`, or a name a controller registers — code-bounded) | same sampler; the cap currently ENFORCED per lane, equal to the user maximum only when nothing is degraded. |
 | `kirocrew.taskq.pressure_reason` | counter | `reason` (the controller's closed reason enum) | same sampler, one increment per health computation taken while a degrade reason is active. |
 | `kirocrew.host.procs_peak` / `kirocrew.host.fds_peak` / `kirocrew.host.rss_peak_mb` | histogram | — | declared for the host budget's peaks since the previous sample (emitter: the budget snapshot, wave-3 integration). |
-| `kirocrew.loop.lag_ms` | histogram (ms) | `process` (`gateway` / `gatewayd`) | declared for the adaptive controller's loop-lag signal. |
+| `kirocrew.loop.lag_ms` | histogram (ms) | `process` (`gateway` / `gatewayd`) | `adaptive/controller.py::AdaptiveController._sample_and_tick`, one observation per controller sample: how late the `sample_secs` timer fired on the gateway event loop, the same number the controller feeds its `loop_lag` signal. The cap decreases and pauses that signal drives are logged at WARNING. |
 | `kirocrew.recovery.attempts` | counter | `layer` (`L1_tool_call` … `L5_gateway`), `action` (`retry` / `escalate` / `notify` / `give_up`) | `recovery/ladder.py::RecoveryLadder.observe_failure`, one per decision. |
 | `kirocrew.recovery.escalations` | counter | `from_layer`, `to_layer` | same, one per hand-up. |
 | `kirocrew.recovery.duration_secs` | histogram (s) | `layer` | `RecoveryLadder.observe_success`: first failure of the run → the success that closed it. |

@@ -254,12 +254,18 @@ These are module constants, not settings. Tests and experiments may pass
 `AdaptiveController.state()` carries the enabled flag, mode, effective exec cap
 vs ceiling, the growth regime (`slow_start`), gate
 capacity vs ceiling, paused/probing, decision counts, the applied and pending
-actuator values, the last error and the last sample.
+actuator values, the last error, the last sample, and `recent_decisions`: the
+last 32 cap-changing decisions, newest last, each with its wall-clock time,
+action, reason, the caps the actuators confirmed after it (a gate update the
+daemon did not answer shows the previous gate cap), and the loop lag of the
+sample that produced it. Cap decreases, pauses and resumes are logged at WARNING (growth at INFO)
+so `gateway.log` keeps them.
 `resource_status.adaptive_state()` reads it from the registry and
 `adaptive_summary_lines()` renders it at the end of the `resource_status` MCP
 tool's report ("Execution cap: 8/64   MCP spawn gate: 4/8   Dispatch: active",
 then "Growth toward ceiling: slow start (x2/window)", the last decision and
-its signals, throttled provider scopes).
+its signals, throttled provider scopes, and the last five of
+`recent_decisions` under "Recent cap changes").
 
 **A tool server is not the gateway process,** so that registry is empty there:
 `mcp_tools/spawn.py::_live_adaptive_state` falls back to `GET
