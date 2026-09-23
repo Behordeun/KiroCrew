@@ -4207,7 +4207,7 @@ class SubagentManager:
             write_tombstone(
                 info.id,
                 cause=cause,
-                recovery_action=tombstone_recovery_action(info.id),
+                recovery_action=tombstone_recovery_action(info.id, read_state(info.id) or {}),
                 pid=info._pid,
                 turns=info.turns,
                 last_tool=info.last_tool,

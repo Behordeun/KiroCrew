@@ -151,14 +151,30 @@ class TestTombstoneResolvesRecoveryAction:
         return tomb["recovery_action"]
 
     def test_a_retrievable_result_makes_recovery_a_read(self, agent_root):
-        from kiro_crew.subagent_persistence import create_agent_folder
+        from kiro_crew.subagent_persistence import create_agent_folder, update_state
 
         create_agent_folder("withresult", task="t")
         (agent_root / "withresult" / "result.txt").write_text("the answer", encoding="utf-8")
+        # The run records the complete flag at its complete event; the
+        # tombstone writer trusts that record, not the file alone.
+        update_state("withresult", result_complete=True)
 
         SubagentManager._write_tombstone(SubagentInfo(id="withresult", task="t"), "error")
 
         assert self._recovery(agent_root, "withresult") == "result_available"
+
+    def test_a_result_without_the_complete_flag_is_a_fragment(self, agent_root):
+        """A non-empty file without the flag is an opening sentence, not an answer."""
+        from kiro_crew.subagent_persistence import create_agent_folder
+
+        create_agent_folder("fragmented", task="t")
+        (agent_root / "fragmented" / "result.txt").write_text(
+            "an opening sentence", encoding="utf-8"
+        )
+
+        SubagentManager._write_tombstone(SubagentInfo(id="fragmented", task="t"), "error")
+
+        assert self._recovery(agent_root, "fragmented") == "partial_result"
 
     def test_no_result_still_owes_the_user_a_notification(self, agent_root):
         from kiro_crew.subagent_persistence import create_agent_folder
