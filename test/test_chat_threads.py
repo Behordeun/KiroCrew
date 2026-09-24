@@ -637,7 +637,10 @@ def test_a_leftover_staged_sidecar_is_never_written_over(tmp_path, monkeypatch):
     assert log.read_threads(key)[mid][0]["content"] == "kept"
 
 
-@pytest.mark.skipif(not platform_compat.IS_POSIX, reason="descriptor pinning is POSIX-only")
+@pytest.mark.skipif(
+    not platform_compat.IS_POSIX or platform_compat.count_open_fds() is None,
+    reason="descriptor pinning is POSIX-only and needs a readable descriptor count",
+)
 def test_a_failed_sidecar_staging_leaks_no_descriptor(tmp_path):
     """The delete pins the `.threads` directory before moving the sidecar aside;
     a move that fails (an unwritable directory) must close that descriptor on
@@ -653,10 +656,10 @@ def test_a_failed_sidecar_staging_leaks_no_descriptor(tmp_path):
         # One refused delete first: the session index opens its SQLite handles
         # lazily on the first call, and those are not the descriptor under test.
         assert log.delete_session(key) is False
-        before = len(os.listdir("/proc/self/fd"))
+        before = platform_compat.count_open_fds()
         for _ in range(5):
             assert log.delete_session(key) is False
-        after = len(os.listdir("/proc/self/fd"))
+        after = platform_compat.count_open_fds()
     finally:
         os.chmod(path.parent, 0o700)  # nosemgrep: python.lang.security.audit.insecure-file-permissions.insecure-file-permissions -- restores the fixture's own owner-only mode after the 0o500 lockout above so tmp_path can be cleaned; nothing published.  # noqa: E501  # fmt: skip
     assert after == before
