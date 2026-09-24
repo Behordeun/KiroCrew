@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
@@ -14,6 +14,7 @@ import type { SettingEntry } from '../../components/commandPalette/settingsTypes
 import { makeScoreThenNameComparator } from '../../utils/fuzzyMatch'
 import { useListKeyboardNav } from '../../hooks/useListKeyboardNav'
 import { SidePanelDockContext } from '../../components/SidePanelLayout'
+import { SearchInput } from '../../components/ui'
 import { i18nT } from '../../i18n/t'
 import { api } from '../../api/client'
 
@@ -76,7 +77,6 @@ export default function SettingsSearch() {
   // dropdown stays closed while the input still shows what was typed.
   const [dismissed, setDismissed] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
 
   // The same `['dashboardConfig']` read the Decisions card uses, so this search and
   // that card hide together: on a governed install there is no path to the feature,
@@ -146,29 +146,38 @@ export default function SettingsSearch() {
   // rather than spilling into the clipped content area.
   const inNav = dock === 'nav'
 
+  const inputProps = {
+    type: 'text',
+    role: 'combobox',
+    'aria-label': i18nT('pages.settingsPage.search.aria_label'),
+    'aria-expanded': open,
+    'aria-controls': LISTBOX_ID,
+    'aria-activedescendant': open && results.length > 0 ? `settings-search-option-${selected}` : undefined,
+    placeholder: i18nT('pages.settingsPage.search.placeholder'),
+    value: query,
+    onChange: (e: ChangeEvent<HTMLInputElement>) => { setQuery(e.target.value); setDismissed(false) },
+    // Choosing a row never blurs: rows activate on mousedown and
+    // preventDefault, so a genuine blur means focus left the widget.
+    onBlur: close,
+  }
+
   return (
     <div ref={rootRef} className="relative shrink-0">
-      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted pointer-events-none" />
-      <input
-        ref={inputRef}
-        type="text"
-        role="combobox"
-        aria-label={i18nT('pages.settingsPage.search.aria_label')}
-        aria-expanded={open}
-        aria-controls={LISTBOX_ID}
-        aria-activedescendant={open && results.length > 0 ? `settings-search-option-${selected}` : undefined}
-        placeholder={i18nT('pages.settingsPage.search.placeholder')}
-        value={query}
-        onChange={e => { setQuery(e.target.value); setDismissed(false) }}
-        // Choosing a row never blurs: rows activate on mousedown and
-        // preventDefault, so a genuine blur means focus left the widget.
-        onBlur={close}
-        className={floating
-          ? 'w-full bg-transparent border-none rounded-full pl-8 pr-4 py-2.5 text-[14px] text-text placeholder:text-muted focus:outline-hidden'
-          : inNav
-          ? 'w-full bg-bg-elevated border border-border rounded-lg pl-8 pr-3 py-1.5 text-[13px] text-text placeholder:text-muted focus:outline-hidden focus-visible:border-accent'
-          : 'w-44 sm:w-56 bg-bg-elevated border border-border rounded-lg pl-8 pr-3 py-1.5 text-[13px] text-text placeholder:text-muted focus:outline-hidden focus-visible:border-accent'}
-      />
+      {floating ? (
+        // The capsule host owns the chrome, so this input stays borderless;
+        // SearchInput has no way to drop its own box.
+        <>
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted pointer-events-none" />
+          <input
+            {...inputProps}
+            // focus-cue-ok: the cue is the SidePanelLayout capsule's focus-within
+            // border-accent; the ancestor sits in another file, so the gate can't see it.
+            className="w-full bg-transparent border-none rounded-full pl-8 pr-4 py-2.5 text-[14px] text-text placeholder:text-muted focus:outline-hidden"
+          />
+        </>
+      ) : (
+        <SearchInput {...inputProps} className={inNav ? 'w-full' : 'w-44 sm:w-56'} />
+      )}
       {open && (
         <div
           id={LISTBOX_ID}

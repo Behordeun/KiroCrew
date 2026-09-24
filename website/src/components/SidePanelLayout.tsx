@@ -493,7 +493,7 @@ export default function SidePanelLayout({ title, tabs, defaultTab, rememberKey, 
               // occludes the visual viewport.
               style={keyboardInset > 0 ? { transform: `translateY(-${keyboardInset}px)` } : undefined}
             >
-              <div className="pointer-events-auto mx-auto max-w-sm rounded-full border border-border shadow-lg backdrop-blur-xl bg-[color-mix(in_srgb,var(--bg-elevated)_92%,transparent)]">
+              <div className="pointer-events-auto mx-auto max-w-sm rounded-full border border-border focus-within:border-accent shadow-lg backdrop-blur-xl bg-[color-mix(in_srgb,var(--bg-elevated)_92%,transparent)]">
                 <SidePanelDockContext.Provider value="bottom-float">
                   {headerRight}
                 </SidePanelDockContext.Provider>
