@@ -690,6 +690,10 @@ Writer: `dashboard/server.py::discover_app_window_entries`
 (`APP_WINDOW_URL_PREFIX = "app-windows"`);
 exclusion: `dashboard/token_auth.py::register_app_window_paths`.
 
+The dashboard service worker also declines every `/app-windows/` request. These are standalone top-level documents, not SPA routes, so a failed app-window navigation must never fall back to the cached dashboard shell. In Electron that fallback can put the full dashboard inside a frameless, non-focusable, full-display overlay with no close controls.
+
+Full-display window hosts additionally fail closed on their own network result. Mochi and Crew Companion hide an overlay whose main-frame navigation completes with a 4xx/5xx response or fails at the transport; Crew Companion also keeps its hidden notification owner inert on either failure. The shared latch classifies completed responses, transport failures, sub-frames, and superseded navigations; each host retains its own visibility, credential, retry, and ownership policy. The corresponding reconcile loop alone may reload failed windows after a gateway probe accepts the current credential. A failed page never performs its reveal or ownership handshake, and retries stay bounded by the reconcile cadence. Writers: `website/public/sw.js`, `website/electron/app-window-error-latch.js`, `website/electron/mochi/petOverlays.js`, `website/electron/crew-companion/petOverlay.js`; executable contracts: `website/src/test/serviceWorkerSkipRules.test.ts`, `website/electron/test/app-window-error-latch.test.js`, `website/electron/mochi/test/petOverlays.test.js`, `website/electron/crew-companion/test/petOverlay.test.js`.
+
 ## 7. Enabled-app resources are reconciled at startup
 
 Registration used to happen ONLY in the enable path, so an app that gained

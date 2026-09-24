@@ -137,6 +137,7 @@
       "gateway-supervisor.js",
       "window-lifecycle.js",
       "ipc-registrar.js",
+      "app-window-error-latch.js",
       "app-menu.js",
       "windows-menu-model.js",
       "windows-titlebar.js",
