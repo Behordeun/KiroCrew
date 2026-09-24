@@ -3168,6 +3168,22 @@ SESSION_CREATE_SCHEMA = ToolSchema(
     ],
 )
 
+SESSION_FORK_SCHEMA = ToolSchema(
+    tool_name="session_fork",
+    fields=[
+        # The session to copy from: a slot key, transcript stem or exact unique
+        # title, the same three forms every ``target`` resolves. Empty means the
+        # caller's own session.
+        FieldSpec("source", str, required=False, default="", max_len=MAX_SHORT_STRING),
+        FieldSpec("title", str, required=False, default="", max_len=200),
+        FieldSpec("folder", str, required=False, default="", max_len=_ARTIFACT_FOLDER_REF_MAX),
+        # The fork point, as ``chat_fork`` counts it: an index into the source's
+        # visible (user/assistant) rows, inclusive. Bounded above only by the
+        # transcript, which the fork core checks against the corpus it reads.
+        FieldSpec("at_message_index", int, required=False, min_val=0),
+    ],
+)
+
 SESSION_STOP_SCHEMA = ToolSchema(
     tool_name="session_stop",
     fields=[
@@ -3455,6 +3471,7 @@ def _cu_coord_field(name: str, *, required: bool = False) -> FieldSpec:
 # its args passed through raw.
 MCP_DASHBOARD_SCHEMAS: dict[str, ToolSchema] = {
     "session_create": SESSION_CREATE_SCHEMA,
+    "session_fork": SESSION_FORK_SCHEMA,
     "session_stop": SESSION_STOP_SCHEMA,
     "session_close": SESSION_CLOSE_SCHEMA,
     "session_send": SESSION_SEND_SCHEMA,

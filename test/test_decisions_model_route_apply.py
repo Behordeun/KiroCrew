@@ -656,9 +656,14 @@ class TestArmingIsAnOwnerAction:
         import kiro_crew.dashboard.chat_fork as fork
 
         source = Path(fork.__file__).read_text(encoding="utf-8")
-        assert "new_slot.jev_route = slot.jev_route and is_owner_dashboard_request(request)" in (
+        # Two halves since the route was split: the wrapper answers the owner
+        # predicate from the request, and the shared core applies that answer.
+        assert (
+            "jev_route_allowed=is_owner_dashboard_request(request)" in source
+        ), "the fork route no longer asks whether the forker is the owner"
+        assert "new_slot.jev_route = slot.jev_route and jev_route_allowed" in (
             source
-        ), "the fork copies the routing flag without asking whether the forker is the owner"
+        ), "the fork copies the routing flag without applying the owner predicate"
 
 
 class TestAManualPickDuringTheAwaitWins:

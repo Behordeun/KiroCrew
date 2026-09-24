@@ -3,14 +3,15 @@
 ## Overview
 
 Session control lets one of the user's chat sessions observe and interrupt
-another: open a new session, stop an in-flight turn, close (archive) a session,
-and read a transcript tail.
+another: open a new session, fork a session so the new one carries a
+transcript, stop an in-flight turn, close (archive) a session, and read a
+transcript tail.
 It exists because a session cannot see what its peers are doing. A session that
 has spent an hour on a PR cannot tell whether the session watching the build has
 finished, and today the only way to find out is for the human to switch tabs and
 look. Session control lets the session ask directly.
 
-Five MCP tools on `kirocrew-dashboard`, five strict-internal routes, and two
+Six MCP tools on `kirocrew-dashboard`, six strict-internal routes, and two
 config switches: `agent.session_control` plus the member-dispatch bypass ceiling.
 Every route is on `_STRICT_INTERNAL_API_PATHS`; an unlisted one is
 unreachable in production because the caller's `X-Internal-Secret` is ignored.
@@ -18,6 +19,7 @@ unreachable in production because the caller's `X-Internal-Secret` is ignored.
 | Tool | Route | What it does |
 |------|-------|--------------|
 | `session_create` | `POST /api/session-control/create` | Open a new, empty session in the caller's workspace, optionally filed into a sidebar folder at creation |
+| `session_fork` | `POST /api/session-control/fork` | Open a new session that CARRIES a copy of a source session's transcript — the caller's own by default — the way the dashboard's Fork button does; optionally titled, filed, and cut at a fork point |
 | `session_stop` | `POST /api/session-control/stop` | Stop another session's in-flight turn |
 | `session_close` | `POST /api/session-control/close` | Close (archive) another session, as the tab ✕ does — heavier than stop, and recoverable rather than a delete |
 | `session_send` | `POST /api/session-control/send` | Deliver a message that another session runs as its next turn, or cut it into the turn already running (`steer`) |
@@ -165,6 +167,100 @@ loses nothing — existence is confirmed read-only under the folder-store lock
 only after the filing has landed, so a refused create leaves no folder-tree
 mutation behind.
 
+### `session_fork`: a created child that carries a transcript
+
+`session_create` opens an empty session, and the case it cannot serve is the
+one that produced this verb: an agent that has spent a long investigation in one
+session and now wants to split the follow-up into several, each of which should
+START with what was found. Writing the findings to disk and seeding each child
+with a pointer is the workaround; the dashboard's own Fork button already does
+the right thing for a person, and `session_fork` is that button reachable from
+the MCP surface.
+
+**One fork core, two entry points.** `chat_fork.api_chat_slot_fork` (the human
+route, `POST /api/chat/slots/{slot}/fork`) is a thin wrapper — slot lookup, slot
+cap, App Kit ownership, body parsing — around two shared coroutines:
+`resolve_fork_source`, which freezes the parent's memory identity and refuses a
+parent whose persisted mode is unrecognised, and `fork_slot`, which does
+everything from the transcript snapshot (the pending-rewrite flush, the
+consistent read under `_fork_lock`, the rotated-archive rebuild) through the
+child's mint, message copy, save and the deleted-source rollback. The
+session-control verb calls the same two, so what an agent's fork copies and what
+it inherits — agent, model, memory store and mode bound at birth, project,
+folder, tags, `forked_from` — is by construction what a person's fork copies
+and inherits. The human route's behaviour is unchanged by the split; the core
+takes the request-derived facts as arguments (`request_app`, `origin`,
+`count_user_session`, `jev_route_allowed`, the SEL caller and operation) and the
+two routes answer them differently:
+
+| Fact | Human route | `session_fork` |
+|---|---|---|
+| `origin` | `request_slot_origin(request_app)` | The caller's authority, as `create_session` derives it: `CRON` for a cron caller or a cron's descendant, else `USER` |
+| `count_user_session` | `True` — a human request-layer session for the pulse survey | `False` — an agent-made session is not one (`test_session_pulse_session_count` sweeps for the literal, so the core takes it as a parameter and the only literal `True` stays in `chat_fork.py`) |
+| `jev_route_allowed` | `is_owner_dashboard_request` | `False` — arming a second routed session is the owner's own click, which no agent caller made; the child keeps the parent's pinned `model` |
+| SEL operation | `chat.slot_fork` | `session_control.fork`, on the core's rows and on this module's own `_audit` row (`session_fork`), so the two entry points stay distinguishable |
+
+The core's refusals are `web.json_response` objects — that is the module's
+refusal shape and its coded sites are what the error-code ratchet
+(`test_chat_fork_error_codes`) pins, so the split did not re-type them.
+`fork_session` reads the `{error, code}` body back into a `SessionControlError`
+(`_fork_refusal`), so a caller sees `value_out_of_range`,
+`no_messages_to_fork`, `fork_snapshot_unstable` and the rest under the same
+codes the human route reports.
+
+**Authorization is the union of two existing rules, not a third.** A fork
+manufactures a session the caller then owns, so the caller must be an eligible
+CREATOR: `_refuse_ineligible_creator` runs on entry and again adjacent to the
+allocation, exactly as in `create_session`, plus the same switch, unattended
+and identification gates in the same order. Copying a source's transcript is a
+READ of it, so a `source` that is not the caller goes through `authorize_target`
+with operation `fork` — the same verb-level requirement, fence and refusal
+codes `read_messages` has (`ephemeral_target`, `workspace_mismatch`,
+`linked_session_target`, `not_creator`, and so on; the fork tests assert the
+codes match read's, case for case). Those decisions are re-asserted at the act,
+not only at admission: `fork_session` hands `fork_slot` a synchronous `recheck`
+that it runs immediately before minting the child and again after the memory
+bind, before any row is copied. The recheck re-runs the caller's eligibility,
+the source's liveness, `authorize_target` for a peer source (so a source that
+gained a channel mirror or moved workspace mid-fork refuses with read's own
+code), the folder's existence against the committed folder list (so a folder
+deleted mid-fork refuses `folder_not_found` rather than filing the child under a
+dangling id), and both slot ceilings (so two forks in flight cannot each pass the
+entry check and both land over the cap). The caller's trust posture is read
+inside the stamp, in the same synchronous window, so a grant revoked while the
+transcript was being read is not reapplied to the child. Behind that, the source's workspace is part of the identity
+`resolve_fork_source` freezes and `fork_slot` re-compares, which is what catches
+a workspace move on the caller's OWN transcript, where no target check runs
+(`store_unavailable`, retryable). The caller's own session is the one target
+`authorize_target` cannot admit (`self_target`), and it is the DEFAULT source
+here: a session copying its own transcript crosses no boundary, so an omitted
+`source`, and a `source` that resolves to the caller, both take the self path
+and skip the target guard while keeping the creator gates.
+
+**What the child gets on top of the human fork**, applied by a `stamp` callback
+`fork_slot` runs on the child before its birth save, so it lands in the same
+metadata line as the transcript and is on disk before the slot is broadcast (no
+second persistence window; a failed save withdraws the whole child): `title` (else the fork's `↳ Fork of <parent>`),
+`folder_id` (else the parent's folder, which the human fork inherits; an
+unknown folder refuses the whole fork before any copy, confirmed read-only under
+the folder-store lock like `create_session`, and the Model-B un-hide runs only
+after the filing has landed), creator attribution (`created_by` = the caller,
+plus `_created_by_sid` / `_lineage_minted` as at a create, so the other verbs
+reach the child and the per-creator ceiling counts it), and the caller's
+session posture — `_trust` and `_trust_reads`, with `_trusted_patterns` and
+`_trust_scope` excluded for the reasons "What a created child inherits" gives.
+A fork spends the `session_create` rate budget and is bounded by the same live
+and per-creator slot ceilings; it is a session the caller manufactured, whatever
+it starts with.
+
+**Deliberately not offered.** No `agent`, `model` or `mode` override: a
+transcript belongs to the memory boundary it was written in, and `chat_fork`
+binds the child's execution identity from the parent's for exactly that reason.
+No tail fork (`direction` is fixed to `head`); the human route keeps it behind
+`dashboard.tail_fork_enabled`. No `prompt`: the child starts idle, and seeding
+it is `session_send`'s job — the same split that keeps `session_create` from
+being the front half of a delivery.
+
 ### What a created child inherits
 
 Creation copies two different kinds of state, and the split is deliberate.
@@ -245,9 +341,12 @@ and its keys are what `target` accepts.
 ## Authorization
 
 Deny-by-default, and checked in **one** place — `authorize_target` — for every
-verb that takes a target (`stop`, `send`, `close`, `read`), so a guard cannot be
+verb that takes a target (`stop`, `send`, `close`, `read`, and `fork` when its
+`source` is another session), so a guard cannot be
 present on one and missing on another. (`session_create` has no target to
-authorize; it checks the caller's own eligibility with the same refusals.) Every refusal is recorded in the SEL as
+authorize; it checks the caller's own eligibility with the same refusals, and
+`session_fork` applies both: the creator eligibility for the caller, and the
+target guard for a source that is not the caller itself.) Every refusal is recorded in the SEL as
 `session_control.<op>` with `outcome=denied`, so an attempt to reach a session
 that is out of bounds is visible after the fact even though nothing happened.
 

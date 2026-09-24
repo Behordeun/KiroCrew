@@ -543,6 +543,7 @@ _STRICT_INTERNAL_API_PATHS = frozenset(
         # and the handler's own internal_auth re-assert then refuses it -- the
         # tool is unreachable in production while handler-level tests still pass.
         "/api/session-control/create",
+        "/api/session-control/fork",
         "/api/session-control/stop",
         "/api/session-control/close",
         "/api/session-control/send",
@@ -1814,6 +1815,9 @@ def _register_mcp_routes(app: web.Application) -> None:
     # pins by deriving the route set from the router rather than a hand-copied list.
     app.router.add_post(
         "/api/session-control/create", _deferred("session_control", "api_session_control_create")
+    )
+    app.router.add_post(
+        "/api/session-control/fork", _deferred("session_control", "api_session_control_fork")
     )
     app.router.add_post(
         "/api/session-control/stop", _deferred("session_control", "api_session_control_stop")

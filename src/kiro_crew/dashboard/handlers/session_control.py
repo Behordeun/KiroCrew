@@ -261,6 +261,41 @@ async def api_session_control_create(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
+async def api_session_control_fork(request: web.Request) -> web.Response:
+    """POST /api/session-control/fork — open a session carrying another's transcript."""
+    refused = await _require_internal(request)
+    if refused is not None:
+        return refused
+    state: DashboardState = request.app["state"]
+    try:
+        body = await _body(request)
+        # Strictly typed: this body is model-controlled, and `bool` is an `int`
+        # subclass, so `True` would otherwise read as fork point 1.
+        at_index = body.get("at_message_index")
+        if at_index is not None and (isinstance(at_index, bool) or not isinstance(at_index, int)):
+            raise sc.SessionControlError(
+                "at_message_index must be a non-negative integer", code="invalid_field_type"
+            )
+        source = body.get("source", "")
+        if not isinstance(source, str):
+            raise sc.SessionControlError("source must be a string", code="invalid_field_type")
+        # Warmed AFTER the body read, for the reason `api_session_control_create`
+        # gives: nothing suspends between here and `fork_session`'s own gate.
+        await sc.prewarm_enabled_check()
+        result = await sc.fork_session(
+            state,
+            caller_session_key=_read_session_key(request),
+            source=source,
+            title=str(body.get("title") or ""),
+            folder_id=str(body.get("folder_id") or ""),
+            at_message_index=at_index,
+            caller_fenced=_carried_fence(request),
+        )
+    except sc.SessionControlError as exc:
+        return _refusal(exc)
+    return web.json_response(result)
+
+
 async def api_session_control_stop(request: web.Request) -> web.Response:
     """POST /api/session-control/stop — stop another session's in-flight turn."""
     refused = await _require_internal(request)

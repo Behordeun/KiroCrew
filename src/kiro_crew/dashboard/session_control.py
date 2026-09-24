@@ -32,6 +32,7 @@ same refusals.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from collections.abc import Callable, Iterator
@@ -49,6 +50,13 @@ from kiro_crew.config.resolution import DEGRADED_WHOLE_CONFIG
 from kiro_crew.crew_log import emit as crew_log_emit
 from kiro_crew.dashboard.chat_delivery import sanitize_outbound
 from kiro_crew.dashboard.chat_folders import _unhide_folder
+from kiro_crew.dashboard.chat_fork import (
+    _FORK_DIRECTION_HEAD,
+    ForkResult,
+    ForkSource,
+    fork_slot,
+    resolve_fork_source,
+)
 from kiro_crew.dashboard.chat_persistence import _TRANSIENT_ROLES as _PERSISTENCE_TRANSIENT_ROLES
 from kiro_crew.dashboard.chat_utils import (
     drained_to_thread,
@@ -1868,6 +1876,346 @@ async def create_session(
         "ok": True,
         "target": slot.key,
         "title": slot.title or slot.key,
+    }
+
+
+#: Maximum ``title`` a forked child accepts, matching ``create_session``'s cap.
+_MAX_FORK_TITLE_CHARS = 200
+
+
+def _fork_refusal(response: Any) -> SessionControlError:
+    """Translate a ``chat_fork`` refusal into this module's error type.
+
+    ``chat_fork`` refuses with a finished ``web.json_response`` -- its coded
+    ``{"error", "code"}`` body IS the refusal, and its sites stay there so the
+    error-code ratchet keeps pinning them. This surface speaks
+    :class:`SessionControlError`, so the body is read back out rather than the
+    fork core learning a second refusal type. A body that does not decode is
+    still a refusal, just an unlabelled one.
+    """
+    error, code = "fork refused", "fork_refused"
+    try:
+        body = json.loads(response.body or b"{}")
+        error = str(body.get("error") or error)
+        code = str(body.get("code") or code)
+    except (ValueError, AttributeError, TypeError):
+        pass
+    return SessionControlError(error, status=int(getattr(response, "status", 400)), code=code)
+
+
+async def fork_session(
+    state: "DashboardState",
+    *,
+    caller_session_key: str,
+    source: str = "",
+    title: str = "",
+    folder_id: str = "",
+    at_message_index: int | None = None,
+    caller_fenced: bool | None = None,
+) -> dict[str, Any]:
+    """Open a new session that CARRIES a transcript: the dashboard's Fork, for an agent.
+
+    ``create_session`` opens an empty session; this opens one holding a copy of
+    *source*'s messages up to and including ``at_message_index`` (the whole
+    visible transcript when omitted -- a head fork; tail forks are not offered
+    here). The copy is made by the same core the human Fork button runs
+    (``chat_fork.fork_slot``), so what the child inherits -- agent, model,
+    memory store and mode, project, folder, tags, the ``forked_from`` link --
+    is exactly what a person's fork inherits, and for the same memory-boundary
+    reasons no override of agent, model or mode is taken here.
+
+    *source* defaults to the CALLER'S OWN session, which is the case this verb
+    exists for: an agent splitting its own long investigation into several
+    sessions that each start with the context it already built. Naming another
+    session is a READ of that session's transcript, so it is authorized exactly
+    as ``read_messages`` is (``authorize_target``, operation ``fork``): the
+    caller must be allowed to read the source. Either way the caller must also
+    be an eligible CREATOR -- the same refusal set ``create_session`` applies,
+    because a fork manufactures a session the caller then owns.
+
+    What the child gets on top of the human fork: ``title`` (else the fork's own
+    ``Fork of <parent>``), ``folder_id`` (else the parent's folder, as the human
+    fork inherits it), creator attribution (``created_by`` = the caller, so the
+    other verbs reach it afterwards and the per-creator ceiling counts it) and the
+    caller's session posture (``_trust`` / ``_trust_reads`` -- the same two
+    fields ``create_session`` carries, with the same exclusions). It starts IDLE:
+    the copied transcript is history, and nothing runs until the caller
+    ``session_send``\\ s into it or the person types.
+
+    ``caller_fenced`` is the HTTP gate's ownership-fence verdict, forwarded to
+    ``authorize_target`` for the reason every other verb forwards it.
+    """
+    caller_key = caller_slot_key(state, caller_session_key)
+    if not caller_key:
+        raise SessionControlError(
+            "caller session could not be identified", code="caller_unidentified"
+        )
+    # Same gate order as `create_session`, for the same reasons: the member
+    # bypass is resolved on the caller, then the config switch, then the
+    # unattended prefix.
+    if not session_control_enabled() and not _member_bypass(state, caller_key):
+        raise SessionControlError(
+            "session control is disabled in config (agent.session_control)",
+            code="session_control_disabled",
+        )
+    if caller_key.startswith(UNATTENDED_SLOT_PREFIXES) and not _cron_caller(caller_key):
+        raise SessionControlError(
+            "unattended sessions (scheduled runs) cannot fork sessions",
+            code="unattended_caller",
+        )
+    caller_slot = state.get_slot(caller_key)
+    if caller_slot is None:
+        raise SessionControlError("caller session is not open", code="caller_not_open", status=404)
+    # A fork manufactures a session the caller owns, so the caller must be an
+    # eligible creator before anything else is read -- see the note on
+    # `_refuse_ineligible_creator` for why this set mirrors `authorize_target`'s.
+    _refuse_ineligible_creator(state, caller_slot)
+
+    if at_message_index is not None and (
+        isinstance(at_message_index, bool) or at_message_index < 0
+    ):
+        raise SessionControlError(
+            "at_message_index must be a non-negative integer", code="invalid_field_type"
+        )
+
+    # Resolve the source. An empty `source` is the caller itself. A named source
+    # that resolves to the caller is the same case spelled out -- `authorize_target`
+    # would refuse it as `self_target`, and rightly so for stop/send/read, but a
+    # session reading its OWN transcript to copy it crosses no boundary. Anything
+    # else is a peer, and copying a peer's transcript is a read of it, so it is
+    # authorized as `read_messages` is: same verb-level requirement, same fence.
+    source_ref = (source or "").strip()
+    if source_ref:
+        try:
+            resolved = _resolve_slot(state, source_ref)
+        except SessionControlError:
+            resolved = None
+    else:
+        resolved = caller_slot
+    if resolved is caller_slot:
+        source_slot = caller_slot
+    else:
+        source_slot = authorize_target(
+            state,
+            caller_session_key=caller_session_key,
+            target=source_ref,
+            operation="fork",
+            precomputed_ownership_fenced=caller_fenced,
+        )
+
+    log = state.conversation_log
+    if log is None:
+        # Same answer `create_session` gives: without a durable store the copy
+        # cannot be persisted, and a fork that vanishes on restart is not a fork.
+        raise SessionControlError(
+            "session history is unavailable, so the session cannot be persisted",
+            code="history_unavailable",
+        )
+
+    if folder_id:
+        # Confirmed READ-ONLY under the folder-store lock, exactly as
+        # `create_session` does and for the same reasons; the Model-B un-hide runs
+        # only once the filing has landed on the child.
+        def _exists(folders: list[dict[str, Any]]) -> bool:
+            return any(str(f.get("id") or "") == folder_id for f in _safe_folder_tree(folders))
+
+        if not await state.read_folders(_exists):
+            raise SessionControlError("folder not found", code="folder_not_found")
+
+    # Re-gate adjacent to the allocation, as `create_session` does: every input
+    # above was read before this coroutine suspended (the folder confirmation),
+    # and both the caller's eligibility and the source's liveness are live state.
+    live_caller = state.get_slot(caller_key)
+    if live_caller is None or live_caller is not caller_slot:
+        raise SessionControlError("caller session is not open", code="caller_not_open", status=404)
+    _refuse_ineligible_creator(state, live_caller)
+    if state.get_slot(source_slot.key) is not source_slot:
+        raise SessionControlError(
+            "the source session closed while the fork was being prepared",
+            code="target_not_found",
+            status=404,
+        )
+    child_origin = (
+        SlotOrigin.CRON
+        if _cron_caller(caller_key) or getattr(live_caller, "_origin", "") == SlotOrigin.CRON
+        else SlotOrigin.USER
+    )
+    # A fork spends the same budget and counts against the same ceilings as a
+    # create: it is a session the caller manufactured, whatever it starts with.
+    if not allow_create(SESSION_CREATE, caller_key):
+        raise SessionControlError(
+            "too many sessions created recently; retry shortly",
+            code="create_rate_limited",
+            status=429,
+        )
+    if state.live_slot_count() >= MAX_LIVE_SLOTS:
+        raise SessionControlError(
+            f"slot cap reached ({MAX_LIVE_SLOTS})",
+            code="slot_cap_reached",
+            status=429,
+        )
+    if state.creator_slot_count(caller_key) >= MAX_SLOTS_PER_CREATOR:
+        raise SessionControlError(
+            f"per-caller slot cap reached ({MAX_SLOTS_PER_CREATOR})",
+            code="creator_slot_cap_reached",
+            status=429,
+        )
+
+    audit_caller = f"session:{caller_key}"
+    fork_source = await resolve_fork_source(
+        source_slot, audit_caller=audit_caller, audit_operation="session_control.fork"
+    )
+    if not isinstance(fork_source, ForkSource):
+        raise _fork_refusal(fork_source)
+
+    # The session-control half of the child's identity, mirrored from
+    # `create_session`. Applied INSIDE `fork_slot`, on the child, before its
+    # birth save: `save_slot_off_loop` writes `created_by`, `title` and
+    # `folder_id` into the metadata line it creates, so attribution is on disk in
+    # the same write as the transcript and before the slot is broadcast. There is
+    # no second persistence window -- a child that exists is an attributed child,
+    # and a save that fails withdraws the whole child (`fork_slot` pops it), so a
+    # retry cannot leave an unreachable duplicate behind.
+    _creator_sid = crew_log_emit.session_id_of(getattr(live_caller, "_acp_client", None))
+    # Session POSTURE only -- `_trust` and `_trust_reads` -- never
+    # `_trusted_patterns` or `_trust_scope`; `create_session` states why. Read
+    # INSIDE `_stamp`, not here: `fork_slot` suspends for the transcript read and
+    # the memory bind, and an operator revoking the caller's trust in that window
+    # (a per-slot revoke cannot reach a child that does not exist yet) must not
+    # see the child born with the grant they just withdrew. The values are
+    # recorded for the audit line after the stamp has taken them.
+    posture: dict[str, bool] = {}
+    clean_title = sanitize_outbound(title.strip())[:_MAX_FORK_TITLE_CHARS] if title.strip() else ""
+
+    def _folder_exists_now() -> bool:
+        # The COMMITTED folder list, read synchronously: folder mutations run on
+        # this loop, so between this read and the assignment `_stamp` makes there
+        # is no point at which a delete can land. Same value `read_folders` hands
+        # its reader; the lock there exists for readers that hop off the loop.
+        return any(str(f.get("id") or "") == folder_id for f in _safe_folder_tree(state._folders))
+
+    def _recheck() -> None:
+        # Every containment answer above was read before `fork_slot` suspended
+        # (transcript read, memory bind). Re-asserted synchronously at the two
+        # points that matter -- the mint and the copy -- so a caller that lost
+        # eligibility, a source that gained a channel mirror or moved out of
+        # reach, or a folder deleted meanwhile, refuses the fork instead of being
+        # copied around. Mirrors the "gate adjacent to the act" discipline
+        # `create_session` keeps for its own allocation.
+        live = state.get_slot(caller_key)
+        if live is None or live is not caller_slot:
+            raise SessionControlError(
+                "caller session is not open", code="caller_not_open", status=404
+            )
+        _refuse_ineligible_creator(state, live)
+        if state.get_slot(source_slot.key) is not source_slot:
+            raise SessionControlError(
+                "the source session closed while the fork was being prepared",
+                code="target_not_found",
+                status=404,
+            )
+        if source_slot is not caller_slot:
+            readmitted = authorize_target(
+                state,
+                caller_session_key=caller_session_key,
+                target=source_ref,
+                operation="fork",
+                precomputed_ownership_fenced=caller_fenced,
+                skip_enabled_check=True,
+            )
+            if readmitted is not source_slot:
+                raise SessionControlError(
+                    "the source session changed while the fork was being prepared",
+                    code="target_not_found",
+                    status=404,
+                )
+        if folder_id and not _folder_exists_now():
+            raise SessionControlError("folder not found", code="folder_not_found")
+        # The ceilings, re-read here rather than only at entry: two forks in
+        # flight could each pass the entry check and both suspend before their
+        # mints. The rate budget above is consumed atomically and bounds the
+        # burst; these keep the count itself honest at the mint, which is the
+        # same synchronous gate-then-act window `create_session` holds.
+        if state.live_slot_count() >= MAX_LIVE_SLOTS:
+            raise SessionControlError(
+                f"slot cap reached ({MAX_LIVE_SLOTS})", code="slot_cap_reached", status=429
+            )
+        if state.creator_slot_count(caller_key) >= MAX_SLOTS_PER_CREATOR:
+            raise SessionControlError(
+                f"per-caller slot cap reached ({MAX_SLOTS_PER_CREATOR})",
+                code="creator_slot_cap_reached",
+                status=429,
+            )
+
+    def _stamp(child: Any) -> None:
+        child._created_by = caller_key
+        child._created_by_sid = _creator_sid if len(_creator_sid) <= MAX_ACP_SESSION_ID_LEN else ""
+        child._lineage_minted = True
+        posture["trust"] = bool(getattr(live_caller, "_trust", False))
+        posture["trust_reads"] = bool(getattr(live_caller, "_trust_reads", False))
+        child._trust = posture["trust"]
+        child._trust_reads = posture["trust_reads"]
+        if clean_title:
+            child.title = clean_title
+            child._titled = True
+        if folder_id:
+            child.folder_id = folder_id
+
+    result = await fork_slot(
+        state,
+        fork_source,
+        at_index=at_message_index,
+        at_message_id=None,
+        direction=_FORK_DIRECTION_HEAD,
+        prompt="",
+        mode_override=None,
+        # An agent-made child: not app-scoped, not a human request-layer session
+        # for the session-count survey, and never Jev-routed -- arming a second
+        # routed session is the owner's own click, which no caller here made.
+        request_app="",
+        origin=child_origin,
+        count_user_session=False,
+        jev_route_allowed=False,
+        audit_caller=audit_caller,
+        audit_operation="session_control.fork",
+        stamp=_stamp,
+        recheck=_recheck,
+    )
+    if not isinstance(result, ForkResult):
+        raise _fork_refusal(result)
+    child = result.slot
+
+    if folder_id:
+        try:
+            await _unhide_folder(state, folder_id)
+        except Exception:
+            logger.warning(
+                "fork_session: filing committed for %s but un-hiding folder %s failed",
+                child.key,
+                folder_id,
+                exc_info=True,
+            )
+    state.push_slots_update()
+    _audit(
+        caller_session_key=caller_key,
+        operation="fork",
+        slot_key=child.key,
+        outcome="allowed",
+        detail={
+            "source": source_slot.key,
+            "messages": str(result.messages),
+            "folder_id": child.folder_id or "",
+            "inherited_trust": "true" if posture.get("trust") else "false",
+            "inherited_trust_reads": "true" if posture.get("trust_reads") else "false",
+        },
+    )
+    return {
+        "ok": True,
+        "target": child.key,
+        "title": child.title or child.key,
+        "source": source_slot.key,
+        "messages": result.messages,
+        "folder_id": child.folder_id or None,
     }
 
 

@@ -355,6 +355,7 @@ class TestWhatThisSetGrants:
     #: why the two classes ride together rather than in two servers.
     SESSION_TOOLS = {
         "session_create",
+        "session_fork",
         "session_stop",
         "session_close",
         "session_send",

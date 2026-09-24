@@ -67,6 +67,7 @@ CHANNEL_AGENT_BLOCKED_TOOLS: tuple[str, ...] = (
     "session_send",
     "session_read_message",
     "session_create",
+    "session_fork",
     "session_close",
     # The tree verbs, blocked on the containment reason the rest share: a channel
     # agent acts on words from a thread other people are in, and these two rearrange
