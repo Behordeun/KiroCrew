@@ -8476,6 +8476,8 @@
         "intensity": "Intensity",
         "interface": "Interface",
         "light_or_dark_appearance_for_the_dashboard": "Light or dark appearance for the dashboard",
+        "installed_theme_could_not_be_loaded": "The installed theme could not be loaded. Reinstall it or choose another theme.",
+        "custom_theme_could_not_be_loaded": "This theme could not be loaded. Choose another theme or edit this one.",
         "local_folder": "Local folder",
         "mode": "Mode",
         "new_theme": "+ New Theme",

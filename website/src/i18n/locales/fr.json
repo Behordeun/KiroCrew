@@ -14400,6 +14400,8 @@
         "intensity": "Intensité",
         "interface": "Interface",
         "light_or_dark_appearance_for_the_dashboard": "Apparence claire ou sombre du tableau de bord",
+        "installed_theme_could_not_be_loaded": "Le thème installé n’a pas pu être chargé. Réinstalle-le ou choisis un autre thème.",
+        "custom_theme_could_not_be_loaded": "Ce thème n’a pas pu être chargé. Choisis un autre thème ou modifie celui-ci.",
         "local_folder": "Dossier local",
         "mode": "Mode",
         "native_window_zoom_tip": "Zoom natif de la fenêtre, le même réglage que {{mod}}+ / {{mod}}− (50–300 %). Conservé d’un lancement à l’autre.",

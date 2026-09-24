@@ -14200,6 +14200,8 @@
         "intensity": "तीव्रता",
         "interface": "इंटरफ़ेस",
         "light_or_dark_appearance_for_the_dashboard": "डैशबोर्ड के लिए हल्का या गहरा रूप",
+        "installed_theme_could_not_be_loaded": "इंस्टॉल की गई थीम लोड नहीं हो सकी। इसे फिर से इंस्टॉल करो या कोई दूसरी थीम चुनो।",
+        "custom_theme_could_not_be_loaded": "यह थीम लोड नहीं हो सकी। कोई दूसरी थीम चुनो या इसे संपादित करो।",
         "local_folder": "स्थानीय फ़ोल्डर",
         "mode": "मोड",
         "native_window_zoom_tip": "नेटिव विंडो ज़ूम, वही सेटिंग जो {{mod}}+ / {{mod}}− है (50%–300%)। ऐप दोबारा खोलने पर भी याद रहती है।",

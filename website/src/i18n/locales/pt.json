@@ -14400,6 +14400,8 @@
         "intensity": "Intensidade",
         "interface": "Interface",
         "light_or_dark_appearance_for_the_dashboard": "Aparência clara ou escura para o dashboard",
+        "installed_theme_could_not_be_loaded": "Não foi possível carregar o tema instalado. Reinstale-o ou escolha outro tema.",
+        "custom_theme_could_not_be_loaded": "Não foi possível carregar este tema. Escolha outro tema ou edite este.",
         "local_folder": "Pasta local",
         "mode": "Modo",
         "native_window_zoom_tip": "Zoom nativo da janela, a mesma configuração de {{mod}}+ / {{mod}}− (50%–300%). Fica salvo entre inicializações.",

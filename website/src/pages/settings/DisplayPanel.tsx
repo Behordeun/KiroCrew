@@ -97,7 +97,26 @@ export function DisplayPanel() {
   const { zoom, zoomSupported, zoomIn, zoomOut, reset, family, setFontFamily } = useZoomCtx()
   // Shortcut label for the zoom hint/description: ⌘ on macOS, Ctrl elsewhere.
   const modKey = /mac/i.test(navigator.platform) ? '⌘' : 'Ctrl'
-  const { preference, setTheme, colorTheme, setColorTheme, allThemes, loadCustomThemes, themeSwitching, overridesDropReport } = useTheme()
+  const {
+    preference,
+    setTheme,
+    colorTheme,
+    setColorTheme,
+    allThemes,
+    loadCustomThemes,
+    themeSwitching,
+    overridesDropReport,
+    installedThemeLoadFailed,
+  } = useTheme()
+  // The load-error notice is shown only for a pack that is actually unstyled.
+  // `installedThemeLoadFailed` is derived in the provider from the selection,
+  // the catalog and the detail map, so a failed reload whose last good detail
+  // is still in the map (render-cache seed or carry-forward) is false: the
+  // theme stays on screen and no notice contradicts it. The copy names the way
+  // out that exists for this pack: an installed pack can be reinstalled, an
+  // editor-created one can only be edited or swapped.
+  const showThemeLoadError = installedThemeLoadFailed
+  const isInstalledTheme = allThemes.find((t) => t.value === colorTheme)?.installed === true
   const { uiMode, setUIMode } = useUIMode()
   const editor = useThemeEditor()
   const termFont = useTerminalFont()
@@ -571,6 +590,25 @@ export function DisplayPanel() {
               never be attributed to the wrong pack. */}
           {overridesDropReport && colorTheme === `custom-${overridesDropReport.slug}` && (
             <ThemeDroppedRulesNotice report={overridesDropReport} />
+          )}
+          {/* The active custom theme's detail fetch failed AND no last good
+              detail is in the map, so its variables and branding are not on
+              screen: say so and name the way out instead of leaving the picker
+              showing a theme that is not applied. `installedThemeLoadFailed` is
+              derived by the provider (listed pack, detail absent from the map),
+              so a failed reload with the render-cache seed still applied keeps
+              the screen themed and gets no notice. Two copies: an installed pack
+              can be reinstalled; an editor-created pack has no install source,
+              so it is told to edit or pick another. The flag is the provider's
+              trigger only; the rejection is never shown. No hand-off:
+              the `shellDraft` and `installValue` fields further down this panel
+              are unsaved local state, and the navigation unmounts the panel. */}
+          {showThemeLoadError && (
+            <ErrorNotice
+              message={isInstalledTheme
+                ? i18nT('pages.settings.displayPanel.installed_theme_could_not_be_loaded')
+                : i18nT('pages.settings.displayPanel.custom_theme_could_not_be_loaded')}
+            />
           )}
           <SettingsButtonGroup label={i18nT('pages.settings.displayPanel.mode')} description={i18nT('pages.settings.displayPanel.light_or_dark_appearance_for_the_dashboard')} value={preference}
             options={[
