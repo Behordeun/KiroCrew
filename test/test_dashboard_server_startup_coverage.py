@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import functools
 import os
 import socket
 import stat
@@ -455,6 +456,38 @@ class TestReserveDashboardPort:
                 accepted.close()
             client.close()
 
+    @staticmethod
+    def _ipv6_loopback_is_assignable() -> bool:
+        """Whether this host can ASSIGN ``::1``, not merely whether CPython knows IPv6.
+
+        ``socket.has_ipv6`` is a BUILD flag: it reports that CPython was compiled with
+        IPv6 support, which says nothing about whether the running kernel has an IPv6
+        loopback address. The Linux backend shards run in a container where IPv6 is
+        compiled in and ``::1`` is not assigned, so the build flag passes and the bind
+        below then fails with ``EADDRNOTAVAIL``.
+
+        ``instances/port_allocator.py`` draws the same distinction with the same errno
+        pair, for the same reason, so this follows its spelling. Every OTHER errno means
+        the probe could not be RUN rather than answered, so it propagates: coercing
+        ``EMFILE`` into "no IPv6 here" would skip the assertion on a host that has it.
+        """
+        unusable = {errno.EADDRNOTAVAIL, errno.EAFNOSUPPORT}
+        try:
+            probe = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        except OSError as exc:
+            if exc.errno in {errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT}:
+                return False
+            raise
+        try:
+            probe.bind(("::1", 0))
+        except OSError as exc:
+            if exc.errno in unusable:
+                return False
+            raise
+        finally:
+            probe.close()
+        return True
+
     def test_bind_once_matches_kernel_listener_posture(self) -> None:
         """The reserved socket keeps the hardening required by SockSite."""
         import inspect
@@ -469,15 +502,120 @@ class TestReserveDashboardPort:
                 # (macOS) report the option's bitmask value, not 1.
                 assert ipv4_sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR) != 0
 
-            if socket.has_ipv6 and hasattr(socket, "IPPROTO_IPV6"):
+            if hasattr(socket, "IPPROTO_IPV6") and self._ipv6_loopback_is_assignable():
                 ipv6_sock = srv._bind_once("::1", 0)
                 assert ipv6_sock.getsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY) != 0
 
+            # Unconditional, and deliberately beside the SO_EXCLUSIVEADDRUSE sibling
+            # below: the live assertion above runs only where `::1` is assignable, and
+            # the ordinary Linux shards are not such a host. Without a pin that every
+            # lane evaluates, deleting `server.py`'s
+            # `setsockopt(IPPROTO_IPV6, IPV6_V6ONLY, 1)` would red nothing -- the hosted
+            # `backend-test-ipv6` lane runs a bounded five-case population out of two
+            # other files, so it does not cover this one either.
+            assert "IPV6_V6ONLY" in inspect.getsource(srv._bind_once)
             assert "SO_EXCLUSIVEADDRUSE" in inspect.getsource(srv._bind_once)
         finally:
             if ipv6_sock is not None:
                 ipv6_sock.close()
             ipv4_sock.close()
+
+    def test_the_ipv6_probe_reports_absent_when_the_address_cannot_be_assigned(
+        self, monkeypatch
+    ) -> None:
+        """A container with IPv6 compiled in but no ``::1`` -- the shape that broke CI."""
+
+        class _Unassignable:
+            def __init__(self, *_a: object) -> None: ...
+
+            def bind(self, _addr: object) -> None:
+                raise OSError(errno.EADDRNOTAVAIL, "Cannot assign requested address")
+
+            def close(self) -> None: ...
+
+        monkeypatch.setattr(socket, "socket", _Unassignable)
+        assert srv  # the module under test is the one imported above
+        assert not TestReserveDashboardPort._ipv6_loopback_is_assignable()
+
+    def test_the_ipv6_probe_reports_absent_when_the_family_is_unsupported(
+        self, monkeypatch
+    ) -> None:
+        def _no_family(*_a: object) -> object:
+            raise OSError(errno.EAFNOSUPPORT, "Address family not supported by protocol")
+
+        monkeypatch.setattr(socket, "socket", _no_family)
+        assert not TestReserveDashboardPort._ipv6_loopback_is_assignable()
+
+    def test_the_ipv6_probe_propagates_an_errno_that_answers_nothing(self, monkeypatch) -> None:
+        """``EMFILE`` means the probe could not RUN. Reading it as "no IPv6 here" would
+        skip the assertion on a host that has ``::1``, which is the failure this guard
+        exists to prevent."""
+
+        class _OutOfDescriptors:
+            def __init__(self, *_a: object) -> None: ...
+
+            def bind(self, _addr: object) -> None:
+                raise OSError(errno.EMFILE, "Too many open files")
+
+            def close(self) -> None: ...
+
+        monkeypatch.setattr(socket, "socket", _OutOfDescriptors)
+        with pytest.raises(OSError) as caught:
+            TestReserveDashboardPort._ipv6_loopback_is_assignable()
+        assert caught.value.errno == errno.EMFILE
+
+    def test_the_ipv6_assertion_runs_wherever_the_address_is_assignable(self, monkeypatch) -> None:
+        """Negative control for the guard: it must not have become an unconditional skip.
+
+        Drives the real test body with the probe forced BOTH ways against a socket that
+        reports ``IPV6_V6ONLY`` as UNSET. With the probe True the body must raise, which
+        proves the live assertion is load-bearing rather than merely reached; with it
+        False the body must pass, which proves the skip is what the probe decides.
+        Host-independent, so it holds on a container shard as well as on a host with
+        ``::1``.
+        """
+        bound: list[tuple[str, int]] = []
+        real_bind_once = srv._bind_once
+
+        class _V6OnlyUnset:
+            family = socket.AF_INET
+
+            def getsockopt(self, level: int, opt: int) -> int:
+                if (level, opt) == (socket.IPPROTO_IPV6, socket.IPV6_V6ONLY):
+                    return 0
+                return 1
+
+            def close(self) -> None: ...
+
+        # `functools.wraps` sets `__wrapped__`, which `inspect.getsource` follows, so the
+        # body's own source assertions still read the REAL `_bind_once` rather than this
+        # recorder.
+        @functools.wraps(real_bind_once)
+        def _record(host: str, port: int) -> object:
+            bound.append((host, port))
+            return _V6OnlyUnset()
+
+        monkeypatch.setattr(srv, "_bind_once", _record)
+        monkeypatch.setattr(
+            TestReserveDashboardPort,
+            "_assert_kernel_confirms_listening",
+            staticmethod(lambda _s: None),
+        )
+
+        monkeypatch.setattr(
+            TestReserveDashboardPort, "_ipv6_loopback_is_assignable", staticmethod(lambda: True)
+        )
+        with pytest.raises(AssertionError):
+            TestReserveDashboardPort().test_bind_once_matches_kernel_listener_posture()
+        assert ("::1", 0) in bound
+
+        bound.clear()
+        monkeypatch.setattr(
+            TestReserveDashboardPort, "_ipv6_loopback_is_assignable", staticmethod(lambda: False)
+        )
+        TestReserveDashboardPort().test_bind_once_matches_kernel_listener_posture()
+        assert ("::1", 0) not in bound
+        assert ("127.0.0.1", 0) in bound
 
     def test_bind_once_sets_exclusive_ownership_on_windows(self, monkeypatch) -> None:
         """The Windows branch sets SO_EXCLUSIVEADDRUSE to a NONZERO value, live.
