@@ -2088,6 +2088,8 @@ class AcpRuntime:
         asks, because it also counts ``_session_inits_in_flight``: a runtime with
         an initializing session is treated as busy and parked to drain rather
         than killed, so no caller has to absorb that window with a respawn.
+        The init scope opens before ``create_session``'s admission gate, so a
+        claim still queued behind the gate already counts.
         """
 
         return bool(self._session_queues) or self._session_inits_in_flight > 0
@@ -6115,18 +6117,29 @@ class AcpRuntime:
                     )
 
         budget = await self._session_start_budget()
-        # Gate BEFORE the request goes out, released exactly once: on success
-        # right after the answer (the rest of session setup is not what the
-        # gate protects), on a timeout by the collector that now owns the
-        # request, on any other failure here.
-        gate = await session_start_gate()
-        permit = await gate.acquire()
-        if on_gate_acquired is not None:
-            try:
-                on_gate_acquired(permit.queue_wait_ms)
-            except Exception:
-                logger.debug("on_gate_acquired callback raised", exc_info=True)
+        # The init scope opens BEFORE the admission gate, not after: the gate's
+        # queue is unbounded in practice, and ``has_active_or_initializing_
+        # sessions`` is the predicate every recycle and displacement decision
+        # asks -- a runtime whose claim is still queued behind the gate must
+        # already read as busy, or a concurrent spawn-identity displacement
+        # pass sees it idle and kills it under the claim. A gate failure or a
+        # cancellation landing in the wait closes the scope on the way out.
         self._session_inits_in_flight += 1
+        try:
+            # Gate BEFORE the request goes out, released exactly once: on success
+            # right after the answer (the rest of session setup is not what the
+            # gate protects), on a timeout by the collector that now owns the
+            # request, on any other failure here.
+            gate = await session_start_gate()
+            permit = await gate.acquire()
+            if on_gate_acquired is not None:
+                try:
+                    on_gate_acquired(permit.queue_wait_ms)
+                except Exception:
+                    logger.debug("on_gate_acquired callback raised", exc_info=True)
+        except BaseException:
+            self._finish_session_init("")
+            raise
         session_id = ""
         # Start latency is measured from gate EXIT: the queue wait is admission's
         # cost, not the runtime's, and the adaptive controller reads these

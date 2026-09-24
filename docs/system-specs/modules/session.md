@@ -410,6 +410,67 @@ fail with `Invalid model ID`). A reactive retry in `run_bg_oneliner`
 thin backstop for the fail-open case where the advertised set was unknown at
 send time.
 
+## Account-identity retirement (identity sweep)
+
+A kiro-backed child authenticates from the CLI credential store as its process
+starts and keeps that account for life, so an out-of-band account switch or
+logout leaves running children answering turns on the previous account. The
+retirement machinery detects and recycles them, in `session_lifecycle.py`
+(`retire_kiro_identity_sessions`) driven by the per-turn gate in
+`chat_runner.py`, against baselines owned by `KiroPrerequisiteService`.
+
+**Boot-seeded baseline** (`seed_sessions_baseline`): the running-children
+baseline is adopted from the store at gateway startup, before anything can
+spawn a kiro-backed child, so every child postdates the read. This removes the
+once-per-lifetime unset-baseline sweep, whose completion precondition (nothing
+busy, nothing mid-start) is routinely unsatisfiable on a live gateway —
+retired idle sessions are eagerly respawned by dashboard slots, the next sweep
+reads incomplete, and the baseline never advances, recycling healthy children
+forever. The seed refuses (keeping the fail-safe sweep) under `assume_ready`,
+when a baseline is already recorded, when the store cannot be fingerprinted,
+and when the read hangs past a 5s bound.
+
+**Interim latch** (`_maybe_latch_interim_identity`): a bare baseline
+comparison is blind to an A→B→A round trip, so any fresh read (status polls,
+turn gates, probes) that observes a different account than the baseline arms a
+sticky flag forcing the next turn gate to sweep even after the store switches
+back. Observations that could be transient read failures refuse to latch —
+component LOSS is indistinguishable from a blip, while a component that
+appears or changes cannot be one — so an unreadable store can never arm it.
+Each qualifying observation also bumps an observation GENERATION; the gate
+captures the generation right after its initiating read and hands it back at
+reconcile (`note_sessions_reconciled(live, observations_before=...)`), which
+keeps the latch armed when a newer observation exists: that account was
+observed after the sweep's coverage, and a child spawned under it may be
+unstamped and otherwise invisible.
+
+**Spawn-identity stamps**: every spawn site bracket-reads the store
+immediately before `start()` and after, and records the account on the
+provider (or the shared `AcpRuntime` for demuxed sessions) only when both
+reads agree — a disagreement or failed read refuses the stamp, and either read
+observing an interim account feeds the latch. Stamps are first-stamp-wins (a
+warm-pool provider keeps its fill-time record), the stamp read is shielded
+from orphan cleanup by `_starting_pids`, and every stamp await sits under a
+teardown guard so cancellation cannot leak a started child. An unstamped
+child keeps exactly the pre-stamping protections.
+
+**Per-turn stamp gate** (`flag_identity_stamp_mismatches`, before the
+unchanged early-return in the turn gate): a session whose stamp provably
+differs from the live account is flagged `retire_on_identity_change` and its
+resume sid cleared (mirroring the sweep — the flag makes `close_all` skip the
+pointer re-map, so an uncleared sid would survive restart and hand the
+replacement child the flagged account's conversation). A proven-mismatch
+companion runtime — busy or idle — is displaced out of its claimable slot
+(`_subagent_runtimes` / the `_bg` slot) and parked: `_draining_subagent_runtimes`
+for companions, the existing `_draining_bg_runtimes` for the background
+runtime. Kills happen only on a LATER drain pass, once idle and past a park
+grace (`identity_park_grace_remaining`) that outlasts the sub-second window
+where a just-claimed runtime still reads idle. The companion drain reap
+removes only the entries it actually killed — the kill awaits, and a rebuild
+from a pre-await snapshot would drop a concurrently parked runtime from the
+only list that still references it. Parked runtimes stay PID-shielded, count
+against sweep completeness, and are torn down at `close_all`.
+
 ## Key Behaviors
 
 - **Empty-response recovery ladder** (dashboard chat runner, depth-0 turns

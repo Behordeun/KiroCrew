@@ -3869,6 +3869,26 @@ async def _retire_sessions_on_identity_change(state: Any) -> None:
         return
     try:
         changed, live = await service.identity_changed_since_sessions()
+        # Capture the observation generation NOW, before the sweep runs:
+        # observations up to this point are covered by the sweep's own read,
+        # while any that land during the sweep (a status poll observing a
+        # store flap after the permits reopen) postdate its coverage and must
+        # keep the latch armed -- see note_sessions_reconciled. Looked up
+        # defensively like the other optional surfaces in this gate.
+        observed_gen = getattr(service, "identity_observation_generation", None)
+        # BEFORE the unchanged early-return: the stamp check exists precisely
+        # for the case where the baseline (and the interim latch) compare
+        # equal -- an A->B->A round trip no read ever observed -- while a
+        # child's own spawn-time stamp still proves it authenticated as the
+        # interim account. Flag-only: the existing eviction machinery recycles
+        # the flagged session at its next acquire, nothing global or sticky is
+        # touched, and on a healthy host every stamp equals ``live`` so this
+        # is a per-turn no-op. Looked up defensively like the pending
+        # fingerprint below: a holder that does not declare the surface is
+        # left alone rather than aborting the whole best-effort gate.
+        flag_stamp_mismatches = getattr(sessions, "flag_identity_stamp_mismatches", None)
+        if flag_stamp_mismatches is not None:
+            await flag_stamp_mismatches(live)
         if not changed:
             # An INCOMPLETE sweep is its own trigger, independent of the baseline.
             # The baseline advances only on a complete sweep, so after an A->B
@@ -3903,7 +3923,7 @@ async def _retire_sessions_on_identity_change(state: Any) -> None:
         # and it is the correct direction to pay it in: the replacement child reads
         # whatever the store now holds even when we cannot fingerprint it.
         if complete and live:
-            service.note_sessions_reconciled(live)
+            service.note_sessions_reconciled(live, observations_before=observed_gen)
         # Narrow the latch ONLY on an actual sign-out (no identity on disk). On a
         # switch to another valid account, narrowing would strand readiness: if a
         # status poll observed the switch first it has already stamped the new
