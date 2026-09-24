@@ -31,9 +31,11 @@ name: GUI User Test
 # under test can be the PR's while the code holding credentials is not.
 #
 # COST GATES: per-scenario max_steps / max_seconds live in the scenario YAML;
-# the run-level USD budget is an input (default $20, and the nightly schedule
-# runs under the same $20 cap -- the full nightly tier costs about $8, and the
-# earlier $5 / $8 caps tripped mid-run); a failed scenario is retried once.
+# the run-level USD budget is an input (default $40, and the nightly schedule
+# runs under the same $40 cap -- the full nightly tier on Opus costs about $30,
+# and the earlier $5 / $8 / $20 caps tripped mid-run); a failed scenario is
+# retried once. The per-token prices passed to the harness are Opus list prices
+# so the budget gate measures real dollars, not Sonnet-priced ones.
 
 on:
   workflow_dispatch:
@@ -50,11 +52,11 @@ on:
       model:
         description: "Bedrock model / inference-profile id"
         type: string
-        default: "us.anthropic.claude-sonnet-4-6"
+        default: "us.anthropic.claude-opus-5"
       budget_usd:
         description: "Stop the run once estimated spend reaches this many USD"
         type: string
-        default: "20"
+        default: "40"
   schedule:
     - cron: "20 9 * * *" # 09:20 UTC, clear of the 06:00 nightly build and the 08:xx benchmarks
 
@@ -158,8 +160,8 @@ jobs:
         run: |
           set -euo pipefail
           case "$EVENT" in
-            workflow_dispatch) tier="${IN_TIER:-smoke}"; model="${IN_MODEL:-us.anthropic.claude-sonnet-4-6}"; budget="${IN_BUDGET:-20}" ;;
-            *)                 tier="nightly"; model="us.anthropic.claude-sonnet-4-6"; budget="20" ;;
+            workflow_dispatch) tier="${IN_TIER:-smoke}"; model="${IN_MODEL:-us.anthropic.claude-opus-5}"; budget="${IN_BUDGET:-40}" ;;
+            *)                 tier="nightly"; model="us.anthropic.claude-opus-5"; budget="40" ;;
           esac
           scenario_args=""
           if [ -n "${IN_SCENARIO:-}" ] && [ "$EVENT" = "workflow_dispatch" ]; then
@@ -217,6 +219,7 @@ jobs:
             --region us-west-2 \
             --tier "$TIER" \
             --budget-usd "$BUDGET" \
+            --price-in 15 --price-out 75 \
             --display "$GUI_DISPLAY" \
             --screen "$GUI_SCREEN" \
             --retries 1 \
