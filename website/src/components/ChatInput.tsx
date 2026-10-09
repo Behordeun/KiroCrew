@@ -177,6 +177,7 @@ function ChatInput({
   onFileSelect,
   onTreeEntryDrop,
   clampDropOffset,
+  onMentionKey,
   onFileOpen,
   project,
   projectBranch,
@@ -544,7 +545,7 @@ function ChatInput({
     [promptOptimizer, connected, optimizePrompt],
   )
   const handleKeyDown = useComposerKeyDown({
-    rawPasteRef, handleUndoKey, endUndoBurst, handleTokenKey, promptOptimizer: promptOptimizer && !terminal.active, connected, optimizePrompt, sendOnEnter, onChange, optimizingRef,
+    rawPasteRef, handleUndoKey, endUndoBurst, handleTokenKey, onMentionKey, promptOptimizer: promptOptimizer && !terminal.active, connected, optimizePrompt, sendOnEnter, onChange, valueFromUserRef, optimizingRef,
     fireComposer, ime, sentMessages, onEditLastRequest, anyPickerOpenRef, promptHistory, valueRef, inputRef, pasteBlocksRef,
   })
   const { handleTextareaChange, handleLexicalChange } = useEditorInput({ onChange, valueFromUserRef, openPickersForText, recordCaret, lexicalControlRef, voiceCaretRef })
