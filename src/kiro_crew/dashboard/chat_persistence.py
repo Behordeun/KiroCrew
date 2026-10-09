@@ -2158,8 +2158,16 @@ def _save_slot_to_history(
     pending_mode_slot: _ChatSlot | None = None,
     mutes_opened_override: bool | None = None,
     after_commit_under_lock: Callable[[], None] | None = None,
+    refuse_stale_empty_merge: bool = False,
 ) -> bool:
     """Persist slot messages to JSONL history (append-safe).
+
+    ``refuse_stale_empty_merge``: let the empty-window merge of a message-less
+    slot refuse a stale queue snapshot or a replaced slot, as the full save
+    does. Only the periodic flush passes it, because it re-runs a refused pass
+    on its next tick. The forced route saves (tag, folder, pin, transfer) keep
+    committing their merge unconditionally, so none of them can newly report an
+    acknowledged edit as refused.
 
     The session file is modeled as **frozen prefix + live window**:
 
@@ -2310,10 +2318,22 @@ def _save_slot_to_history(
                 closed=closed,
                 closed_at=closed_at,
                 pending_mode_target=pending_mode_target,
-                # A close commits unconditionally, as it does on main: its
-                # callers ignore a refused save, so a refusal would leave an
-                # open-shaped line that a restart resurrects.
-                refusal_under_lock=None if closed else _refusal_under_lock,
+                # Only the periodic flush opts in. A close commits
+                # unconditionally, as it does on main: its callers ignore a
+                # refused save, so a refusal would leave an open-shaped line
+                # that a restart resurrects.
+                refusal_under_lock=(
+                    _refusal_under_lock if refuse_stale_empty_merge and not closed else None
+                ),
+                # A route save (tag, folder, pin, transfer) is not refused, but
+                # an older queue snapshot must not overwrite a newer committed
+                # queue either: the route's edit commits and the queue key is
+                # left as it is on disk, still owed to the next save.
+                queue_deferred_under_lock=(
+                    (lambda meta: _stale_queue_refusal(meta) is not None)
+                    if not refuse_stale_empty_merge and not closed
+                    else None
+                ),
                 mutes_opened_override=mutes_opened_override,
                 after_commit_under_lock=after_commit_under_lock,
             )
