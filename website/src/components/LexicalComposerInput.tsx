@@ -55,7 +55,7 @@ import {
   hasPlainClipboardText,
   stripTrailingBlankLines,
 } from './composerPastePolicy'
-import { listLineBreakEdit, listMarkerBackspaceEdit } from './composerListContinuation'
+import { listLineBreakEdit, listMarkerBackspaceEdit, type ListLineBreakEdit } from './composerListContinuation'
 import {
   $createPasteTokenNode,
   $isPasteTokenNode,
@@ -242,6 +242,7 @@ function $applyListLineBreak(): boolean {
   })
   const edit = listLineBreakEdit($getRoot().getTextContent(), $pointOffset(selection.anchor), chips)
   if (!edit) return false
+  $applyRenumber(edit)
   const range = $createRangeSelection()
   $setPointAtOffset(range.anchor, edit.start)
   $setPointAtOffset(range.focus, edit.end)
@@ -249,6 +250,18 @@ function $applyListLineBreak(): boolean {
   if (edit.insert) range.insertRawText(edit.insert)
   else range.removeText()
   return true
+}
+
+// The number rewrites below the edited item, last to first: each sits after
+// the edit, so writing them never moves an offset still to be used.
+function $applyRenumber(edit: ListLineBreakEdit): void {
+  for (const write of [...(edit.renumber ?? [])].reverse()) {
+    const digits = $createRangeSelection()
+    $setPointAtOffset(digits.anchor, write.start)
+    $setPointAtOffset(digits.focus, write.end)
+    $setSelection(digits)
+    digits.insertRawText(write.insert)
+  }
 }
 
 // Remove the list marker in front of a collapsed caret in one Backspace
@@ -265,6 +278,7 @@ function $applyListMarkerBackspace(endUndoBurst?: () => void): boolean {
   const edit = listMarkerBackspaceEdit($getRoot().getTextContent(), $pointOffset(selection.anchor), chips)
   if (!edit) return false
   endUndoBurst?.()
+  $applyRenumber(edit)
   const range = $createRangeSelection()
   $setPointAtOffset(range.anchor, edit.start)
   $setPointAtOffset(range.focus, edit.end)
