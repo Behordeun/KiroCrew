@@ -31,6 +31,7 @@ from kiro_crew.permission_floor import (
     OUTCOME_REJECTED_TRANSPORT_FLOOR,
 )
 from kiro_crew.security import redact_credentials, redact_exfiltration_urls
+from kiro_crew.tool_gate_busy import hook_gate_busy
 from kiro_crew.validation import sanitize_string
 
 logger = logging.getLogger(__name__)
@@ -1294,6 +1295,7 @@ async def _run_hook_inner(
                     decision = await run_in_tool_gate_pool(
                         hooks_gate.on_tool_call,
                         event.title,
+                        on_queue_timeout=hook_gate_busy,
                         session_key=session_key,
                         agent=agent or "",
                         **hook_gate_kwargs(event),

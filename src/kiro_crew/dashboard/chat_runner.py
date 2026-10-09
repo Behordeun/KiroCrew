@@ -598,6 +598,7 @@ from kiro_crew.session_capabilities import CapabilityStartupError
 from kiro_crew.slack.handler import post_linked_approval, resolve_linked_approval
 from kiro_crew.slack.outbound import PostedOptions
 from kiro_crew.start_priority import StartPriority, person_priority
+from kiro_crew.tool_gate_busy import hook_gate_busy
 from kiro_crew.trust_patterns import (  # noqa: F401 -- compatibility re-export
     _mask_quoted_separators,
     approval_command,
@@ -13489,6 +13490,7 @@ async def _run_chat(
                     tool_result = await run_in_tool_gate_pool(
                         state.context_builder.hooks.on_tool_call,
                         event.title,
+                        on_queue_timeout=hook_gate_busy,
                         session_key=session_key,
                         agent=slot.agent or "",
                         app=slot._app or "",

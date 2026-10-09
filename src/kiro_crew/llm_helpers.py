@@ -72,6 +72,7 @@ from kiro_crew.security import (
 )
 from kiro_crew.sel import sel as _sel
 from kiro_crew.start_priority import StartPriority
+from kiro_crew.tool_gate_busy import hook_gate_busy
 
 _PROMPT_BUSY_RETRIES = 2
 _PROMPT_BUSY_DELAY = 1.5  # seconds between retries
@@ -3252,6 +3253,7 @@ async def _resolve_permission(
         tool_result = await run_in_tool_gate_pool(
             hooks.on_tool_call,
             event.title,
+            on_queue_timeout=hook_gate_busy,
             session_key=session_key,
             agent=agent,
             app=app,

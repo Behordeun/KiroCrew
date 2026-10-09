@@ -98,8 +98,10 @@ from kiro_crew.history import (  # noqa: F401 - read by the owners
 )
 from kiro_crew.hooks import (
     HOOK_REPLY,
+    TOOL_ALLOW,
     TOOL_AUTO_APPROVE,
     TOOL_DENY,
+    ToolHookResult,
     event_is_spawn_run,
     hook_gate_kwargs,
     safe_read_file_bytes,
@@ -347,6 +349,7 @@ from kiro_crew.stats import Stats
 from kiro_crew.subagent import SubagentManager
 from kiro_crew.task import Task
 from kiro_crew.taskrunner import TaskRunner
+from kiro_crew.tool_gate_busy import hook_gate_busy
 from kiro_crew.voice_reply import (  # noqa: F401 - read by the owners
     DEFAULT_PROVIDER,
     PROVIDER_PIPER,
@@ -1872,6 +1875,9 @@ async def handle_message(
                     tool_result = await run_in_tool_gate_pool(
                         context_builder.hooks.on_tool_call,
                         event.title,
+                        # Unjudged, so nothing to warn about: this site only
+                        # warns on a deny and cannot stop the running tool.
+                        on_queue_timeout=lambda _waited: ToolHookResult(action=TOOL_ALLOW),
                         session_key=session_key,
                         agent=_agent or "",
                         command=event.shell_command,
@@ -1913,6 +1919,7 @@ async def handle_message(
                     tool_result = await run_in_tool_gate_pool(
                         context_builder.hooks.on_tool_call,
                         event.title,
+                        on_queue_timeout=hook_gate_busy,
                         session_key=session_key,
                         agent=_agent or "",
                         **hook_gate_kwargs(event),
