@@ -601,6 +601,19 @@ With no gateway to reuse, the shell locates the backend binary via
 gateway --no-open`, polls `/api/status`, and loads the dashboard once it is
 healthy.
 
+For a bundled backend, the shell removes inherited `PYTHONPATH` and `PYTHONHOME`
+before spawning Python. Windows cleanup also removes mixed-case spellings of
+these keys. This keeps a desktop app launched from a development shell from
+importing a checkout instead of its packaged backend. Source-tree gateway
+launches retain those environment variables for development. The bundled
+launcher already uses `-s` to disable user-site imports for the gateway itself;
+the shell does not set `PYTHONNOUSERSITE`, which would also disable user-site
+dependencies in operator Python, ACP, and MCP child processes. Because the
+bundled gateway's environment is what it hands to the operator Python, MCP
+server, and cron child processes it spawns, those descendants no longer inherit
+a shell-exported `PYTHONPATH` or `PYTHONHOME` either; a child that relied on one
+to resolve its imports under the desktop app must set it for itself.
+
 Host-runtime discovery stays behind the same main-process ownership boundaries.
 The `wsl:detect` handler in
 [`ipc-registrar.js`](../../website/electron/ipc-registrar.js) fails closed unless
