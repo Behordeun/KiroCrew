@@ -57,6 +57,33 @@ def _install_client(
     )
 
 
+async def _run_scheduled_sends(
+    monkeypatch: pytest.MonkeyPatch, produce: Any, *, timeout: float = 5.0
+) -> None:
+    """Call a producer and await the send task(s) it schedules.
+
+    The producers schedule ``send_heartbeat`` with ``loop.create_task`` and
+    return at once; ``send_heartbeat`` then awaits ``asyncio.to_thread`` for its
+    destination read, which no fixed number of ``asyncio.sleep(0)`` yields can
+    be relied on to outlast. Capture the scheduled tasks and await them under a
+    bounded timeout so the assertions run after the send has actually resolved.
+    """
+    loop = asyncio.get_running_loop()
+    real_create_task = loop.create_task
+    scheduled: list[asyncio.Task[Any]] = []
+
+    def _spy(coro: Any, **kwargs: Any) -> asyncio.Task[Any]:
+        task = real_create_task(coro, **kwargs)
+        scheduled.append(task)
+        return task
+
+    monkeypatch.setattr(loop, "create_task", _spy)
+    produce()
+    monkeypatch.setattr(loop, "create_task", real_create_task)
+    for task in scheduled:
+        await asyncio.wait_for(task, timeout)
+
+
 def test_is_coding_tool_only_matches_write_and_shell() -> None:
     assert heartbeats.is_coding_tool("fs_write")
     assert heartbeats.is_coding_tool("execute_bash")
@@ -150,11 +177,7 @@ async def test_cadence_send_drops_when_opt_in_is_off(monkeypatch: pytest.MonkeyP
         "load",
         staticmethod(lambda: _Cfg(wakatime=_WakaCfg(enabled=True, send_heartbeats=False))),
     )
-    heartbeats.note_coding_cadence("/tmp/repo")
-    for _ in range(20):
-        await asyncio.sleep(0)
-        if stub.batches:
-            break
+    await _run_scheduled_sends(monkeypatch, lambda: heartbeats.note_coding_cadence("/tmp/repo"))
     assert stub.batches == []
 
 
@@ -169,11 +192,7 @@ async def test_cadence_heartbeat_carries_no_attribution(
     _install_client(monkeypatch, stub)
     monkeypatch.setattr(heartbeats.KiroCrewConfig, "load", staticmethod(lambda: _Cfg()))
 
-    heartbeats.note_coding_cadence("/tmp/my-repo")
-    for _ in range(20):
-        await asyncio.sleep(0)
-        if stub.batches:
-            break
+    await _run_scheduled_sends(monkeypatch, lambda: heartbeats.note_coding_cadence("/tmp/my-repo"))
 
     assert len(stub.batches) == 1
     hb = stub.batches[0][0]
@@ -201,17 +220,16 @@ async def test_enabled_and_opted_in_sends_one_heartbeat(
     _install_client(monkeypatch, stub)
     monkeypatch.setattr(heartbeats.KiroCrewConfig, "load", staticmethod(lambda: _Cfg()))
 
-    heartbeats.note_coding_activity(
-        "/tmp/my-repo",
-        ai_input_tokens=1200,
-        ai_output_tokens=340,
-        ai_line_changes=42,
-        config=cast(Any, _Cfg()),
+    await _run_scheduled_sends(
+        monkeypatch,
+        lambda: heartbeats.note_coding_activity(
+            "/tmp/my-repo",
+            ai_input_tokens=1200,
+            ai_output_tokens=340,
+            ai_line_changes=42,
+            config=cast(Any, _Cfg()),
+        ),
     )
-    for _ in range(20):
-        await asyncio.sleep(0)
-        if stub.batches:
-            break
 
     assert len(stub.batches) == 1
     assert len(stub.batches[0]) == 1
