@@ -129,6 +129,7 @@ import { useShortcutOrder } from './chat-sidebar/shortcuts'
 import { useFolderDropOps, useSidebarMoveUndo, useSidebarDragHandlers, useNativeSessionDrag } from './chat-sidebar/dnd/useSidebarDrag'
 import { useSidebarReveal } from './chat-sidebar/reveal'
 import { useHoldPinnedHeaderOnCollapse } from './chat-sidebar/stickyCollapse'
+import { COLLAPSE_FLOOR_ATTR } from './chat-sidebar/collapseFloor'
 import { useFolderChatCreate, useSessionCreate } from './chat-sidebar/create'
 
 /**
@@ -5920,6 +5921,14 @@ function ChatSidebar({
           // still work, and the list's own overflow is still the affordance.
           <SessionRowWindowContext.Provider value={laneRowWindow.rowWindow}>
           <motion.div ref={setLaneScrollEl} onScroll={laneScrollMemory.onScroll} layoutScroll={rowAnimEnabled} className={`${LIST_BODY_CLS} flex flex-col`} style={{ scrollbarWidth: 'none' }} data-testid="tree-view-lane">
+            {/* Scroll floor for collapseFloor.ts: lets a folder collapsed near
+             *  the end of the list stay where its pinned header was instead of
+             *  the list sliding down. Zero height and first in the lane, so
+             *  nothing above it can move it; its hidden child is placed only
+             *  during a collapse. */}
+            <div {...{ [COLLAPSE_FLOOR_ATTR]: '' }} aria-hidden="true" className="relative h-0 shrink-0">
+              <div className="absolute left-0 w-px h-px hidden pointer-events-none" />
+            </div>
             {/* Tree-lane fallback, completing the set (flat and board lanes
              *  carry the same): a create into a folder the folder-filter or
              *  hide feature excludes never renders that folder's header, so
