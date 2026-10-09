@@ -16364,7 +16364,7 @@
         "redaction_revoke": "Revocar"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Asignar el cambio de pestaña de chat a Ctrl+dígito en lugar de Option+dígito",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Asignar el cambio de pestaña de chat a Ctrl+dígito en lugar de Option+dígito. Option+dígito no cambia de chat mientras un campo de texto tiene el foco.",
         "custom_hint": "Usa al menos una tecla modificadora.",
         "enable_shortcuts": "Activar atajos",
         "preferences": "Preferencias",

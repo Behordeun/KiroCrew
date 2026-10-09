@@ -16125,7 +16125,7 @@
         "redaction_revoke": "रद्द करो"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "चैट-टैब स्विचिंग को Option+अंक के बजाय Ctrl+अंक से बाइंड करें",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "चैट-टैब स्विचिंग को Option+अंक के बजाय Ctrl+अंक से बाइंड करें। जब किसी टेक्स्ट फ़ील्ड पर फ़ोकस हो, तब Option+अंक चैट नहीं बदलता।",
         "custom_hint": "कम से कम एक मॉडिफ़ायर कुंजी का उपयोग करें।",
         "enable_shortcuts": "शॉर्टकट सक्षम करें",
         "preferences": "प्राथमिकताएँ",

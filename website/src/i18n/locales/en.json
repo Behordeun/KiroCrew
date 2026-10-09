@@ -9108,7 +9108,7 @@
         "redaction_revoke": "Revoke"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Bind chat-tab switching to Ctrl+digit instead of Option+digit",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Bind chat-tab switching to Ctrl+digit instead of Option+digit. Option+digit does not switch chats while a text field has focus.",
         "enable_shortcuts": "Enable shortcuts",
         "preferences": "Preferences",
         "search": "Search",

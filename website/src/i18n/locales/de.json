@@ -16125,7 +16125,7 @@
         "redaction_revoke": "Widerrufen"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Wechsel zwischen Chat-Tabs an Strg+Zahl statt Option+Zahl binden",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Wechsel zwischen Chat-Tabs an Strg+Zahl statt Option+Zahl binden. Option+Zahl wechselt den Chat nicht, solange ein Textfeld den Fokus hat.",
         "custom_hint": "Mindestens eine Modifikatortaste verwenden.",
         "enable_shortcuts": "Tastenkürzel aktivieren",
         "preferences": "Präferenzen",

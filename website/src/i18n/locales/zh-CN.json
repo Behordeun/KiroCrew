@@ -15886,7 +15886,7 @@
         "redaction_revoke": "撤销"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "将聊天标签切换绑定到 Ctrl+数字，而不是 Option+数字",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "将聊天标签切换绑定到 Ctrl+数字，而不是 Option+数字。文本框获得焦点时，Option+数字不会切换聊天。",
         "custom_hint": "请至少使用一个修饰键。",
         "enable_shortcuts": "启用快捷键",
         "preferences": "偏好设置",

@@ -16125,7 +16125,7 @@
         "redaction_revoke": "ফিরিয়ে নাও"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "চ্যাট-ট্যাব পরিবর্তনকে Option+সংখ্যার বদলে Ctrl+সংখ্যার সঙ্গে বাঁধুন",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "চ্যাট-ট্যাব পরিবর্তনকে Option+সংখ্যার বদলে Ctrl+সংখ্যার সঙ্গে বাঁধুন। কোনো টেক্সট ফিল্ডে ফোকাস থাকলে Option+সংখ্যা চ্যাট পরিবর্তন করে না।",
         "custom_hint": "অন্তত একটি মডিফায়ার কী ব্যবহার করুন।",
         "enable_shortcuts": "শর্টকাট সক্রিয় করুন",
         "preferences": "পছন্দসমূহ",

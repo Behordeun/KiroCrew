@@ -16603,7 +16603,7 @@
         "redaction_revoke": "Отозвать"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Назначить переключение вкладок чата на Ctrl+цифра вместо Option+цифра",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Назначить переключение вкладок чата на Ctrl+цифра вместо Option+цифра. Option+цифра не переключает чат, пока фокус находится в текстовом поле.",
         "custom_hint": "Используйте хотя бы одну клавишу-модификатор.",
         "enable_shortcuts": "Включить сочетания клавиш",
         "preferences": "Настройки",

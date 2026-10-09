@@ -2407,7 +2407,7 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "id": "shortcuts.use-ctrl-not-option-for-chat-1-9",
     "label": "Use ⌃ Ctrl (not ⌥ Option) for chat 1–9",
     "labelKey": "pages.settings.shortcutsPanel.use_ctrl_not_option_for_chat_1_9",
-    "description": "Bind chat-tab switching to Ctrl+digit instead of Option+digit",
+    "description": "Bind chat-tab switching to Ctrl+digit instead of Option+digit. Option+digit does not switch chats while a text field has focus.",
     "tab": "shortcuts",
     "type": "toggle",
     "occurrence": 1

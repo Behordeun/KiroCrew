@@ -16364,7 +16364,7 @@
         "redaction_revoke": "Revoca"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Associa il cambio di scheda chat a Ctrl+cifra invece di Option+cifra",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Associa il cambio di scheda chat a Ctrl+cifra invece di Option+cifra. Option+cifra non cambia chat mentre un campo di testo ha il focus.",
         "custom_hint": "Usa almeno un tasto modificatore.",
         "enable_shortcuts": "Attiva le scorciatoie",
         "preferences": "Preferenze",

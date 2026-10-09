@@ -15886,7 +15886,7 @@
         "redaction_revoke": "取り消す"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "チャットタブの切り替えを Option+digit ではなく Ctrl+digit にバインドします",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "チャットタブの切り替えを Option+digit ではなく Ctrl+digit にバインドします。テキストフィールドにフォーカスがある間、Option+digit ではチャットは切り替わりません。",
         "custom_hint": "少なくとも1つの修飾キーを使用してください。",
         "enable_shortcuts": "ショートカットを有効にする",
         "preferences": "環境設定",

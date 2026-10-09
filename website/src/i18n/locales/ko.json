@@ -15886,7 +15886,7 @@
         "redaction_revoke": "취소"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "채팅 탭 전환을 Option+숫자 대신 Ctrl+숫자에 할당합니다",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "채팅 탭 전환을 Option+숫자 대신 Ctrl+숫자에 할당합니다. 텍스트 필드에 포커스가 있으면 Option+숫자로 채팅이 전환되지 않습니다.",
         "custom_hint": "수정자 키를 하나 이상 사용하세요.",
         "enable_shortcuts": "단축키 사용",
         "preferences": "환경 설정",

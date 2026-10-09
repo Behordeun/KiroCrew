@@ -16364,7 +16364,7 @@
         "redaction_revoke": "Révoquer"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Associer le changement d'onglet de chat à Ctrl+chiffre au lieu de Option+chiffre",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Associer le changement d'onglet de chat à Ctrl+chiffre au lieu de Option+chiffre. Option+chiffre ne change pas de chat tant qu'un champ de texte a le focus.",
         "custom_hint": "Utilisez au moins une touche de modification.",
         "enable_shortcuts": "Activer les raccourcis",
         "preferences": "Préférences",

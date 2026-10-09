@@ -1430,7 +1430,7 @@
       "label": "Use ⌃ Ctrl (not ⌥ Option) for chat 1–9",
       "tab": "shortcuts",
       "route": "/settings/shortcuts?highlight=shortcuts.use-ctrl-not-option-for-chat-1-9",
-      "description": "Bind chat-tab switching to Ctrl+digit instead of Option+digit"
+      "description": "Bind chat-tab switching to Ctrl+digit instead of Option+digit. Option+digit does not switch chats while a text field has focus."
     },
     {
       "id": "skills.auto-generate-skills-from-sessions",

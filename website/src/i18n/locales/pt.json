@@ -16364,7 +16364,7 @@
         "redaction_revoke": "Revogar"
       },
       "shortcutsPanel": {
-        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Vincular a alternância de abas de chat a Ctrl+dígito em vez de Option+dígito",
+        "bind_chat_tab_switching_to_ctrl_digit_instead_of": "Vincular a alternância de abas de chat a Ctrl+dígito em vez de Option+dígito. Option+dígito não troca de chat enquanto um campo de texto estiver em foco.",
         "custom_hint": "Use pelo menos uma tecla modificadora.",
         "enable_shortcuts": "Ativar atalhos",
         "preferences": "Preferências",
