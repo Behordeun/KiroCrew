@@ -106,6 +106,7 @@ import { FOLDERS_SHELVED_LS_KEY, FLAT_VIEW_LS_KEY } from './chat-sidebar/persist
 import { SESSION_FILTERS, useSessionFilterState, useSessionStatusFilters } from './chat-sidebar/filters'
 import { useDebouncedSessionSearch, useSearchMatches } from './chat-sidebar/search'
 import { openCrewWindow, useCrewWindow } from './chat/crew-window/crewWindowStore'
+import { useStableCallbackProps } from './chat/useStableCallbackProps'
 import { sessionRowIdentity, historyRowIdentity } from './chat-sidebar/rowIdentity'
 import { buildSidebarRows, chipLabel, sameRowView, type ConductorRowView, type RowScene, type RowShell, type SessionRowView, type SidebarRows } from './chat-sidebar/rows'
 import { useSessionSources } from './chat-sidebar/sessionSources'
@@ -3352,16 +3353,8 @@ function ChatSidebar({
   // The caller's source-reveal handler is rebuilt whenever its own inputs move,
   // and a new identity here would rebuild `rowActions` and re-render every row.
   // Rows only ever CALL it, so they get a stable forwarder to the latest one;
-  // its presence still tracks the caller's, which the chips read as "can reveal".
-  const onOpenSourceRef = useRef(onOpenSource)
-  onOpenSourceRef.current = onOpenSource
-  const hasOpenSource = !!onOpenSource
-  const stableOpenSource = useMemo(
-    () => (hasOpenSource
-      ? (slotKey: string, link: { url: string; kind: 'change' | 'issue' }) => onOpenSourceRef.current?.(slotKey, link) ?? false
-      : undefined),
-    [hasOpenSource],
-  )
+  // an absent handler stays undefined, which the chips read as "cannot reveal".
+  const { onOpenSource: stableOpenSource } = useStableCallbackProps({ onOpenSource })
   // What every session row can do, built once: the row's memo compares this one
   // reference, so none of these may take a new identity per render.
   const rowActions = useMemo(() => ({
