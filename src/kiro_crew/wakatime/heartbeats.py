@@ -70,6 +70,13 @@ _MAX_ENTITY_CHARS = 256
 #: the caller throttles confirmation-time emission to this interval.
 #: Attribution (tokens, line changes) rides only the end-of-turn heartbeat, so
 #: a throttled cadence beat never drops a token or line count.
+#:
+#: Source for the ~2-minute window: WakaTime's own editor plugins throttle
+#: repeated edit heartbeats for one file to once every two minutes (e.g.
+#: wakatime/zed-wakatime), and WakaTime's duration algorithm combines
+#: consecutive heartbeats whose gap is under the keystroke-timeout window
+#: (default two minutes) into a single duration. Matching that window keeps our
+#: cadence at the coalescing granularity rather than above it.
 CADENCE_MIN_INTERVAL_SECS = 120.0
 
 

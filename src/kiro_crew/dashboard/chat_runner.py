@@ -12540,6 +12540,20 @@ async def _run_chat(
             elif event.kind == EVENT_TOOL_RESULT:
                 if event.tool_final and event.tool_call_id:
                     _turn_successful_tool_call_ids.add(event.tool_call_id)
+                    # An auto-approved coding tool reaches its completed frame
+                    # without ever passing through a permission decision, so
+                    # _wt_note_approved never emitted a cadence beat for it and
+                    # its key is still pending (an approved tool's key was
+                    # drained at EVENT_PERMISSION_REQUEST and already got its
+                    # beat). Emit the throttled beat here, where the tool has
+                    # demonstrably executed, so a turn of pre-authorized coding
+                    # tools accrues intra-turn duration like a prompted one. The
+                    # key stays pending for the end-of-turn attribution beat;
+                    # this only adds the mid-turn timestamp. Same throttle and
+                    # scope guard as the per-approval path.
+                    _wt_result_key = _tcid_identity_key(event.tool_call_id)
+                    if _wt_result_key and _wt_result_key in _wt_pending_coding:
+                        _wt_maybe_cadence()
                 _out = _redact_tool_field(event.tool_output)
                 # Redact the join key once for the WS broadcast and the
                 # message-meta comparison below. `_tool_meta` stores the
