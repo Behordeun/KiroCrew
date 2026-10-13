@@ -6,10 +6,20 @@ that honors one ``429 Retry-After`` back-off then gives up, explicit per-call
 ``ClientTimeout``, and transport errors caught narrowly so a failed call
 degrades to ``None``/``[]`` instead of raising into a turn.
 
-Auth is HTTP Basic with the API key as the username (WakaTime's scheme):
-``Authorization: Basic base64(<api_key>:)``. The key is revealed only at the
-request site and never logged — a failing request logs the exception TYPE only,
-because a WakaTime error message or a request URL can carry the key.
+Auth has two modes, chosen by :meth:`_headers` from whether an OAuth access
+token was given at construction. With a token the client sends
+``Authorization: Bearer <token>`` on every call; without one it sends HTTP
+Basic with the API key as the username (WakaTime's own scheme):
+``Authorization: Basic base64(<api_key>:)``. WakaTime makes API keys write-only
+on 1 November 2026 (https://wakatime.com/developers, Authentication), so after
+that date reading stats, summaries, or durations needs an OAuth token; the key
+still works for the heartbeat-send path and against a self-hosted
+Wakapi/Hackatime backend that has no OAuth provider, which is why the Basic
+fallback stays. A client built with a token therefore reads over OAuth; one
+built without a token keeps the existing key behavior unchanged. Either
+credential is revealed only at the request site and never logged: a failing
+request logs the exception TYPE only, because a WakaTime error message or a
+request URL can carry it.
 """
 
 from __future__ import annotations
@@ -58,10 +68,12 @@ _DEFAULT_TIMEOUT_SECS = 30
 
 
 class WakaTimeAuthError(Exception):
-    """Raised by :meth:`verify` when the API key is rejected (401/403).
+    """Raised by :meth:`verify` when the credential is rejected (401/403).
 
-    Distinct from a transport failure (which returns ``None``): a wrong key is a
-    configuration problem the caller should surface, not retry.
+    Distinct from a transport failure (which returns ``None``): a rejected
+    credential is a configuration problem the caller should surface, not retry.
+    This covers a bad API key and, under OAuth, a rejected or expired bearer
+    token.
     """
 
 
@@ -79,9 +91,21 @@ class WakaTimeUnavailableError(Exception):
 class WakaTimeClient:
     """Sends heartbeats and reads summaries/stats/durations from WakaTime."""
 
-    def __init__(self, *, api_key: str, api_base: str = DEFAULT_API_BASE) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        api_base: str = DEFAULT_API_BASE,
+        oauth_access_token: str | None = None,
+    ) -> None:
         self._api_key = api_key
         self._api_base = api_base.rstrip("/")
+        # When set, every call authenticates with this bearer token instead of
+        # the Basic key. A client is built with a token (OAuth, for reads after
+        # the key cutoff) or without one (the key, for the heartbeat-send path
+        # and self-hosted backends); the token-exchange and refresh wiring that
+        # supplies it lands in a follow-up PR.
+        self._oauth_access_token = oauth_access_token or None
         self._session: aiohttp.ClientSession | None = None
         self._session_lock: asyncio.Lock = asyncio.Lock()
         self._closed = False
@@ -89,9 +113,17 @@ class WakaTimeClient:
     # ── Auth ──
 
     def _headers(self) -> dict[str, str]:
-        # WakaTime Basic auth: the API key is the username, password empty.
-        token = base64.b64encode(f"{self._api_key}:".encode()).decode("ascii")
-        return {"Authorization": f"Basic {token}", "User-Agent": _user_agent()}
+        # A configured OAuth token signs every call; otherwise the Basic key
+        # does (the heartbeat-send path, pre-cutoff reads, and self-hosted
+        # backends with no OAuth provider). Either credential is built here at
+        # the request site and never stored in a logged structure.
+        if self._oauth_access_token:
+            auth = f"Bearer {self._oauth_access_token}"
+        else:
+            # WakaTime Basic auth: the API key is the username, password empty.
+            token = base64.b64encode(f"{self._api_key}:".encode()).decode("ascii")
+            auth = f"Basic {token}"
+        return {"Authorization": auth, "User-Agent": _user_agent()}
 
     # ── Session lifecycle ──
 

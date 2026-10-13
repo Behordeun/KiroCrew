@@ -78,6 +78,31 @@ async def test_auth_header_is_basic_base64_of_the_key() -> None:
     assert sent == f"Basic {expected}"
 
 
+async def test_auth_header_is_bearer_when_oauth_token_configured() -> None:
+    session = _FakeSession([_FakeResp(200, {"data": []})])
+    client = WakaTimeClient(api_key=_FAKE_KEY, oauth_access_token="waka_tok_read")
+    client._session = session  # type: ignore[assignment]
+    await client.get_summaries("2026-09-01", "2026-09-03")
+    assert session.calls[0]["headers"]["Authorization"] == "Bearer waka_tok_read"
+
+
+async def test_auth_header_falls_back_to_basic_when_oauth_token_is_empty() -> None:
+    session = _FakeSession([_FakeResp(200, {"data": []})])
+    client = WakaTimeClient(api_key=_FAKE_KEY, oauth_access_token="")
+    client._session = session  # type: ignore[assignment]
+    await client.get_summaries("2026-09-01", "2026-09-03")
+    expected = base64.b64encode(f"{_FAKE_KEY}:".encode()).decode("ascii")
+    assert session.calls[0]["headers"]["Authorization"] == f"Basic {expected}"
+
+
+async def test_send_heartbeats_uses_bearer_when_oauth_token_configured() -> None:
+    session = _FakeSession([_FakeResp(200, {"responses": [[{}, 201]]})])
+    client = WakaTimeClient(api_key=_FAKE_KEY, oauth_access_token="waka_tok_read")
+    client._session = session  # type: ignore[assignment]
+    await client.send_heartbeats([{"entity": "a.py", "type": "file", "time": 1}])
+    assert session.calls[0]["headers"]["Authorization"] == "Bearer waka_tok_read"
+
+
 async def test_get_summaries_returns_the_data_list() -> None:
     session = _FakeSession([_FakeResp(200, {"data": [{"grand_total": {"hours": 3}}]})])
     client = _client_with(session)
