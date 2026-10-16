@@ -925,6 +925,10 @@ FIRST_TURN_REFUSED_TEXT = (
     "<#%s> did not start on this: its session refused the request (the channel "
     "says why). Send it again once that is fixed."
 )
+ARCHIVED_TEXT = (
+    "This code channel was archived, so nothing runs here any more. Start a new one "
+    "from a thread."
+)
 UNSUPPORTED_COMMAND_TEXT = (
     "That command does not run in a code channel. Use it in the channel's dashboard session."
 )
@@ -962,7 +966,15 @@ async def _wait_for_creation(
 async def _dispatch_directed(
     orch: Any, result: InboundResult, event: dict[str, Any], clean_text: str, sender_id: str
 ) -> bool:
-    """Run a DIRECTED message in the channel's session; always handled here.
+    """Run a DIRECTED message in the channel's session; always handled here."""
+    await deliver_directed(orch, result, event, clean_text, sender_id)
+    return True
+
+
+async def deliver_directed(
+    orch: Any, result: InboundResult, event: dict[str, Any], clean_text: str, sender_id: str
+) -> bool:
+    """Deliver a DIRECTED message to the channel's session; True when it reached it.
 
     A message the gate admitted is never handed back to the normal path, which
     would answer it in a thread session the channel does not belong to; when it
@@ -980,17 +992,21 @@ async def _dispatch_directed(
             "privacy modifier in a code channel",
         )
         await _post(orch, channel, PRIVACY_REFUSED_TEXT, None)
-        return True
+        return False  # refused, so it never reached the session
     if _dashboard_state() is None:
         await _post(orch, channel, UNROUTED_TEXT, None)
-        return True
+        return False
     # Bound or not, a channel this process is still opening waits for its
     # opening request to be delivered first.
     await _wait_for_creation(event, result.info, store().get_binding(channel))
+    archived = False
     try:
         async with _bind_lock(channel):
             binding = store().get_binding(channel)
-            if binding is None:
+            archived = binding is not None and bool(binding.archived_at)
+            if archived:
+                pass  # nothing is adopted, rebound or prepared for an archived channel
+            elif binding is None:
                 # A code channel Slack's UI opened with us as its agent: adopt it.
                 info = result.info
                 binding = await _bind_channel(
@@ -1022,11 +1038,21 @@ async def _dispatch_directed(
     except BindingUnavailable as exc:
         logger.info("code channel %s: no session to route to (%s)", channel, exc)
         await _post(orch, channel, UNROUTED_TEXT, None)
-        return True
+        return False
     except Exception:
         logger.exception("code channel %s: binding a session failed", channel)
         await _post(orch, channel, UNROUTED_TEXT, None)
-        return True
+        return False
+    if archived:
+        # An archived channel takes no more work. No turn, no new
+        # session, and above all no worktree cut again for a tree its Archive
+        # removed (it would be orphaned for good: no cleanup runs once archived).
+        _audit(sender_id, "slack.code_channel.message", "denied", f"channel={channel}", "archived")
+        await _post(orch, channel, ARCHIVED_TEXT, None)
+        return False
+    if binding is None:
+        await _post(orch, channel, UNROUTED_TEXT, None)
+        return False
     # The channel's worktree before the turn: the session's project is taken when
     # the turn is admitted, ahead of every turn hook (no-op off git or with the
     # feature off; never raises; a known channel costs nothing).
@@ -1037,8 +1063,8 @@ async def _dispatch_directed(
     routed = await _route_to_slot(orch, binding, clean_text, sender_id, sender=slack_sender(event))
     if routed is LinkedRoute.UNROUTED:
         await _post(orch, channel, UNSUPPORTED_COMMAND_TEXT, None)
-    # REFUSED: the refusal itself was the reply.
-    return True
+    # REFUSED: the refusal itself was the reply. Only ROUTED reached the session.
+    return routed is LinkedRoute.ROUTED
 
 
 def _asks_for_privacy(text: str) -> bool:
