@@ -18,6 +18,7 @@ from aiohttp import web
 
 from kiro_crew import conductor_patrol, session_ledger
 from kiro_crew.dashboard import session_control as sc
+from kiro_crew.dashboard.handlers import work_ledger as work_ledger_routes
 from kiro_crew.dashboard.handlers._shared import (
     _read_session_key,
     internal_memory_scope,
@@ -610,6 +611,12 @@ async def api_session_control_send(request: web.Request) -> web.Response:
         steer = body.get("steer", False)
         if not isinstance(steer, bool):
             raise sc.SessionControlError("steer must be a boolean", code="invalid_steer")
+        # The waiting item this send would answer, read BEFORE delivery so the
+        # hand-back below answers the report the conductor saw, never one the
+        # worker files while the message is in flight.
+        handback = await work_ledger_routes.read_send_handback(
+            _read_session_key(request), _target(body)
+        )
         result = await sc.send_to_target(
             state,
             caller_session_key=_read_session_key(request),
@@ -620,6 +627,20 @@ async def api_session_control_send(request: web.Request) -> web.Response:
         )
     except sc.SessionControlError as exc:
         return _refusal(exc)
+    # The server half of the work-ledger charter: a conductor's answer to a
+    # ``blocked`` / ``question`` item is also its ``decide``, so a conductor that
+    # forgets the second call does not leave the item waiting on it forever (the
+    # hand-back stamp is what :func:`kiro_crew.work_ledger.is_stale` reads to put
+    # the worker's silence back under the wake). Best-effort and conditional on
+    # the store's own bindings, so an ordinary message between sessions writes
+    # nothing.
+    if handback is not None:
+        await work_ledger_routes.stamp_send_handback(
+            state,
+            handback,
+            delivered_to=str(result.get("target") or ""),
+            message=message,
+        )
     return web.json_response(result)
 
 

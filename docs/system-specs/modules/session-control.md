@@ -85,6 +85,18 @@ session <caller> via <verb>]` envelope so the target's transcript can never
 render it as something the person typed, and channel agents are blocked from it
 outright.
 
+A send from a work-ledger conductor to the worker it bound also hands that
+worker's waiting item back (`work_ledger.read_send_handback` before delivery,
+`stamp_send_handback` after). It writes only when the target's binding resolves
+to the caller, the item is `blocked` or `question` with no `reason` (a report
+with `approval` / `needs_human` waits on a person), and no `decide` has
+answered its last report yet. Under the board lock it re-reads the item and writes only
+if that report is unchanged, so a report filed while the message was in flight
+stays the conductor's move. The decision is the message redacted through
+`safe_work_fields`, clipped to `MAX_DECISION_CHARS` with a marker, and recorded
+through the same `decide` pipeline as `work_ledger_record`. The stamp is
+best-effort: a skip or failure never fails a delivered send.
+
 `session_broadcast` is not a second delivery path. It resolves an audience and
 then calls `send_to_target` once per target, so every bound above holds per
 delivery unchanged — the same gate, the same containment snapshot, the same
