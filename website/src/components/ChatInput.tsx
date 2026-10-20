@@ -40,6 +40,7 @@ import { platformShortcut } from '../utils/platform'
 import { useLanguageGeneration } from '../i18n/useLanguageGeneration'
 import { useComposerDraftText, useComposerPasteSlice, useComposerVoiceSlice, type ComposerVoiceInputProps } from '../chat-core/composer/Composer'
 import { useComposerTreeDrop } from './composerTreeDrop'
+import { hasListLine } from './composerListIndent'
 import { useStopEscapeHatch } from '../hooks/useStopEscapeHatch'
 import { useStopDeclinedHint } from '../hooks/useStopDeclinedHint'
 import { useScrollEdges } from '../hooks/useScrollEdges'
@@ -440,6 +441,9 @@ function ChatInput({
   const wrapperRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const fileInputId = useId()
+  const listIndentHintId = useId()
+  const draftHasListLine = useMemo(() => hasListLine(value), [value])
+  const [textareaFocused, setTextareaFocused] = useState(false)
   const { shelfRef, shelfHeight, shelfCompact, shelfTiny } = useShelfMeasure()
   // Tooltip for the project chip. The chip itself shows the basename (plus the
   // branch when known); the tooltip carries the full path so nothing that was
@@ -762,6 +766,11 @@ function ChatInput({
     !!voiceError || !!voiceDownload || voiceDrainCancellable || micHeldElsewhere || voiceHeldLanded
   const inlineToolbar = inlineToolbarWhileFits && textFitsOneRow && !pendingFiles.length && !pendingDirs.length && !hasQuote && !hasSessionRefs && !inBoxStatusStrip && manualHeight === null &&
     !terminal.active && !voiceHoldMode && !showDictation && !lexicalLoadFailed
+  // The list-indent hint shows under the text while the textarea has focus.
+  // On the one-row shape it stays screen-reader only: a visible row would sit
+  // beside the text and squeeze it, and reshaping the box on every focus and
+  // blur moves the toolbar under the pointer. Focus never changes the shape.
+  const listHintVisible = draftHasListLine && textareaFocused && !(lexicalComposer && !lexicalLoadFailed) && !inlineToolbar
   inlineRef.current = inlineToolbar
   const reduceMotion = useReducedMotion()
   // The box's height (`inlineToolbarWhileFits` only), measured off the inner
@@ -1345,7 +1354,9 @@ function ChatInput({
           aria-label={inputAriaLabel ?? i18nT('components.chatInput.message_input')}
           data-composer-input=""
           spellCheck={spellCheck}
-          aria-describedby={pastePreviewPanelId ?? undefined}
+          // On a draft with a list line Tab may indent, so screen readers also
+          // hear how to leave the composer (Esc then Tab, chat-input/keyboard.ts).
+          aria-describedby={[pastePreviewPanelId, draftHasListLine ? listIndentHintId : null].filter(Boolean).join(' ') || undefined}
           data-composer-typo
           // Chromium paints no `text-overflow` on a `::placeholder`, so the cut tail
           // fades out instead, the way the app's other cut edges do.
@@ -1366,8 +1377,8 @@ function ChatInput({
           {...ime.bindComposition<HTMLTextAreaElement>({
             // The paste-hover preview dismisses on blur; the guard's latch reset rides
             // in the binding itself, so these handlers only carry what is local here.
-            onFocus: prefetchSkills,
-            onBlur: () => { if (hoverRef.current) hoverRef.current.handleMouseLeave() },
+            onFocus: () => { setTextareaFocused(true); prefetchSkills() },
+            onBlur: () => { setTextareaFocused(false); if (hoverRef.current) hoverRef.current.handleMouseLeave() },
           })}
           onPaste={disabled ? e => e.preventDefault() : handlePaste}
           onCopy={handleCopy}
@@ -1383,6 +1394,14 @@ function ChatInput({
         {pasteBlocks.length > 0 && <PasteHoverLayer ref={hoverRef} value={value} blocks={pasteBlocks} mirrorRef={mirrorRef} onActivePanelChange={setPastePreviewPanelId} />}
         </>)}
         </motion.div>
+        {/* The Tab rule and its way out. Screen readers get it through the
+            textarea's aria-describedby; sighted keyboard users see the same
+            line while the textarea has focus, except on the one-row shape. */}
+        {draftHasListLine && !(lexicalComposer && !lexicalLoadFailed) && (
+          <p id={listIndentHintId} data-testid="list-indent-hint" className={listHintVisible ? `px-4 pt-1 text-[12px] text-muted ${showDictation || voiceHoldMode ? 'sr-only' : ''}` : 'sr-only'}>
+            {i18nT('components.chatInput.list_indent_hint')}
+          </p>
+        )}
 
         {voiceHoldMode && (
           <HoldToTalkBar manualHeight={manualHeight} setHoldTarget={setHoldTarget} touchPtt={touchPtt} disabled={disabled} micBlocked={micBlocked} optimizing={optimizing} voiceSettling={voiceSettling} holdBarLabel={holdBarLabel} />
