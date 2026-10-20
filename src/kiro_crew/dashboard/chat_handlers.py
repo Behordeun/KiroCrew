@@ -408,6 +408,9 @@ from kiro_crew.dashboard.chat_utils import (  # noqa: F401
 from kiro_crew.dashboard.chat_utils import (  # noqa: F401
     tighten_replacement_to_restricted_original as _tighten_replacement_to_restricted_original,
 )
+from kiro_crew.dashboard.default_session_folder import (  # noqa: F401
+    resolve_default_session_folder,
+)
 from kiro_crew.dashboard.handlers._shared import (  # noqa: F401
     _SLOT_SCOPED_TRUST_MODES,
     _owner_denial_response,
@@ -633,6 +636,9 @@ _DEFERRED_PLAIN_CREATE_KNOWN_KEYS = frozenset(
         "title",
         "artifact",
         "ephemeral",
+        # Only a request; a create that it actually files is not plain,
+        # because the handler then sees a folder_id.
+        "default_folder",
     }
 )
 

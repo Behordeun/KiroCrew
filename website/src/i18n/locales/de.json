@@ -16406,7 +16406,15 @@
         "follow_default_done_one": "{{count}} Chat folgt jetzt der Einstellung Standardmodell.",
         "follow_default_done_other": "{{count}} Chats folgen jetzt der Einstellung Standardmodell.",
         "follow_default_changed": "Es wurde nichts geändert. Einige Chats haben sich geändert, nachdem die Anzahl ermittelt wurde. Drücke die Schaltfläche erneut, um die neue Anzahl zu sehen.",
-        "follow_default_failed": "Die Chats konnten nicht aktualisiert werden. Versuche es erneut."
+        "follow_default_failed": "Die Chats konnten nicht aktualisiert werden. Versuche es erneut.",
+        "default_session_folder": "Standard-Seitenleistenordner für neue Chats",
+        "default_session_folder_desc": "Der Seitenleistenordner, in den neue Chats ohne Ordnerwahl abgelegt werden. Er gruppiert Chats in der Seitenleiste; er ist kein Ordner auf der Festplatte.",
+        "default_session_folder_hint": "Der Chat nutzt das verknüpfte Projekt und den Agenten des Ordners, wie Neuer Chat im Ordner.",
+        "default_session_folder_stale_hint": "Der hier gewählte Ordner wurde gelöscht, daher landen neue Chats in keinem Ordner. Wähle einen anderen Ordner oder Keiner.",
+        "default_session_folder_none": "Keiner (ohne Ordner)",
+        "default_session_folder_deleted": "Gelöschter Ordner",
+        "default_session_folder_save_failed": "Der Standardordner konnte nicht gespeichert werden. Versuche es erneut.",
+        "default_session_folder_load_failed": "Deine Seitenleistenordner konnten nicht geladen werden, daher sind sie hier nicht aufgeführt."
       },
       "computerUsePanel": {
         "accessibility": "Bedienungshilfen",

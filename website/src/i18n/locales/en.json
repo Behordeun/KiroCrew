@@ -9277,7 +9277,15 @@
         "turn_time_limit_description": "Longest one chat turn may run before it is stopped. 300 to 86,400 s (24 h). Default 14,400 s (4 h).",
         "turn_time_limit_hint": "A turn that reaches this limit stops and keeps the work already written to disk; resume it to continue. Raise it for long unattended turns such as full test suites. Applies from the next turn.",
         "failed_to_save_compaction_wait_budget": "Failed to save compaction wait budget",
-        "failed_to_save_turn_time_limit": "Failed to save turn time limit"
+        "failed_to_save_turn_time_limit": "Failed to save turn time limit",
+        "default_session_folder": "Default Sidebar Folder for New Chats",
+        "default_session_folder_desc": "The sidebar folder new chats are filed into when you start one without choosing a folder. It groups chats in the sidebar; it is not a folder on disk.",
+        "default_session_folder_hint": "The chat uses the folder's linked project and agent, as New chat in folder does.",
+        "default_session_folder_stale_hint": "The folder chosen here was deleted, so new chats are unfiled. Choose another folder or None.",
+        "default_session_folder_none": "None (unfiled)",
+        "default_session_folder_deleted": "Deleted folder",
+        "default_session_folder_save_failed": "The default folder could not be saved. Try again.",
+        "default_session_folder_load_failed": "Your sidebar folders could not be loaded, so they are not listed here."
       },
       "computerUsePanel": {
         "accessibility": "Accessibility",

@@ -16676,7 +16676,15 @@
         "follow_default_done_many": "{{count}} chats suivent désormais le réglage Modèle par défaut.",
         "follow_default_done_other": "{{count}} chats suivent désormais le réglage Modèle par défaut.",
         "follow_default_changed": "Rien n’a été modifié. Certains chats ont changé après le calcul du nombre. Appuie à nouveau sur le bouton pour voir le nouveau nombre.",
-        "follow_default_failed": "Impossible de mettre à jour les chats. Réessaie."
+        "follow_default_failed": "Impossible de mettre à jour les chats. Réessaie.",
+        "default_session_folder": "Dossier de la barre latérale par défaut pour les nouvelles discussions",
+        "default_session_folder_desc": "Le dossier de la barre latérale où sont rangées les nouvelles discussions lancées sans choisir de dossier. Il regroupe les discussions dans la barre latérale ; ce n'est pas un dossier sur le disque.",
+        "default_session_folder_hint": "La discussion utilise le projet et l'agent liés au dossier, comme Nouvelle discussion dans le dossier.",
+        "default_session_folder_stale_hint": "Le dossier choisi ici a été supprimé, les nouvelles discussions ne sont donc rangées nulle part. Choisis un autre dossier ou Aucun.",
+        "default_session_folder_none": "Aucun (non classé)",
+        "default_session_folder_deleted": "Dossier supprimé",
+        "default_session_folder_save_failed": "Impossible d'enregistrer le dossier par défaut. Réessaie.",
+        "default_session_folder_load_failed": "Impossible de charger tes dossiers de la barre latérale, ils ne sont donc pas listés ici."
       },
       "computerUsePanel": {
         "accessibility": "Accessibilité",

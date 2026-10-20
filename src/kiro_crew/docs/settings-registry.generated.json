@@ -549,6 +549,15 @@
       "description": "Higher is slower and costs more. Only available on reasoning-capable models."
     },
     {
+      "id": "chat.default-sidebar-folder-for-new-chats",
+      "label": "Default Sidebar Folder for New Chats",
+      "tab": "chat",
+      "route": "/settings/chat/sessions?highlight=key%3Adashboard.default_session_folder",
+      "description": "The sidebar folder new chats are filed into when you start one without choosing a folder. It groups chats in the sidebar; it is not a folder on disk.",
+      "hint": "The chat uses the folder's linked project and agent, as New chat in folder does.",
+      "configKey": "dashboard.default_session_folder"
+    },
+    {
       "id": "chat.describe-your-role",
       "label": "Describe your role",
       "tab": "chat",

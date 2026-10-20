@@ -16136,7 +16136,15 @@
         "follow_default_confirm": "使用默认模型",
         "follow_default_done_other": "{{count}} 个聊天现在使用“默认模型”设置。",
         "follow_default_changed": "未做任何更改。统计数量后，有些聊天发生了变化。再次按下按钮即可查看新的数量。",
-        "follow_default_failed": "无法更新聊天。请重试。"
+        "follow_default_failed": "无法更新聊天。请重试。",
+        "default_session_folder": "新聊天的默认侧边栏文件夹",
+        "default_session_folder_desc": "未选择文件夹就开始的新聊天会归入这个侧边栏文件夹。它只用于在侧边栏中分组聊天，不是磁盘上的文件夹。",
+        "default_session_folder_hint": "聊天会使用该文件夹关联的项目和代理，与“在文件夹中新建聊天”相同。",
+        "default_session_folder_stale_hint": "这里选择的文件夹已被删除，因此新聊天不会归入任何文件夹。请选择其他文件夹或“无”。",
+        "default_session_folder_none": "无（不归档）",
+        "default_session_folder_deleted": "已删除的文件夹",
+        "default_session_folder_save_failed": "无法保存默认文件夹。请重试。",
+        "default_session_folder_load_failed": "无法加载侧边栏文件夹，因此这里没有列出它们。"
       },
       "computerUsePanel": {
         "accessibility": "辅助功能",

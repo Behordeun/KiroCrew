@@ -998,6 +998,20 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     }
   },
   {
+    "id": "chat.default-sidebar-folder-for-new-chats",
+    "label": "Default Sidebar Folder for New Chats",
+    "labelKey": "pages.settings.chatPanel.default_session_folder",
+    "description": "The sidebar folder new chats are filed into when you start one without choosing a folder. It groups chats in the sidebar; it is not a folder on disk.",
+    "hint": "The chat uses the folder's linked project and agent, as New chat in folder does.",
+    "tab": "chat",
+    "type": "select",
+    "occurrence": 1,
+    "params": {
+      "sub": "sessions"
+    },
+    "configKey": "dashboard.default_session_folder"
+  },
+  {
     "id": "chat.describe-your-role",
     "label": "Describe your role",
     "labelKey": "pages.settings.chatPanel.describe_your_role",

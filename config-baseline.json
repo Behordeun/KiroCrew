@@ -7546,6 +7546,7 @@
         },
         "default_project": "",
         "session_folder_root": "",
+        "default_session_folder": "",
         "theme_mode": "",
         "sso_login_flags": "",
         "theme_color": "",
@@ -8444,6 +8445,20 @@
       "tags": [],
       "label": "New Session Folders",
       "help": "Directory under which each new dashboard chat gets its own freshly created folder, used as that chat's project directory. The folder is named by date with a short random suffix and only you can read it. A chat filed into a folder that has its own project keeps that project. Empty = off; new chats use the default project.",
+      "hasChildren": false,
+      "enumValues": null,
+      "defaultValue": ""
+    },
+    {
+      "path": "dashboard.default_session_folder",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "label": "Default Sidebar Folder for New Chats",
+      "help": "ID of the sidebar folder that new dashboard chats are filed into when they are started from New without choosing a folder. A chat started in a specific folder still goes there, and every other create path, such as apps, crons, channels and agents, keeps its own placement. Empty = new chats are unfiled.",
       "hasChildren": false,
       "enumValues": null,
       "defaultValue": ""

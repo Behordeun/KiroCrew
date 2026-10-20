@@ -16676,7 +16676,15 @@
         "follow_default_done_many": "{{count}} chat ora seguono l’impostazione Modello predefinito.",
         "follow_default_done_other": "{{count}} chat ora seguono l’impostazione Modello predefinito.",
         "follow_default_changed": "Non è stato cambiato nulla. Alcune chat sono cambiate dopo il calcolo del numero. Premi di nuovo il pulsante per vedere il nuovo numero.",
-        "follow_default_failed": "Impossibile aggiornare le chat. Riprova."
+        "follow_default_failed": "Impossibile aggiornare le chat. Riprova.",
+        "default_session_folder": "Cartella predefinita della barra laterale per le nuove chat",
+        "default_session_folder_desc": "La cartella della barra laterale in cui finiscono le nuove chat avviate senza scegliere una cartella. Raggruppa le chat nella barra laterale; non è una cartella sul disco.",
+        "default_session_folder_hint": "La chat usa il progetto e l'agente collegati alla cartella, come Nuova chat nella cartella.",
+        "default_session_folder_stale_hint": "La cartella scelta qui è stata eliminata, quindi le nuove chat non finiscono in nessuna cartella. Scegli un'altra cartella o Nessuna.",
+        "default_session_folder_none": "Nessuna (senza cartella)",
+        "default_session_folder_deleted": "Cartella eliminata",
+        "default_session_folder_save_failed": "Impossibile salvare la cartella predefinita. Riprova.",
+        "default_session_folder_load_failed": "Non è stato possibile caricare le tue cartelle della barra laterale, quindi non sono elencate qui."
       },
       "computerUsePanel": {
         "accessibility": "Accessibilità",

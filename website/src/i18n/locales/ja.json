@@ -16136,7 +16136,15 @@
         "follow_default_confirm": "デフォルトに合わせる",
         "follow_default_done_other": "{{count}} 件のチャットが「デフォルトモデル」の設定に従うようになりました。",
         "follow_default_changed": "何も変更されていません。件数を数えた後に一部のチャットが変わりました。もう一度ボタンを押すと新しい件数が表示されます。",
-        "follow_default_failed": "チャットを更新できませんでした。もう一度お試しください。"
+        "follow_default_failed": "チャットを更新できませんでした。もう一度お試しください。",
+        "default_session_folder": "新しいチャットの既定のサイドバーフォルダー",
+        "default_session_folder_desc": "フォルダーを選ばずに始めた新しいチャットが入るサイドバーのフォルダーです。サイドバーでチャットをまとめるためのもので、ディスク上のフォルダーではありません。",
+        "default_session_folder_hint": "チャットはフォルダーにリンクされたプロジェクトとエージェントを使います。「フォルダーで新しいチャット」と同じです。",
+        "default_session_folder_stale_hint": "ここで選んだフォルダーは削除されたため、新しいチャットはどのフォルダーにも入りません。別のフォルダーか「なし」を選んでください。",
+        "default_session_folder_none": "なし（フォルダーなし）",
+        "default_session_folder_deleted": "削除されたフォルダー",
+        "default_session_folder_save_failed": "既定のフォルダーを保存できませんでした。もう一度お試しください。",
+        "default_session_folder_load_failed": "サイドバーのフォルダーを読み込めなかったため、ここには表示されていません。"
       },
       "computerUsePanel": {
         "accessibility": "アクセシビリティ",
