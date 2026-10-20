@@ -40,7 +40,6 @@
 2594 src/kiro_crew/subagent_persistence.py
 2641 test/conftest.py
 2475 test/test_chat_mirror.py
-10498 test/test_cli.py
 2744 test/test_cli_server_more_coverage.py
 3125 test/test_cron_script.py
 2718 test/test_dashboard_server_composition_contract.py
