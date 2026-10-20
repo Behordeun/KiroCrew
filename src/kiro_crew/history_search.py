@@ -65,6 +65,8 @@ from kiro_crew.history_search_memo import (  # noqa: F401 - facade re-exports
 )
 from kiro_crew.history_search_query import (  # noqa: F401 - facade re-exports
     _CJK_CHAR_WEIGHT,
+    _CJK_SEGMENTER_BACKOFF_SECS,
+    _CJK_WORDS_MEMO_RUNS,
     _FORGE_CHAIN_ONLY_WORDS,
     _FORGE_LEAD_PUNCT,
     _FORGE_MR_WORDS,
@@ -81,8 +83,16 @@ from kiro_crew.history_search_query import (  # noqa: F401 - facade re-exports
     _SEARCH_MAX_FORGE_REFS,
     _SEARCH_MAX_SCORING_EXTRAS,
     _SHORT_NEEDLE_MAX_CHARS,
+    CJK_SEGMENT_MAX_RUN_CHARS,
+    CJK_SEGMENT_MAX_RUNS,
     SEARCH_MAX_TOKENS,
+    CjkSegmenter,
     SearchNeedle,
+    _cjk_slot,
+    _cjk_words,
+    _cjk_words_lock,
+    _cjk_words_memo,
+    _CjkSegmenterSlot,
     _forge_lead_in,
     _forge_spellings,
     _forge_type_suffix,
@@ -95,13 +105,20 @@ from kiro_crew.history_search_query import (  # noqa: F401 - facade re-exports
     _provider_search_ref,
     _saturates,
     _script_runs,
+    _snippet_tiers,
+    _valid_words,
     count_needle,
+    is_han_run,
     logger,
     needles_match_text,
     parse_search_query,
+    register_cjk_segmenter,
     register_search_ref_resolver,
+    reset_cjk_segmenter_for_tests,
     reset_search_ref_resolver_for_tests,
+    snippet_needle_tiers,
     snippet_needles,
+    tiered_first_hit,
 )
 from kiro_crew.jsonl_util import bounded_records
 
@@ -177,7 +194,7 @@ class SessionCatalogProjection:
         self._log = log
         self._index: "SessionSearchIndex | None" = None
         #: ``digest + needle key -> (count, cost)`` over the folded text of a
-        #: session the index vouches for, and ``digest + repr(query) ->
+        #: session the index vouches for, and ``digest + repr(snippet tiers) ->
         #: (snippet, cost)`` for the same sessions; each ``None`` when switched
         #: off. Shared with every projection over this directory.
         self._count_memo: "_GroupRecencyMemo[_MemoValue] | None"
@@ -590,6 +607,13 @@ class SessionCatalogProjection:
         decisively better old match still wins (the boost tops out at ×2.5 and
         never drops below ×1).
 
+        Rows sort by the number of ``verbatim`` needles they hold first and by
+        score second. Only a pure-Han run the dictionary split into words carries
+        one (see :func:`parse_search_query`): the run is the user's own term, and
+        the split words are how a session WITHOUT it still matches. So a session
+        holding the run as typed ranks above one holding its words apart, however
+        often those words repeat. Every other query sorts by score alone.
+
         Title matches get a strong field boost - titles are short and
         intentional, so a hit there is strong evidence.  Content matches
         are normalized by a sqrt length factor so a long session with a
@@ -626,7 +650,11 @@ class SessionCatalogProjection:
         gate = _MemoGate(needles, phrase, multi)
         # Pinned for the whole query: a memo full of other terms evicts those,
         # never the terms this query is reading and filling right now.
-        with _pinned(self._count_memo, gate.memo_keys), _pinned(self._snippet_memo, [repr(query)]):
+        snippet_group = repr(_snippet_tiers(needles, phrase))
+        with (
+            _pinned(self._count_memo, gate.memo_keys),
+            _pinned(self._snippet_memo, [snippet_group]),
+        ):
             return self._search_parsed(query, limit, keys, needles, phrase, adjacency_floor, gate)
 
     def _search_parsed(
@@ -642,8 +670,8 @@ class SessionCatalogProjection:
         """The scoring and snippet half of :meth:`_search_sessions`."""
         multi = gate.multi
         now = _time.time()
-        # (score, -rank, meta, needs_snippet)
-        scored: list[tuple[float, int, dict, bool]] = []
+        # (verbatim runs hit, score, -rank, meta, needs_snippet)
+        scored: list[tuple[int, float, int, dict, bool]] = []
         window = self._log.list_sessions()[: _facade_search_scan_window()]
         self._log._prune_search_memos({m["key"] for m in window})
         if keys is not None:
@@ -674,6 +702,7 @@ class SessionCatalogProjection:
             saturated_hits = 0.0
             title_hits = 0.0
             adjacency_hits = 0
+            verbatim_runs = 0
             disqualified = False
             for needle, needle_key in zip(needles, needle_keys):
                 in_content = content.count(needle, needle_key)
@@ -683,6 +712,11 @@ class SessionCatalogProjection:
                     # session, so stop counting the rest.
                     disqualified = True
                     break
+                if needle.verbatim:
+                    # Ranks by the sort key below, not by score: its repeats
+                    # already score through the words it is made of.
+                    verbatim_runs += bool(in_content or in_title)
+                    continue
                 if needle.adjacency:
                     adjacency_hits += in_content + in_title
                 if needle.saturate_body:
@@ -711,7 +745,9 @@ class SessionCatalogProjection:
                 # each word is itself a bigram hit. The parse WAIVES the floor
                 # (adjacency_floor=False) when its bigram set was truncated —
                 # judging "no adjacency anywhere" against a partial set would
-                # hide long-query matches (see parse_search_query).
+                # hide long-query matches — and when a required dictionary word
+                # of 2+ characters already proves adjacency (see
+                # parse_search_query).
                 continue
             if multi:
                 # Reward the words appearing together, in order, as typed.
@@ -725,8 +761,12 @@ class SessionCatalogProjection:
             # extra weight every _RECENCY_HALF_WEIGHT_DAYS of age.
             age_days = max(0.0, now - meta.get("modified", 0.0)) / 86400
             score *= 1.0 + _RECENCY_MAX_BOOST / (1.0 + age_days / _RECENCY_HALF_WEIGHT_DAYS)
-            # Negate rank so a smaller (newer) rank wins ties after score desc sort.
-            scored.append((score, -rank, meta, (content_hits or saturated_hits) > 0))
+            # Verbatim runs first: a session holding more of the query's split
+            # runs exactly as typed outranks every session holding fewer, at any
+            # score. Zero for every query with no dictionary split, so their
+            # order is the score order it always was. Negate rank so a smaller
+            # (newer) rank wins ties after the descending sort.
+            scored.append((verbatim_runs, score, -rank, meta, (content_hits or saturated_hits) > 0))
         scored.sort(reverse=True)
 
         # Snippets are attached AFTER the sort+slice, so the cost is proportional
@@ -736,7 +776,7 @@ class SessionCatalogProjection:
         # full re-read back on the hot path — dominating the query once the fold
         # itself was memoized.
         out: list[dict] = []
-        for _score, _rank, meta, needs_snippet in scored[:limit]:
+        for _verbatim, _score, _rank, meta, needs_snippet in scored[:limit]:
             if keys is not None:
                 # Scoring-time folds may race ownership and affect ranking/inclusion
                 # only; the lock-held re-judge keeps foreign rows/snippets out of output.
@@ -1284,13 +1324,16 @@ class SessionCatalogProjection:
         string's length, so the window may be off by a character or two.
 
         For a multi-word query the exact phrase is tried first and each needle
-        is tried as a fallback (via :func:`snippet_needles`, highest-signal
+        is tried as a fallback (via :func:`snippet_needle_tiers`, highest-signal
         first), mirroring :meth:`search_sessions`' AND-over-needles matching —
         otherwise every session that matched on scattered words would come back
-        with no snippet at all. Needles are tried per message, so the first
-        MESSAGE containing any of them wins rather than the best needle overall;
-        that preserves the streaming early-exit above, and this string is
-        display-only.
+        with no snippet at all. Within a tier needles are tried per message, so
+        the first MESSAGE containing any of them wins rather than the best
+        needle overall; that preserves the streaming early-exit above. A query
+        with no dictionary words is one tier. A query with them reads on past a
+        lower-tier hit until a message holds the phrase, a verbatim run or a
+        longer word, so a lone character in an early message cannot take the
+        snippet from the phrase later on.
 
         Returns ``''`` when no needle is locatable in any single message, or
         when the file cannot be read (display-only — never raises at the caller).
@@ -1299,63 +1342,60 @@ class SessionCatalogProjection:
         row's content digest, and a memoized snippet is built only from the
         stored text that the same read confirms still carries that digest.
         """
-        needles = snippet_needles(query)
-        if not needles:
+        tiers = snippet_needle_tiers(query)
+        if not tiers:
             return ""
         memo = self._snippet_memo
         index = self._index
         if memo is None or index is None or not index.available:
-            return self._build_snippet(key, needles)
+            return self._build_snippet(key, tiers)
         try:
             st = self._stat_key(key)
         except OSError:
-            return self._build_snippet(key, needles)
+            return self._build_snippet(key, tiers)
         digest = index.fresh_digest(key, st)
         if digest is None:
-            return self._build_snippet(key, needles)
-        mkey = digest + repr(query)
+            return self._build_snippet(key, tiers)
+        # Keyed by the tiers, not the query: the snippet is a function of the
+        # text and the tiers, and one query's tiers change when a segmenter
+        # starts or stops answering.
+        mkey = digest + repr(tiers)
         hit = memo.get(mkey)
         if hit is not None:
             return hit[0]  # type: ignore[return-value]
         texts = index.iter_raw_texts(key, st, digest)
         if texts is None:
-            return self._build_snippet(key, needles)
+            return self._build_snippet(key, tiers)
         try:
-            snippet = self._snippet_from(texts, needles)
+            snippet = self._snippet_from(texts, tiers)
         except ChunkDecodeError:
-            return self._build_snippet(key, needles)
+            return self._build_snippet(key, tiers)
         memo[mkey] = (snippet, _memo_entry_cost(mkey, snippet))
         return snippet
 
-    def _build_snippet(self, key: str, needles: list[str]) -> str:
+    def _build_snippet(self, key: str, tiers: list[list[str]]) -> str:
         """The match-centered window :meth:`_content_snippet` returns, uncached."""
         try:
-            return self._snippet_from(self._log._snippet_texts(key), needles)
+            return self._snippet_from(self._log._snippet_texts(key), tiers)
         except OSError:
             return ""
 
-    def _snippet_from(self, texts: Iterable[str], needles: list[str]) -> str:
-        """The window around the first needle found in the first matching text.
+    def _snippet_from(self, texts: Iterable[str], tiers: list[list[str]]) -> str:
+        """The window around the best anchor :func:`tiered_first_hit` finds.
 
-        An ``OSError`` while reading *texts* reports as no snippet; any other
-        error propagates.
+        An ``OSError`` while reading *texts* keeps the best hit read so far (none
+        reports as no snippet); any other error propagates.
         """
-        try:
-            for text in texts:
-                folded = text.casefold()
-                for needle in needles:
-                    pos = folded.find(needle)
-                    if pos < 0:
-                        continue
-                    start = max(0, pos - self._log._SNIPPET_LEAD)
-                    end = min(len(text), pos + len(needle) + self._log._SNIPPET_TRAIL)
-                    frag = " ".join(text[start:end].split())
-                    prefix = "…" if start > 0 else ""
-                    suffix = "…" if end < len(text) else ""
-                    return (prefix + frag + suffix)[: self._log._SNIPPET_MAX]
-        except OSError:
+        found = tiered_first_hit(texts, tiers)
+        if found is None:
             return ""
-        return ""
+        text, pos, needle = found
+        start = max(0, pos - self._log._SNIPPET_LEAD)
+        end = min(len(text), pos + len(needle) + self._log._SNIPPET_TRAIL)
+        frag = " ".join(text[start:end].split())
+        prefix = "…" if start > 0 else ""
+        suffix = "…" if end < len(text) else ""
+        return (prefix + frag + suffix)[: self._log._SNIPPET_MAX]
 
 
 # --------------------------------------------------------------------------- #

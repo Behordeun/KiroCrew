@@ -1,12 +1,14 @@
 """What a transcript-search query means: its needles, and the single-text match rule.
 
 Pure parsing with no storage side effects. :func:`parse_search_query` turns a query into
-the needles every matcher and ranker shares: whole terms, CJK characters and bigrams, and
-forge references (pull requests, merge requests, issues) expanded into every spelling a
-transcript may use, plus the spellings a registered source provider contributes through
-:func:`register_search_ref_resolver`. :func:`count_needle` is the one counter they all
-use, :func:`snippet_needles` orders the snippet anchors, and :func:`needles_match_text`
-is the query gate for one string.
+the needles every matcher and ranker shares: whole terms, CJK characters and bigrams (or
+the Chinese words a segmenter installed through :func:`register_cjk_segmenter` splits a
+run into), and forge references (pull requests, merge requests, issues) expanded into
+every spelling a transcript may use, plus the spellings a registered source provider
+contributes through :func:`register_search_ref_resolver`. :func:`count_needle` is the one
+counter they all use, :func:`snippet_needle_tiers` orders the snippet anchors and
+:func:`tiered_first_hit` finds the best one, and :func:`needles_match_text` is the query
+gate for one string.
 
 :mod:`kiro_crew.history_search` re-exports every name defined here and is the import path
 callers use; its ``SessionCatalogProjection`` scores sessions with these needles. This
@@ -18,10 +20,13 @@ from __future__ import annotations
 import itertools
 import logging
 import re
+import threading
+import time as _time
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Sequence
 from typing import NamedTuple
 
-from kiro_crew._sqlite_compat import is_cjk_char, script_runs
+from kiro_crew._sqlite_compat import is_cjk_char, is_kana_char, script_runs
 
 SEARCH_MAX_TOKENS = 12  # distinct REQUIRED needles per query — see parse_search_query
 _SEARCH_MAX_SCORING_EXTRAS = 12  # distinct scoring-only needles (CJK bigrams) per query
@@ -148,6 +153,12 @@ class SearchNeedle(NamedTuple):
     short ASCII terms :func:`parse_search_query` marks (see
     :data:`_SHORT_NEEDLE_MAX_CHARS`), whose raw body frequency is
     incidental-text noise rather than relevance.
+
+    ``word`` marks a required needle that is one dictionary word of a pure-Han
+    run (see :func:`register_cjk_segmenter`). ``verbatim`` marks the whole run
+    such a split came from: scoring-only, it neither gates nor adds score, and a
+    session holding it ranks ahead of every session that does not (see
+    :meth:`SessionCatalogProjection._search_parsed`).
     """
 
     text: str
@@ -157,6 +168,8 @@ class SearchNeedle(NamedTuple):
     digit_bounded: bool = False
     adjacency: bool = False
     saturate_body: bool = False
+    word: bool = False
+    verbatim: bool = False
 
 
 def _is_short_term(term: str) -> bool:
@@ -623,6 +636,133 @@ def _provider_search_ref(token: str) -> tuple[str, tuple[str, ...]] | None:
     return (folded, tuple(spellings))
 
 
+#: Most pure-Han runs one query sends to the dictionary, and the longest run it
+#: sends. A run past either bound keeps the character path. The gateway route
+#: that answers mcp-core refuses a request past them.
+CJK_SEGMENT_MAX_RUNS = SEARCH_MAX_TOKENS
+CJK_SEGMENT_MAX_RUN_CHARS = 64
+#: Runs whose words this process keeps. One query re-parses once per returned
+#: row (the snippet builders), so without it every row would ask again.
+_CJK_WORDS_MEMO_RUNS = 512
+#: Seconds a segmenter that failed is left alone. An unreachable gateway then
+#: costs one timeout a minute rather than one per query.
+_CJK_SEGMENTER_BACKOFF_SECS = 60.0
+
+CjkSegmenter = Callable[[list[str]], object]
+
+
+class _CjkSegmenterSlot:
+    """The installed segmenter, and when a failed one may be asked again.
+
+    One instance, changed in place and never rebound, so the facade and this
+    module always hold the same object (:mod:`kiro_crew._facade_mirror`).
+    """
+
+    __slots__ = ("segment", "retry_at")
+
+    def __init__(self) -> None:
+        self.segment: CjkSegmenter | None = None
+        self.retry_at = 0.0
+
+
+_cjk_slot = _CjkSegmenterSlot()
+_cjk_words_memo: "OrderedDict[str, tuple[str, ...]]" = OrderedDict()
+_cjk_words_lock = threading.Lock()
+
+
+def register_cjk_segmenter(segment: CjkSegmenter | None) -> None:
+    """Install the function that splits pure-Han runs into dictionary words.
+
+    ``segment(runs)`` answers one word list per run, in order, or ``None``. The
+    gateway installs its in-process dictionary; an mcp-core process installs a
+    client that asks the gateway, so the dictionary is loaded once per host. With
+    nothing installed (tests, CLI tools) every run keeps the character path.
+    Installing replaces the slot and forgets every answer the old one gave.
+    """
+    with _cjk_words_lock:
+        _cjk_slot.segment = segment
+        _cjk_slot.retry_at = 0.0
+        _cjk_words_memo.clear()
+
+
+def reset_cjk_segmenter_for_tests() -> None:
+    """Drop the installed segmenter and its answers. Test-only: module state."""
+    register_cjk_segmenter(None)
+
+
+def is_han_run(run: str) -> bool:
+    """True for a run the Chinese dictionary splits: CJK characters, no kana."""
+    return bool(run) and all(is_cjk_char(ch) and not is_kana_char(ch) for ch in run)
+
+
+def _valid_words(run: str, words: object) -> tuple[str, ...] | None:
+    """*words* as a tuple when it is a split of *run*, else ``None``.
+
+    A split is a list of non-empty strings that join back to the run exactly.
+    The check is what lets any segmenter, local or remote, be trusted: an answer
+    that drops, adds or reorders a character cannot become a needle.
+    """
+    if not isinstance(words, (list, tuple)) or not words:
+        return None
+    if not all(isinstance(w, str) and w for w in words):
+        return None
+    if "".join(words) != run:
+        return None
+    return tuple(words)
+
+
+def _cjk_words(runs: list[str]) -> dict[str, tuple[str, ...]]:
+    """Dictionary words for each of *runs* the segmenter split, memoized per run.
+
+    This is the ONLY normalizer of segmenter answers. A run is answered only by a
+    valid split (:func:`_valid_words`). No segmenter, a raise, a timeout or a
+    malformed answer leaves the run out, and :func:`parse_search_query` then
+    keeps today's character path for it: the dictionary can only add precision,
+    never take a result away by failing. A failed call is not repeated for
+    :data:`_CJK_SEGMENTER_BACKOFF_SECS`.
+
+    The lock guards the memo and the slot, never the call, so a slow segmenter
+    does not hold up a query whose runs are all memoized.
+    """
+    out: dict[str, tuple[str, ...]] = {}
+    with _cjk_words_lock:
+        segment = _cjk_slot.segment
+        if segment is None:
+            return out
+        missing: list[str] = []
+        for run in runs:
+            words = _cjk_words_memo.get(run)
+            if words is None:
+                missing.append(run)
+                continue
+            _cjk_words_memo.move_to_end(run)
+            out[run] = words
+        if not missing or _time.monotonic() < _cjk_slot.retry_at:
+            return out
+    try:
+        answer = segment(missing)
+    except Exception:
+        logger.debug("cjk segmenter %r failed", segment, exc_info=True)
+        answer = None
+    with _cjk_words_lock:
+        if _cjk_slot.segment is not segment:
+            # Replaced while it ran: its answer belongs to a slot that is gone.
+            return out
+        if not isinstance(answer, (list, tuple)) or len(answer) != len(missing):
+            _cjk_slot.retry_at = _time.monotonic() + _CJK_SEGMENTER_BACKOFF_SECS
+            return out
+        for run, words in zip(missing, answer):
+            valid = _valid_words(run, words)
+            if valid is None:
+                logger.debug("cjk segmenter %r answered %r for %r", segment, words, run)
+                continue
+            _cjk_words_memo[run] = valid
+            out[run] = valid
+        while len(_cjk_words_memo) > _CJK_WORDS_MEMO_RUNS:
+            _cjk_words_memo.popitem(last=False)
+    return out
+
+
 def parse_search_query(query: str) -> tuple[list[SearchNeedle], str, bool]:
     """Return ``(needles, phrase, adjacency_floor)`` for a search *query*, casefolded.
 
@@ -664,6 +804,17 @@ def parse_search_query(query: str) -> tuple[list[SearchNeedle], str, bool]:
     Precision moves from the gate into the ranking, which is the module's
     existing philosophy for the substring-prefix looseness on ASCII terms.
 
+    When a segmenter is installed (:func:`register_cjk_segmenter`), a pure-Han
+    run of 2..:data:`CJK_SEGMENT_MAX_RUN_CHARS` characters is split into
+    dictionary words instead. Each word is a REQUIRED needle marked ``word``, the
+    way an English word is: words may sit apart, but a word's own characters must
+    be adjacent. A one-character word carries :data:`_CJK_CHAR_WEIGHT`, like a
+    lone character today. A run split into more than one word adds itself as a
+    ``verbatim`` scoring needle, so a session holding the run as typed ranks
+    first. The run keeps the character path when no segmenter answers it, when it
+    holds kana (the dictionary is Chinese-only), or when every word is a single
+    character (the split then adds nothing to the character gate).
+
     A term that names a FORGE ITEM — a pull request, merge request or issue —
     becomes ONE required needle carrying every spelling of that item instead of
     the literal term (see :func:`_parse_forge_ref`). A hash-prefixed ``4411``, ``pr 4411``,
@@ -695,7 +846,10 @@ def parse_search_query(query: str) -> tuple[list[SearchNeedle], str, bool]:
     tuple element comes back ``False``), because enforcing "at least one bigram
     hit" against a partial bigram set would EXCLUDE a session that matches only
     a dropped bigram — turning a cost cap into a hidden gate for exactly the
-    long spaceless queries this parse exists to serve. Looser can admit extra
+    long spaceless queries this parse exists to serve. The floor is also off
+    when a required dictionary word of two or more characters survives the
+    cut: every session the AND gate admits holds that word, which is adjacency
+    already, so a kana run's bigrams beside it do not gate. Looser can admit extra
     results but never hide a session that would have matched — the safe
     direction when the alternative is a keystroke-driven search stalling for
     seconds.
@@ -710,6 +864,15 @@ def parse_search_query(query: str) -> tuple[list[SearchNeedle], str, bool]:
     required: dict[str, SearchNeedle] = {}
     extras: dict[str, SearchNeedle] = {}
     ranking: dict[str, SearchNeedle] = {}
+    verbatim: dict[str, SearchNeedle] = {}
+    # One batched segmenter call for every run the loop below may split.
+    cjk_chunks = (chunk for part in parts for chunk, is_cjk in _script_runs(part) if is_cjk)
+    han_runs = [
+        run
+        for run in dict.fromkeys(cjk_chunks)
+        if 1 < len(run) <= CJK_SEGMENT_MAX_RUN_CHARS and is_han_run(run)
+    ][:CJK_SEGMENT_MAX_RUNS]
+    cjk_words = _cjk_words(han_runs) if han_runs else {}
     forge_budget = _SEARCH_MAX_FORGE_REFS
     # One ledger keyed by the item's canonical spelling, so a slot is charged per
     # ITEM rather than per needle. "pr4411 4411" names one pull request twice — as
@@ -856,6 +1019,14 @@ def parse_search_query(query: str) -> tuple[list[SearchNeedle], str, bool]:
             if len(run) == 1:
                 required.setdefault(run, SearchNeedle(run, 1.0, True))
                 continue
+            words = cjk_words.get(run)
+            if words is not None and any(len(word) > 1 for word in words):
+                for word in words:
+                    weight = 1.0 if len(word) > 1 else _CJK_CHAR_WEIGHT
+                    required.setdefault(word, SearchNeedle(word, weight, True, word=True))
+                if len(words) > 1:
+                    verbatim.setdefault(run, SearchNeedle(run, 0.0, False, verbatim=True))
+                continue
             for ch in run:
                 required.setdefault(ch, SearchNeedle(ch, _CJK_CHAR_WEIGHT, True))
             for i in range(len(run) - 1):
@@ -887,8 +1058,16 @@ def parse_search_query(query: str) -> tuple[list[SearchNeedle], str, bool]:
             ranking[key] = needle._replace(text=spellings[0], alts=spellings[1:])
     needles = list(required.values())[:SEARCH_MAX_TOKENS]
     needles.extend(list(extras.values())[:_SEARCH_MAX_SCORING_EXTRAS])
+    needles.extend(list(verbatim.values())[:_SEARCH_MAX_SCORING_EXTRAS])
     needles.extend(ranking.values())
-    adjacency_floor = 0 < len(extras) <= _SEARCH_MAX_SCORING_EXTRAS
+    # Bigrams arm the floor; a verbatim run is not adjacency evidence, and
+    # counting one here would arm a floor that no session could meet. A REQUIRED
+    # word of 2+ characters that survived the cut already proves adjacency in
+    # every session the AND gate admits, so it meets the floor: arming it on a
+    # kana run's bigrams alone would drop a session holding that word.
+    adjacency_floor = 0 < len(extras) <= _SEARCH_MAX_SCORING_EXTRAS and not any(
+        n.word and len(n.text) > 1 for n in needles
+    )
     return (needles, phrase, adjacency_floor)
 
 
@@ -906,18 +1085,91 @@ def snippet_needles(query: str) -> list[str]:
     A forge-reference needle contributes every spelling it carries, right after
     its canonical form: the transcript that matched may name the item any of
     those ways, and centering the snippet on the mention is the whole point.
+
+    This is :func:`snippet_needle_tiers` flattened, tier by tier.
+    """
+    return [text for tier in snippet_needle_tiers(query) for text in tier]
+
+
+def snippet_needle_tiers(query: str) -> list[list[str]]:
+    """*query*'s snippet needles grouped into tiers, best tier first.
+
+    The builders take the FIRST message holding any needle of the best tier that
+    any message holds. Within a tier the first message wins, as it always has;
+    across tiers a later message holding a better needle wins. Returns ``[]`` for
+    a whitespace-only query.
+
+    A query with no dictionary words is ONE tier, in :func:`snippet_needles`
+    order, so its snippet is exactly what the first matching message gives.
+    A query with dictionary words has three: the phrase and each verbatim run,
+    then the full-weight needles (words of two or more characters, whole terms),
+    then the down-weighted ones (one-character words, lone characters). That is
+    what keeps a lone ``普`` in an early ``普通`` from beating ``吉普力`` later on.
     """
     needles, phrase, _ = parse_search_query(query)
     if not needles:
         return []
+    return _snippet_tiers(needles, phrase)
+
+
+def _snippet_tiers(needles: Sequence[SearchNeedle], phrase: str) -> list[list[str]]:
+    """:func:`snippet_needle_tiers` from an already-parsed query."""
     # Stable sort on weight only: within a weight class the parse's insertion
     # order (required terms first-seen, then bigrams) is the display order.
-    ordered = sorted(needles, key=lambda n: -n.weight)
-    out: list[str] = []
-    for text in (phrase, *(t for n in ordered for t in (n.text, *n.alts))):
-        if text not in out:
-            out.append(text)
+    ordered = sorted((n for n in needles if not n.verbatim), key=lambda n: -n.weight)
+
+    def spellings(group: Iterable[SearchNeedle]) -> list[str]:
+        return [text for n in group for text in (n.text, *n.alts)]
+
+    if any(n.word or n.verbatim for n in needles):
+        tiers = [
+            [phrase, *(n.text for n in needles if n.verbatim)],
+            spellings(n for n in ordered if n.weight >= 1.0),
+            spellings(n for n in ordered if n.weight < 1.0),
+        ]
+    else:
+        tiers = [[phrase, *spellings(ordered)]]
+    seen: set[str] = set()
+    out: list[list[str]] = []
+    for tier in tiers:
+        kept = []
+        for text in tier:
+            if text not in seen:
+                seen.add(text)
+                kept.append(text)
+        if kept:
+            out.append(kept)
     return out
+
+
+def tiered_first_hit(
+    texts: Iterable[str], tiers: Sequence[Sequence[str]]
+) -> tuple[str, int, str] | None:
+    """``(text, position, needle)`` of the best snippet anchor in *texts*, or ``None``.
+
+    The anchor is the first text holding a needle of the best tier any text
+    holds; within that text the tier's needles are tried in order, as the flat
+    list always was. Positions are into ``text.casefold()``. Reading stops at
+    the first tier-0 hit, so a one-tier query reads exactly as far as its first
+    match. An ``OSError`` while reading ends the walk with the best hit so far.
+    """
+    best: tuple[int, str, int, str] | None = None
+    try:
+        for text in texts:
+            folded = text.casefold()
+            for rank in range(best[0] if best is not None else len(tiers)):
+                hit = next(
+                    ((pos, needle) for needle in tiers[rank] if (pos := folded.find(needle)) >= 0),
+                    None,
+                )
+                if hit is not None:
+                    best = (rank, text, *hit)
+                    break
+            if best is not None and best[0] == 0:
+                break
+    except OSError:
+        pass
+    return None if best is None else best[1:]
 
 
 def needles_match_text(
@@ -934,7 +1186,8 @@ def needles_match_text(
     Pass :func:`parse_search_query`'s ``adjacency_floor`` element: it is
     ``False`` when the bigram set was truncated, which WAIVES the floor here
     exactly as in ``search_sessions`` (a partial bigram set cannot prove
-    "no adjacency anywhere"). *folded_text* must already be casefolded
+    "no adjacency anywhere"), and when a required dictionary word of two or
+    more characters already proves it. *folded_text* must already be casefolded
     (needle texts are).
 
     Satisfaction is per NEEDLE, not per literal: a needle carrying alternative
