@@ -11,7 +11,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from kiro_crew.cron_service.model import _AUTO_PAUSE_MAX, _AUTO_PAUSE_THRESHOLD
 from kiro_crew.mcp_tool_titles import with_titles
+
+# ``auto_pause_after_failures`` description for the ``cron_add`` and ``cron_update``
+# tools. The cap and the default come from the cron model so the copy cannot drift.
+_AUTO_PAUSE_AFTER_DESCRIPTION = (
+    "Consecutive failed runs before this job auto-pauses "
+    f"(0..{_AUTO_PAUSE_MAX}, default {_AUTO_PAUSE_THRESHOLD}; 0 = never auto-pause). "
+    f"With 0 or a limit above {_AUTO_PAUSE_THRESHOLD}, retries from the "
+    f"{_AUTO_PAUSE_THRESHOLD}th consecutive failure start 5 minutes apart and double "
+    "after each further failure, up to one hour apart."
+)
 
 
 def _list_tools() -> list[dict[str, Any]]:
@@ -247,6 +258,10 @@ def _list_tools() -> list[dict[str, Any]]:
                         "bounds only script/command subprocesses. Raise it for "
                         "agents whose single wake legitimately outgrows 30 min.",
                     },
+                    "auto_pause_after_failures": {
+                        "type": "integer",
+                        "description": _AUTO_PAUSE_AFTER_DESCRIPTION,
+                    },
                 },
                 "required": ["name"],
             },
@@ -275,6 +290,10 @@ def _list_tools() -> list[dict[str, Any]]:
                         "job, default 1800). Distinct from 'timeout', which "
                         "bounds only script/command subprocesses. Raise it for "
                         "jobs whose single run legitimately outgrows 30 min.",
+                    },
+                    "auto_pause_after_failures": {
+                        "type": "integer",
+                        "description": _AUTO_PAUSE_AFTER_DESCRIPTION,
                     },
                     "agent": {"type": "string", "description": "New agent name"},
                     "channel": {"type": "string", "description": "New channel ID"},

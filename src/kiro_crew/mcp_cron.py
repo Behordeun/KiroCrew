@@ -918,6 +918,7 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
         strict_schedule = args.get("strict_schedule")
         timeout_val = args.get("timeout", 0)
         timeout_secs_val = args.get("timeout_secs", 0)
+        auto_pause_val = args.get("auto_pause_after_failures")
         # Resolve the folder BEFORE add_job so an unresolvable reference never
         # leaves an orphaned job behind (same position as the model check
         # above). A folder auto-created here that a subsequent add_job failure
@@ -961,6 +962,7 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
                 minimal_context=minimal_context if isinstance(minimal_context, bool) else False,
                 timeout=timeout_val or 0,
                 timeout_secs=timeout_secs_val or 0,
+                auto_pause_after_failures=auto_pause_val,
             )
         except CronStoreBusy:
             return "Error: cron store busy, please retry"
@@ -1087,8 +1089,11 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
             kwargs["timeout"] = args["timeout"]
         if "timeout_secs" in args:
             kwargs["timeout_secs"] = args["timeout_secs"]
+        if "auto_pause_after_failures" in args:
+            kwargs["auto_pause_after_failures"] = args["auto_pause_after_failures"]
         if not kwargs:
             return "Error: no fields to update"
+        kwargs["audit_actor"] = _authz_session_key()
         try:
             updated = svc.update_job(jid, **kwargs)
         except CronStoreBusy:
@@ -1451,6 +1456,9 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _ScanTooComplex,
         _strip_shell_quotes,
     )
+    from kiro_crew.mcp_cron_tool_list import (  # noqa: F401
+        _AUTO_PAUSE_AFTER_DESCRIPTION,
+    )
     from kiro_crew.mcp_cron_vet import (  # noqa: F401
         _CRON_FOLDER_ID_RE,
         _audit_fire_time_decision,
@@ -1468,6 +1476,10 @@ if TYPE_CHECKING:  # names it serves from outside the family, from their homes
     from kiro_crew.cron import (  # noqa: F401
         compute_next_run_ts,
         lookup_cron_folder_id,
+    )
+    from kiro_crew.cron_service.model import (  # noqa: F401
+        _AUTO_PAUSE_MAX,
+        _AUTO_PAUSE_THRESHOLD,
     )
     from kiro_crew.loopback_http import (  # noqa: F401
         loopback_urlopen,
