@@ -39,12 +39,10 @@
 3892 src/kiro_crew/slack/interactions.py
 2594 src/kiro_crew/subagent_persistence.py
 2641 test/conftest.py
-3299 test/test_artifacts_handlers.py
 2475 test/test_chat_mirror.py
 10498 test/test_cli.py
 2744 test/test_cli_server_more_coverage.py
 3125 test/test_cron_script.py
-3175 test/test_dashboard_approval.py
 2718 test/test_dashboard_server_composition_contract.py
 2478 test/test_dashboard_updates_coverage.py
 3102 test/test_handlers_memory_coverage.py
@@ -53,7 +51,6 @@
 2096 test/test_monitor_directive_apply.py
 5822 test/test_onboarding_import.py
 2725 test/test_plugin_import.py
-3193 test/test_sandbox_absent_ceiling_seal.py
 12647 test/test_security.py
 9530 test/test_session.py
 3082 test/test_skills.py
@@ -62,7 +59,6 @@
 2730 test/test_slack_options_lifecycle.py
 2641 test/test_spawn_audit.py
 3093 test/test_subagent.py
-3177 test/test_subagent_scale.py
 2460 test/test_taskq_runner_adapter.py
 5831 test/test_vector_memory.py
 2125 website/src/pages/AppDetailPage.tsx
