@@ -49,7 +49,6 @@
 2631 test/test_llm_pool.py
 2449 test/test_mcp_gatewayd_coverage.py
 2096 test/test_monitor_directive_apply.py
-5822 test/test_onboarding_import.py
 2725 test/test_plugin_import.py
 12647 test/test_security.py
 9530 test/test_session.py
@@ -60,6 +59,5 @@
 2641 test/test_spawn_audit.py
 3093 test/test_subagent.py
 2460 test/test_taskq_runner_adapter.py
-5831 test/test_vector_memory.py
 2125 website/src/pages/AppDetailPage.tsx
 2026 website/src/pages/connections/ConnectionsPage.tsx
