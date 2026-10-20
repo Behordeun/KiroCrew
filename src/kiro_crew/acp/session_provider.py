@@ -60,6 +60,7 @@ from kiro_crew.acp.types import (
     STOP_REASON_END_TURN,
 )
 from kiro_crew.agent_sdk import host_auth
+from kiro_crew.agent_sdk.tool_gate import ADAPTER_EXPOSED_CREDENTIAL_LEAVES
 from kiro_crew.config.paths import kiro_sessions_dir
 from kiro_crew.constants import COMPACT_WAIT_TIMEOUT_SECS
 from kiro_crew.mcp_gateway.claim import schedule_claim
@@ -636,6 +637,15 @@ class AcpSessionProvider(LLMProvider):
                 raise AcpAuthRequired(
                     host_auth.signed_out_message(self.backend), backend=self.backend
                 ) from exc
+            # A masked codex can open its session and only fail the AWS
+            # credential load at the turn; name the mask the way the start
+            # paths do. One table read, so the kiro path compares and stops (H13).
+            # The error's own text only: the stderr tail spans every turn.
+            if self.backend in ADAPTER_EXPOSED_CREDENTIAL_LEAVES:
+                # Local import: acp_runtime_start imports this module.
+                from kiro_crew.providers.acp_runtime_start import _name_credential_mask
+
+                _name_credential_mask(self._runtime, exc, read_stderr=False)
             raise
         except AcpRuntimeDead as exc:
             # Translate the shared-runtime death into the exception types
