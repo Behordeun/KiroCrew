@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObjec
 import { OverlayPortal } from '../overlayRoot'
 import { Crop, FileText, Loader2, PenLine, Plus, X } from 'lucide-react'
 import { useAnchorRemeasure } from '../../hooks/useAnchorRemeasure'
+import { usePressActivation } from '../../hooks/usePressActivation'
 import { isScreenSnipSupported } from '../../hooks/useScreenSnip'
 import { i18nT } from '../../i18n/t'
 import { uiLocation } from '../../uiLocations/uiLocation'
@@ -161,6 +162,11 @@ export function AttachMenu({ plus, onUploadFiles, uploading, onCancelUpload, upl
   onFileSelect: ChatInputProps['onFileSelect']
 }) {
   const { plusOpen, setPlusOpen, setSketchOpen, plusWrapRef, plusBtnRef, plusMenuRef, plusRect, togglePlus, openTrigger } = plus
+  // The "+" trigger opens its menu on the mouse press (usePressActivation);
+  // keyboard and touch stay on click. The outside-press dismiss skips the
+  // trigger's wrapper, so a press on it while open is a toggle. The menu moves
+  // no focus on open, so the trigger takes focus as usual (no keepFocusOffTrigger).
+  const bindPlusPress = usePressActivation()
   /**
    * The exit from an upload in flight, and the reason it REPLACES the attach
    * control rather than sitting beside it.
@@ -223,7 +229,7 @@ export function AttachMenu({ plus, onUploadFiles, uploading, onCancelUpload, upl
           ) : (
             <button
               className={`w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all disabled:opacity-30 bg-transparent border-none ${plusOpen ? 'text-text bg-bg-hover' : 'text-muted hover:text-text hover:bg-bg-hover'}`}
-              onClick={togglePlus}
+              {...bindPlusPress<HTMLButtonElement>(togglePlus)}
               disabled={uploading}
               aria-haspopup="menu"
               aria-expanded={plusOpen}
