@@ -17247,7 +17247,7 @@
         "endpointing": "说完后自动发送",
         "endpointing_desc": "用一个快速模型判断你是否已说完一个完整请求，然后自动发送。仅流式 provider 可用。",
         "submit_on_release": "停止录音后发送",
-        "submit_on_release_desc": "停止即发送消息。按住 Shift，或在手机上侧滑，即可保留为草稿。",
+        "submit_on_release_desc": "停止即发送消息。按住 Shift 点击麦克风，或在手机上侧滑，即可保留为草稿。",
         "failed_to_save_stt_config": "保存 STT 配置失败",
         "input_device_used_to_capture_your_voice": "用于采集语音的输入设备",
         "language": "语言",

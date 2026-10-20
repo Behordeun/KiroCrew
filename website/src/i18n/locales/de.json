@@ -17517,7 +17517,7 @@
         "endpointing": "Automatisch senden, wenn ich fertig gesprochen habe",
         "endpointing_desc": "Ein schnelles Modell erkennt, wann du eine vollständige Anfrage beendet hast, und sendet sie automatisch. Nur Streaming-Anbieter.",
         "submit_on_release": "Senden, wenn ich die Aufnahme beende",
-        "submit_on_release_desc": "Beim Beenden wird die Nachricht gesendet. Halte Shift gedrückt oder wische auf dem Smartphone zur Seite, um einen Entwurf zu behalten.",
+        "submit_on_release_desc": "Beim Beenden wird die Nachricht gesendet. Klicke mit gedrückter Shift-Taste auf das Mikrofon oder wische auf dem Smartphone zur Seite, um einen Entwurf zu behalten.",
         "failed_to_save_stt_config": "STT-Konfiguration konnte nicht gespeichert werden",
         "input_device_used_to_capture_your_voice": "Eingabegerät zur Aufnahme Ihrer Stimme",
         "language": "Sprache",

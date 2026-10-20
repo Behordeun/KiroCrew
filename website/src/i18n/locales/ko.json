@@ -17247,7 +17247,7 @@
         "endpointing": "말을 마치면 자동 전송",
         "endpointing_desc": "빠른 모델로 요청이 끝났는지 감지해 자동으로 전송합니다. 스트리밍 제공자만 지원합니다.",
         "submit_on_release": "녹음을 멈추면 전송",
-        "submit_on_release_desc": "중지하면 메시지를 전송합니다. 초안으로 남기려면 Shift 키를 누르고 있거나 휴대폰에서 옆으로 미세요.",
+        "submit_on_release_desc": "중지하면 메시지를 전송합니다. 초안으로 남기려면 Shift 키를 누른 채 마이크를 클릭하거나 휴대폰에서 옆으로 미세요.",
         "failed_to_save_stt_config": "STT 설정을 저장하지 못했습니다",
         "input_device_used_to_capture_your_voice": "음성을 캡처하는 데 사용할 입력 장치",
         "language": "언어",

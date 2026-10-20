@@ -17787,7 +17787,7 @@
         "endpointing": "Enviar automaticamente quando eu terminar de falar",
         "endpointing_desc": "Usa um modelo rápido para detectar quando você terminou uma solicitação completa e enviá-la automaticamente. Apenas provedores de streaming.",
         "submit_on_release": "Enviar quando eu parar a gravação",
-        "submit_on_release_desc": "Parar envia a mensagem. Mantenha Shift pressionado, ou deslize para o lado no celular, para manter um rascunho.",
+        "submit_on_release_desc": "Parar envia a mensagem. Faça Shift+clique no microfone, ou deslize para o lado no celular, para manter um rascunho.",
         "failed_to_save_stt_config": "Falha ao salvar a configuração de STT",
         "input_device_used_to_capture_your_voice": "Dispositivo de entrada usado para capturar sua voz",
         "language": "Idioma",

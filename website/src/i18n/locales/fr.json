@@ -17787,7 +17787,7 @@
         "endpointing": "Envoyer automatiquement quand j'ai fini de parler",
         "endpointing_desc": "Utilise un modèle rapide pour détecter la fin d’une demande complète et l’envoyer automatiquement. Fournisseurs de streaming uniquement.",
         "submit_on_release": "Envoyer quand j’arrête l’enregistrement",
-        "submit_on_release_desc": "Arrêter envoie le message. Maintiens Maj, ou glisse sur le côté sur le téléphone, pour garder un brouillon.",
+        "submit_on_release_desc": "Arrêter envoie le message. Fais Maj+clic sur le micro, ou glisse sur le côté sur le téléphone, pour garder un brouillon.",
         "failed_to_save_stt_config": "Échec de l’enregistrement de la configuration STT",
         "input_device_used_to_capture_your_voice": "Périphérique d'entrée utilisé pour capter votre voix",
         "language": "Langue",

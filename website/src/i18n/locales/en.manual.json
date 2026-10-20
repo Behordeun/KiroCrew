@@ -8411,7 +8411,7 @@
         "endpointing": "Auto-submit when I finish speaking",
         "endpointing_desc": "Use a fast model to detect when you've finished a complete request and send it automatically. Streaming providers only.",
         "submit_on_release": "Send when I stop recording",
-        "submit_on_release_desc": "Stopping sends the message. Hold Shift, or slide sideways on the phone, to keep a draft.",
+        "submit_on_release_desc": "Stopping sends the message. Shift-click the mic, or slide sideways on the phone, to keep a draft.",
         "provider_apple": "Apple Speech (on-device — macOS 26+)",
         "provider_transcribe": "Transcribe (AWS)",
         "provider_off": "Off (no speech recognition)",

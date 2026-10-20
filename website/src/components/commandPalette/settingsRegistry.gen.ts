@@ -2725,7 +2725,7 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "id": "voice.send-when-i-stop-recording",
     "label": "Send when I stop recording",
     "labelKey": "pages.settings.sttSettings.submit_on_release",
-    "hint": "Stopping sends the message. Hold Shift, or slide sideways on the phone, to keep a draft.",
+    "hint": "Stopping sends the message. Shift-click the mic, or slide sideways on the phone, to keep a draft.",
     "tab": "voice",
     "type": "toggle",
     "occurrence": 1,

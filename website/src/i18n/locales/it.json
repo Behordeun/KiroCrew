@@ -17787,7 +17787,7 @@
         "endpointing": "Invia automaticamente quando finisco di parlare",
         "endpointing_desc": "Usa un modello veloce per capire quando hai completato una richiesta e inviarla automaticamente. Solo provider di streaming.",
         "submit_on_release": "Invia quando interrompo la registrazione",
-        "submit_on_release_desc": "Interrompere invia il messaggio. Tieni premuto Maiusc, o scorri di lato sul telefono, per tenere una bozza.",
+        "submit_on_release_desc": "Interrompere invia il messaggio. Fai Maiusc+clic sul microfono, o scorri di lato sul telefono, per tenere una bozza.",
         "failed_to_save_stt_config": "Impossibile salvare la configurazione STT",
         "input_device_used_to_capture_your_voice": "Dispositivo di input usato per acquisire la tua voce",
         "language": "Lingua",
