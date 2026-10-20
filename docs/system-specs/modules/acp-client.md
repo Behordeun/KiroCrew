@@ -2505,7 +2505,15 @@ fetch serves every request, under a 90 s ceiling
 (`_LIST_MODELS_BACKGROUND_TIMEOUT_SECS`) that outlives the 10 s request wait
 (`_LIST_MODELS_SUBPROCESS_TIMEOUT_SECS`, after which the request answers 503
 `model list timed out`). A cached catalog is served at once and refreshed behind
-the reply once it is older than 300 s (`_LIST_MODELS_CATALOG_TTL_SECS`).
+the reply once it is older than 300 s (`_LIST_MODELS_CATALOG_TTL_SECS`). Every
+degraded `/api/models` 503 carries a machine-readable `code`: the generic
+`model_list_unavailable` on the timeout and subprocess-failure branches, and
+`model_list_sandbox_unavailable` on a genuine sandbox refusal (below). An expired
+or signed-out login is classified in `_fetch_kiro_catalog` from the subprocess
+output and answers `kiro_prerequisite_required` instead of the generic code, so
+the dashboard can tell the user to run `kiro-cli login` rather than report a
+transient failure; the model-list banner reads that code to show the sign-in
+message, and no token or credential text is logged.
 - **One-shot `kiro-cli` calls are supervised.** `--list-models`, `whoami` and the
   `/usage` scrape spawn through `kiro_prerequisite.spawn_supervised_oneshot`: the
   process-group supervisor runs in `--reap-survivors` mode in its own session and
@@ -2529,7 +2537,12 @@ the reply once it is older than 300 s (`_LIST_MODELS_CATALOG_TTL_SECS`).
   `/api/sessions/usage` (polled every 30s by the credit pill). Both return the
   shared `kiro_prerequisite_required` 503 — the same degraded response their
   timeout branches already produce — so the client contract is unchanged and
-  only the subprocess is skipped. Without this gate a signed-out gateway opened
+  only the subprocess is skipped. On `/api/models` the gate is not the only
+  source of that code: when the gate passes but the spawned `--list-models` read
+  itself surfaces an expired or signed-out login, `_fetch_kiro_catalog`
+  classifies that output and answers the same `kiro_prerequisite_required`, so an
+  auth lapse that opens mid-poll is reported as a sign-in prompt rather than a
+  generic degraded 503. Without this gate a signed-out gateway opened
   a browser window every 8 seconds indefinitely. These are the **only** blocking
   readiness gates: ordinary sends are ungated, because a failing ACP attempt
   reports its own `AcpAuthRequired` (see the governance of latched readiness in

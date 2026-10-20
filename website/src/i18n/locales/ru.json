@@ -16923,6 +16923,7 @@
         "expand_the_side_panel_to_the_git_tab_each_time_yo": "Открывает боковую панель на вкладке Git каждый раз, когда вы начинаете чат в git-проекте. Вкладка Git создаётся в любом случае.",
         "expanded_icon_name_stats": "Развёрнуто (значок + имя + статистика)",
         "failed_to_load_config": "Не удалось загрузить конфигурацию.",
+        "failed_to_load_config_kiro_signed_out": "Kiro CLI не выполнил вход или срок действия входа истёк. Выполни 'kiro-cli login' в терминале, затем нажми «Повторить».",
         "failed_to_load_dashboard_config": "Не удалось загрузить настройки панели управления.",
         "failed_to_save_auto_compact_threshold": "Не удалось сохранить порог автосжатия",
         "failed_to_save_completion_keep_characters": "Не удалось сохранить количество символов события завершения",

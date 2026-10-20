@@ -64,6 +64,7 @@ __all__ = [
     "derived_agent_permissions",
     "finish_suspended_spawn",
     "forget_cached_resolution",
+    "is_auth_failure_output",
     "kas_engine_gap",
     "kas_engine_unsupported_reason",
     "kiro_cli_resolves",
@@ -316,6 +317,20 @@ def resolve_ssh_auth_sock(env: dict[str, str]) -> None:
     from kiro_crew.acp.client import _resolve_ssh_auth_sock as _impl
 
     _impl(env)
+
+
+def is_auth_failure_output(text: str) -> bool:
+    """Whether free-form kiro-cli output reports an auth failure (expired / signed out).
+
+    Thin delegation to :func:`kiro_crew.acp.client.is_auth_failure_output` so the
+    model-list endpoint reaches the shared auth classifier through the SDK surface
+    instead of importing the ACP layer (the agent-sdk-boundary gate refuses a new
+    edge). A plain string in, a plain bool out — no ACP type crosses the boundary.
+    Function-local import for the same reason as :func:`resolve_pin_spelling`.
+    """
+    from kiro_crew.acp.client import is_auth_failure_output as _impl
+
+    return _impl(text)
 
 
 def derived_agent_permissions(allowed_tools: object, agent_filename: str) -> dict:

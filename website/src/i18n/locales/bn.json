@@ -16391,6 +16391,7 @@
         "expand_the_side_panel_to_the_git_tab_each_time_yo": "আপনি যতবার কোনো git প্রজেক্টে চ্যাট শুরু করেন, ততবার সাইড প্যানেল Git ট্যাবে খোলে। বন্ধ থাকলেও Git ট্যাব তৈরি হয়।",
         "expanded_icon_name_stats": "বিস্তৃত (আইকন + নাম + পরিসংখ্যান)",
         "failed_to_load_config": "কনফিগ লোড করা যায়নি।",
+        "failed_to_load_config_kiro_signed_out": "Kiro CLI সাইন ইন করা নেই বা এর লগইনের মেয়াদ শেষ হয়ে গেছে। টার্মিনালে 'kiro-cli login' চালাও, তারপর \"Retry\"-তে ক্লিক করো।",
         "failed_to_load_dashboard_config": "ড্যাশবোর্ড কনফিগ লোড করা যায়নি।",
         "failed_to_save_auto_compact_threshold": "অটো-কমপ্যাক্ট থ্রেশহোল্ড সেভ করা যায়নি",
         "failed_to_save_completion_keep_characters": "কমপ্লিশন-কিপ ক্যারেক্টার সেভ করা যায়নি",

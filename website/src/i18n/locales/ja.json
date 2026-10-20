@@ -16125,6 +16125,7 @@
         "expand_the_side_panel_to_the_git_tab_each_time_yo": "git プロジェクトでチャットを開始するたびに、サイドパネルを Git タブで開きます。オフでも Git タブは作成されます。",
         "expanded_icon_name_stats": "展開（アイコン + 名前 + 統計）",
         "failed_to_load_config": "設定の読み込みに失敗しました。",
+        "failed_to_load_config_kiro_signed_out": "Kiro CLI にサインインしていないか、ログインの有効期限が切れているよ。ターミナルで 'kiro-cli login' を実行してから、「再試行」をクリックしてね。",
         "failed_to_load_dashboard_config": "ダッシュボード設定の読み込みに失敗しました。",
         "failed_to_save_auto_compact_threshold": "自動圧縮のしきい値を保存できませんでした",
         "failed_to_save_completion_keep_characters": "完了保持文字数を保存できませんでした",

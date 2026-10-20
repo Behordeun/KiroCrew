@@ -16391,6 +16391,7 @@
         "expand_the_side_panel_to_the_git_tab_each_time_yo": "जब भी आप किसी git प्रोजेक्ट में चैट शुरू करते हैं, साइड पैनल को Git टैब पर खोलता है। बंद होने पर भी Git टैब बनता है।",
         "expanded_icon_name_stats": "विस्तृत (आइकन + नाम + आँकड़े)",
         "failed_to_load_config": "कॉन्फ़िग लोड नहीं हो सका।",
+        "failed_to_load_config_kiro_signed_out": "Kiro CLI साइन इन नहीं है या इसका लॉगिन समाप्त हो गया है। टर्मिनल में 'kiro-cli login' चलाओ, फिर \"Retry\" पर क्लिक करो।",
         "failed_to_load_dashboard_config": "डैशबोर्ड कॉन्फ़िग लोड नहीं हो सका।",
         "failed_to_save_auto_compact_threshold": "ऑटो-कॉम्पैक्ट थ्रेशोल्ड सहेजने में विफल",
         "failed_to_save_completion_keep_characters": "कम्प्लीशन-कीप कैरेक्टर सहेजने में विफल",

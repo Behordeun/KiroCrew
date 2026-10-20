@@ -16125,6 +16125,7 @@
         "expand_the_side_panel_to_the_git_tab_each_time_yo": "git 저장소 프로젝트에서 채팅을 시작할 때마다 사이드 패널을 Git 탭으로 엽니다. 꺼져 있어도 Git 탭은 생성됩니다.",
         "expanded_icon_name_stats": "확장 (아이콘 + 이름 + 통계)",
         "failed_to_load_config": "설정을 불러오지 못했습니다.",
+        "failed_to_load_config_kiro_signed_out": "Kiro CLI에 로그인되어 있지 않거나 로그인이 만료됐어. 터미널에서 'kiro-cli login'을 실행한 다음 '다시 시도'를 클릭해.",
         "failed_to_load_dashboard_config": "대시보드 설정을 불러오지 못했습니다.",
         "failed_to_save_auto_compact_threshold": "자동 압축 임계값을 저장하지 못했습니다",
         "failed_to_save_completion_keep_characters": "완료 시 보존할 문자 수를 저장하지 못했습니다",

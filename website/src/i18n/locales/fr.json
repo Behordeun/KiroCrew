@@ -16657,6 +16657,7 @@
         "expand_the_side_panel_to_the_git_tab_each_time_yo": "Ouvre le panneau latéral sur l'onglet Git chaque fois que tu démarres une discussion dans un projet git. L'onglet Git est créé dans tous les cas.",
         "expanded_icon_name_stats": "Étendu (icône + nom + statistiques)",
         "failed_to_load_config": "Échec du chargement de la configuration.",
+        "failed_to_load_config_kiro_signed_out": "Kiro CLI n'est pas connecté ou ta session a expiré. Exécute 'kiro-cli login' dans le terminal, puis clique sur « Réessayer ».",
         "failed_to_load_dashboard_config": "Échec du chargement de la configuration du tableau de bord.",
         "failed_to_save_auto_compact_threshold": "Échec de l’enregistrement du seuil de compactage automatique",
         "failed_to_save_completion_keep_characters": "Échec de l’enregistrement des caractères conservés de l’événement de fin",

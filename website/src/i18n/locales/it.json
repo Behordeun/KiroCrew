@@ -16657,6 +16657,7 @@
         "expand_the_side_panel_to_the_git_tab_each_time_yo": "Apre il pannello laterale sulla scheda Git ogni volta che avvii una chat in un progetto git. La scheda Git viene creata in ogni caso.",
         "expanded_icon_name_stats": "Esteso (icona + nome + statistiche)",
         "failed_to_load_config": "Impossibile caricare la configurazione.",
+        "failed_to_load_config_kiro_signed_out": "Kiro CLI non ha eseguito l'accesso o la tua sessione è scaduta. Esegui 'kiro-cli login' nel terminale, poi fai clic su «Riprova».",
         "failed_to_load_dashboard_config": "Impossibile caricare la configurazione della dashboard.",
         "failed_to_save_auto_compact_threshold": "Impossibile salvare la soglia di compattazione automatica",
         "failed_to_save_completion_keep_characters": "Impossibile salvare i caratteri conservati del completamento",

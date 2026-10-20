@@ -16657,6 +16657,7 @@
         "expand_the_side_panel_to_the_git_tab_each_time_yo": "Abre el panel lateral en la pestaña Git cada vez que inicias un chat en un proyecto git. La pestaña Git se crea de todos modos.",
         "expanded_icon_name_stats": "Expandido (icono + nombre + estadísticas)",
         "failed_to_load_config": "No se pudo cargar la configuración.",
+        "failed_to_load_config_kiro_signed_out": "Kiro CLI no ha iniciado sesión o tu sesión ha caducado. Ejecuta 'kiro-cli login' en la terminal y haz clic en «Reintentar».",
         "failed_to_load_dashboard_config": "No se pudo cargar la configuración del panel.",
         "failed_to_save_auto_compact_threshold": "No se pudo guardar el umbral de compactación automática",
         "failed_to_save_completion_keep_characters": "No se pudieron guardar los caracteres del evento de finalización",

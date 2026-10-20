@@ -16657,6 +16657,7 @@
         "expand_the_side_panel_to_the_git_tab_each_time_yo": "Abre o painel lateral na aba Git sempre que você inicia um chat em um projeto git. A aba Git é criada de qualquer forma.",
         "expanded_icon_name_stats": "Expandido (ícone + nome + estatísticas)",
         "failed_to_load_config": "Falha ao carregar a configuração.",
+        "failed_to_load_config_kiro_signed_out": "O Kiro CLI não está conectado ou a sua sessão expirou. Execute 'kiro-cli login' no terminal e clique em \"Tentar novamente\".",
         "failed_to_load_dashboard_config": "Falha ao carregar a configuração do dashboard.",
         "failed_to_save_auto_compact_threshold": "Falha ao salvar o limite de compactação automática",
         "failed_to_save_completion_keep_characters": "Falha ao salvar os caracteres do evento de conclusão",
