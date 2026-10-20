@@ -58,4 +58,3 @@
 3093 test/test_subagent.py
 2460 test/test_taskq_runner_adapter.py
 2125 website/src/pages/AppDetailPage.tsx
-2026 website/src/pages/connections/ConnectionsPage.tsx
