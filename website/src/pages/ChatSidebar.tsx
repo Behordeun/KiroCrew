@@ -654,7 +654,7 @@ function ChatSidebar({
   // by all three row menus AND the row's non-menu buttons (Duplicate/Close) so
   // each behaviour has one definition. Rename + Tags stay local (they drive this
   // component's inline-edit + tag-popover state).
-  const sessionActions = useSessionActions(mode)
+  const sessionActions = useSessionActions(mode, { onOpened: onSelectSlot })
   const closeRefused = useAppSelector(st => st.chat.closeRefused)
   const { forkError: duplicateError, clearForkError: clearDuplicateError } = sessionActions
   // Which sessions are currently open in a popped-out window (shared singleton).

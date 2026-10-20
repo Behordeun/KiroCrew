@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { apiErrorCode, isSlotCapError } from '../api/apiError'
@@ -119,7 +119,15 @@ export interface SessionActions {
   close: (slotKey: string) => void
 }
 
-export function useSessionActions(mode?: string): SessionActions {
+export function useSessionActions(mode?: string, opts?: {
+  /** The host's "a session was opened from here" callback (ChatSidebar's
+   *  `onSelectSlot`). Duplicate reports the fork through it after switching, the
+   *  way a row click does, so ChatPage leaves Split View instead of keeping the
+   *  old panes over the newly active fork. */
+  onOpened?: (key: string) => void
+}): SessionActions {
+  const onOpenedRef = useRef(opts?.onOpened)
+  onOpenedRef.current = opts?.onOpened
   const dispatch = useAppDispatch()
   const queryClient = useQueryClient()
   const moveSlotToFolder = useMoveSlotToFolder()
@@ -238,6 +246,8 @@ export function useSessionActions(mode?: string): SessionActions {
         setForkError(null)
         queryClient.invalidateQueries({ queryKey: ['slots'] })
         dispatch(switchSlot(data.key))
+        // switchSlot.pending has already made the fork the active slot.
+        onOpenedRef.current?.(data.key)
       }
     },
     // Duplicate goes through this mutation with no per-call handler, so this is
