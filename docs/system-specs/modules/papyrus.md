@@ -123,7 +123,7 @@ owner's private drafts, and the git routes run with the owner's own git credenti
 a caller who can reach any one route can read, overwrite or publish the owner's work.
 
 `_require_enabled` runs two checks in order. A disabled app answers 403 `app_disabled`
-to everyone. Then `require_owner_dashboard_request` (`dashboard/handlers/_shared.py`)
+to everyone. Then `require_owner_dashboard_request` (`dashboard/handlers/_shared_access.py`)
 lets only the owner through and answers everyone else with 403 `owner_only`, writing a
 SEL denial record named `papyrus.<route>`. The same wrapper covers all 19 routes, so a
 route added to `register_routes` cannot skip the gate.

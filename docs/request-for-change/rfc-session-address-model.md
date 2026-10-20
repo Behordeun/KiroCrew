@@ -158,7 +158,7 @@ The entry gains these fields. Each replaces exactly one shape-read, and each has
 | `surface` | `sel.py`, `context.py`, `validation.py` prefix ladders | mint site |
 | `channels[]` | Phase 0's in-memory attach set (`_dashboard_surfaced` in `session_surface.py`) — persists what already exists, and holds channels only, per §5.3 | attach/detach |
 | `stateful` | `_STATELESS_PREFIXES` in `session_parts/policy.py` plus exact-key handling | mint site, mutable thereafter |
-| `restricted` | constructed `dashboard:` keys in dashboard persistence/handlers, read by `handlers/_shared.py:_is_restricted_session` | the restrict/unrestrict handler |
+| `restricted` | constructed `dashboard:` keys in dashboard persistence/handlers, read by `handlers/_shared_session_memory.py:_is_restricted_session` | the restrict/unrestrict handler |
 | `approval_policy` | session policy lookups keyed by a constructed or effective session key | the approval handler |
 | `delegated` | `_DELEGATED_CALLER_PREFIXES`, read by `_caller_app_scope` in `mcp_dashboard_caller_scope.py` | mint site |
 | `nudgeable`, `nudge_mode` | `binding_key_for` + `is_channel_key` (`autonudge.py` and its channel predicates) | mint site |

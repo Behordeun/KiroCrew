@@ -2086,7 +2086,9 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         # Same shape: hosts _redact_memory_field, the shared recursive scrubber
         # for memory fields. It owns no output of its own — the handler modules
         # that call it (memory.py and the cron.py owners) are the covered surfaces.
-        "dashboard/handlers/_shared.py",
+        "dashboard/handlers/_shared_scrub.py",
+        # The shared helpers' memory-store owner scrubs a store's refusal text with it.
+        "dashboard/handlers/_shared_memory_stores.py",
         # Applies the memory scrubber as a COMPARISON on the write path, never on
         # the way out: `_require_editable_record` refuses a whole-value edit whose
         # stored source does not survive the scrub unchanged, because the browser

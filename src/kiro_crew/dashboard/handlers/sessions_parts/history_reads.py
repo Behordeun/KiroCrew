@@ -94,7 +94,7 @@ def _open_slot_transcript_keys(state: DashboardState) -> set[str]:
 #: shared roster: two other modules carry similar-looking tuples that answer different
 #: questions, and none of the three agree.
 #:
-#: * ``handlers/_shared.py`` — colon-only, wf-family only, to dispatch a memory-mode
+#: * ``handlers/_shared_session_memory.py`` — colon-only, wf-family only, to dispatch a memory-mode
 #:   lookup.
 #: * ``handlers/cron_caller_session.py`` — colon-only, wf-family plus ``subagent``, to answer
 #:   whether a session is live and shared.

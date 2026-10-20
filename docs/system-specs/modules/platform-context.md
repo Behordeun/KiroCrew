@@ -138,7 +138,7 @@ omit the policy.
 > Both decisions take the concrete target as well as a label, because a name is
 > self-chosen while the URL or target determines where bytes go; an allowlist pinned
 > to the target stops admitting a provider that repoints at a different host.
-> `_shared.py::admits_registry` / `admits_cloud_deployment` are the single call
+> `_shared_access.py::admits_registry` / `admits_cloud_deployment` are the single call
 > points: they deny on a composed-adapter error (reaching that fallback means an
 > operator intended to restrict something), let `PlatformCompositionError`
 > propagate, and SEL-audit **both** outcomes — a log carrying only denials cannot

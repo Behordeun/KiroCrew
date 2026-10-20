@@ -124,7 +124,7 @@ async def _private_caller_refusal(request: web.Request) -> web.Response | None:
 
     def _caller_is_member_and_reachable() -> bool:
         # The SHARED predicate the chat folder/tag gate also uses
-        # (``handlers/_shared.py``'s ``private_chat_route_refusal``), so the two
+        # (``handlers/_shared_route_guards.py``'s ``private_chat_route_refusal``), so the two
         # surface gates cannot drift on who a member is or when the surface is
         # reachable for it.
         return sc.member_admitted_to_scoped_surface(session_key, scope)

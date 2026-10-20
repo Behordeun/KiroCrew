@@ -3089,7 +3089,7 @@ write, so the combined predicate would take memory away from a mode meant to kee
 it, and it would do so silently.
 
 The dashboard's `_is_restricted_session` / `_blocks_reads_session`
-(`dashboard/handlers/_shared.py`) reach this through `is_channel_session_key(sk)`,
+(`dashboard/handlers/_shared_session_memory.py`) reach this through `is_channel_session_key(sk)`,
 not `sk.startswith("slack:")`. The narrow test made that branch structurally
 unreachable for every other channel, so a Telegram session the user marked
 incognito could never enter it and the ~30 dashboard mutations gated on the
