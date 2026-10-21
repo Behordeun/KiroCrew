@@ -216,6 +216,16 @@ A crewmate's **Goals** tab (Profile card) holds what it works toward:
   The weekly report and the monthly review cover the readings and the tasks the
   crewmate finished in the period, and are saved as reports under
   `Crewmates/<name>/Reports` in Artifacts, with a notification linking each.
+- **Heartbeat.** A fourth switch, off by default and only available once a goal
+  is set, shown as a full-width row under the three check-ins. While it is on,
+  the crewmate wakes in its own chat every 30 minutes, hour (the default),
+  2 hours or 4 hours, looks for what it can move forward toward its goals,
+  and does it. It works quietly: what it did shows on its **Dashboard** tab and
+  its task list, and it writes in the chat only when it needs your decision,
+  when something you asked for is done, or when something needs your attention
+  now. When it has nothing to move, it ends the wake without a word. Anything
+  it does write during a wake shows in the chat. A wake is skipped while the chat is busy or a monitor loop is running in it. Each run uses credits. The
+  crewmate can suggest turning it on with a card; only you can press it.
 - **Track something in chat.** Sends "I'd like you to track something for me."
   to the crewmate's chat as your own message. Tell it what to track there; it
   keeps that item up to date on its task list, which the Crew board shows. Tracked
