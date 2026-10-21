@@ -4,7 +4,7 @@ import { api, ApiError } from '../api/client'
 import { apiErrorCode, isSlotCapError } from '../api/apiError'
 import { store, useAppDispatch } from '../store'
 import type { MuteFlag } from '../store/dashboardSlice'
-import { deleteSlot, listForkedSlot, switchSlot } from '../store/chatSlice'
+import { captureForkOrigin, deleteSlot, forkMayOpen, listForkedSlot, switchSlot } from '../store/chatSlice'
 import { updateSlotPin, updateSlotMuteFlag, setSlotMuteFlagError, markSlotRead, markSlotUnread, slotWriteStampOf } from '../store/dashboardSlice'
 import { emitSlotRead } from '../lib/slotReadRelay'
 import { copySessionLink } from '../utils/shareUrl'
@@ -239,7 +239,8 @@ export function useSessionActions(mode?: string, opts?: {
   )
   const forkMutation = useMutation({
     mutationFn: (slot: string) => api.forkChatSlot(slot),
-    onSuccess: (data) => {
+    onMutate: () => ({ origin: captureForkOrigin(store.getState()) }),
+    onSuccess: (data, _slot, started) => {
       if (data?.ok && data.key) {
         // A refusal describes a condition that no longer holds: leaving it under the row
         // contradicts the tab this success just opened.
@@ -249,6 +250,9 @@ export function useSessionActions(mode?: string, opts?: {
         // session its slot list lacks and then auto-opens the remembered chat,
         // so switching first lands the user in an unrelated chat.
         dispatch(listForkedSlot(data))
+        // The user opened another session while the fork ran: the fork stays
+        // listed, and the view and its chrome (Split View) stay as they are.
+        if (!forkMayOpen(store.getState(), started.origin)) return
         dispatch(switchSlot(data.key))
         // switchSlot.pending has already made the fork the active slot.
         onOpenedRef.current?.(data.key)

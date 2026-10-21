@@ -56,8 +56,11 @@ import { walkWindowBackTo } from './windowWalk'
  *    recovery paths (auto-improvement, issue-radar, cold-boot restore, the
  *    Slack-token reconnect) silently fall back to a fresh session — so
  *    announcing there would double-report or contradict a successful
- *    recovery. */
-export type SwitchSlotArg = string | { key: string; keepTargetOnMissing?: boolean; announceOnMissing?: boolean }
+ *    recovery.
+ *  - `automatic`: the chat page's own auto-select after it lost the active
+ *    chat. The move counts in `activeSlotAutoMoves`, so a pending fork still
+ *    opens its child (see `forkMayOpen`). */
+export type SwitchSlotArg = string | { key: string; keepTargetOnMissing?: boolean; announceOnMissing?: boolean; automatic?: boolean }
 
 /** The slot key of a `switchSlot` argument, in either spelling. Non-object
  *  values pass through untouched: a hand-rolled test dispatch can omit
@@ -466,7 +469,7 @@ export function addSlotSwitchCases(builder: ActionReducerMapBuilder<ChatState>):
       // the target -- so the hand-back inside reads the mirror while it still
       // describes the outgoing slot. WS events for the new slot are accepted
       // from here on.
-      enterActiveSlot(state, target)
+      enterActiveSlot(state, target, typeof action.meta.arg === 'object' && action.meta.arg !== null && action.meta.arg.automatic === true)
       if (target !== outgoingSlot) {
         state.lastChunkSeq = runs[safeKey(target)]?.lastChunkSeq
         state.lastChunkGen = runs[safeKey(target)]?.lastChunkGen

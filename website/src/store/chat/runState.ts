@@ -224,7 +224,7 @@ export const settleEndedActiveTurn = (
  *  just evicted; a hand-back would recreate its entry) and the
  *  `switchSlot.rejected` origin restore (the slot being left is the 404'd
  *  target, which has no entry and never will). */
-export function enterActiveSlot(state: ChatState, target: string | null): void {
+export function enterActiveSlot(state: ChatState, target: string | null, automatic = false): void {
   const outgoing = state.activeSlot
   if (outgoing !== null && outgoing !== target && !isUnsafeKey(outgoing)) {
     const runs = (state.slotRun ??= {})
@@ -235,6 +235,8 @@ export function enterActiveSlot(state: ChatState, target: string | null): void {
       || (state.runEpoch?.[safeKey(outgoing)] ?? 0) !== (state.activeRunEpochAtEntry ?? 0)
     if (observed) setRunState(runs[safeKey(outgoing)] ??= { state: 'idle' }, mirrorState)
   }
+  if (outgoing !== target && automatic) state.activeSlotAutoMoves = (state.activeSlotAutoMoves ?? 0) + 1
+  else if (outgoing !== target) state.activeSlotMoves = (state.activeSlotMoves ?? 0) + 1
   state.activeSlot = target
   state.activeRunEpochAtEntry = target !== null && !isUnsafeKey(target) ? (state.runEpoch?.[safeKey(target)] ?? 0) : 0
 }
@@ -245,6 +247,13 @@ export const runStateReducers = {
     // the last point at which the chat being left can be cached.
     if (action.payload !== state.activeSlot) parkActiveTranscript(state)
     enterActiveSlot(state, action.payload); state.slotState = 'idle'; state.pendingTurnSlot = null
+  },
+  /** `setActiveSlot(null)` for the chat page itself, when its list no longer
+   *  has the active chat (closed elsewhere, dropped by a frame, another mode).
+   *  The user did not move, so it counts in `activeSlotAutoMoves`. */
+  dropActiveSlot(state: ChatState) {
+    if (state.activeSlot !== null) parkActiveTranscript(state)
+    enterActiveSlot(state, null, true); state.slotState = 'idle'; state.pendingTurnSlot = null
   },
   clearSlotState(state: ChatState) {
     state.messages = []; state.toolLog = []; state.subagents = {}; state.activityTab = 'changes'; state.slotRunning = false; state.slotStopping = false; state.slotState = 'idle'; setPagingCursor(state, false, 0); state.loadingOlder = false; state.lastChunkSeq = undefined; state.lastChunkGen = undefined; state._wsChunkedDuringFetch = false; state.slotStatusDetail = {}; state.voicePlaying = false; state.voiceAudio = null; if (state.activeSlot) delete state.pendingQuestions?.[state.activeSlot]

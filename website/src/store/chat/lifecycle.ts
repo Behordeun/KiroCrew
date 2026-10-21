@@ -211,6 +211,28 @@ export function listForkedSlot(d: Pick<ChatSlot, 'key'> & Partial<Pick<ChatSlot,
   return addSlotOptimistic({ key: d.key, title: d.title || d.key, messages: d.messages || 0, running: false, folder_id: d.folder_id, memory_mode: d.memory_mode, ...(d.pinned ? { pinned: true } : {}) })
 }
 
+/** Where the user stood when a fork started; see `forkMayOpen`. */
+export interface ForkOrigin { activeSlot: string | null; moves: number; autoMoves: number }
+
+export function captureForkOrigin(state: Pick<RootState, 'chat'>): ForkOrigin {
+  return { activeSlot: state.chat.activeSlot, moves: state.chat.activeSlotMoves ?? 0, autoMoves: state.chat.activeSlotAutoMoves ?? 0 }
+}
+
+/** Whether a fork that just resolved may open its child. Every fork caller
+ *  captures the origin when the fork starts and asks this before it switches:
+ *  a fork can take seconds, and a session the user opened in that time is a
+ *  choice the late response must not undo. Stricter than `createSlot`'s
+ *  equality guard: the move count also refuses a user who went to another
+ *  session and came back, since coming back is a choice too. A move the chat
+ *  page made on its own, after it lost the source from its list, is not a
+ *  choice, and the fork still opens. The child is
+ *  listed in the sidebar either way; only the switch, and what the caller does
+ *  on opening it, is skipped. */
+export function forkMayOpen(state: Pick<RootState, 'chat'>, origin: ForkOrigin): boolean {
+  if ((state.chat.activeSlotMoves ?? 0) !== origin.moves) return false
+  return state.chat.activeSlot === origin.activeSlot || (state.chat.activeSlotAutoMoves ?? 0) !== origin.autoMoves
+}
+
 export const forkSlot = createAsyncThunk(
   'chat/forkSlot',
   async (

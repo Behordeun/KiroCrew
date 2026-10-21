@@ -35,7 +35,7 @@ const ACTION_CREATORS = [
   'clearMessages', 'clearPendingPermissions', 'clearQuestionCard', 'clearSlotCache',
   'clearSlotReveal', 'clearSlotState', 'clearSubagentsForSnapshot', 'clearSwitchSlotGone',
   'clearTerminalSubagents', 'clearUndeletableHistory', 'clearUnresumableResume',
-  'clearWorkflowRun', 'confirmOptimisticSend', 'dismissFollowupItem', 'editQueuedMessage',
+  'clearWorkflowRun', 'confirmOptimisticSend', 'dismissFollowupItem', 'dropActiveSlot', 'editQueuedMessage',
   'endLocalTurn', 'finalizeAssistant', 'hydrateSlotMessages', 'markQuestionSettled', 'markSendUnconfirmed', 'markSubagentApprovalGone', 'markSubagentApproving',
   'openActivityPanel', 'openActivityToTab', 'openActivityToTool', 'reconcileSubagentApprovalGone', 'reconcileSubagentQueuedFromSlots', 'reconcileWorkflowRuns',
   'removeAutomation', 'removeByApprovalId', 'removeQueuedMessage', 'removeThinking',
@@ -75,7 +75,7 @@ const THUNKS: Record<string, string> = {
 const FUNCTIONS = [
   'abortActiveOlderFetch', 'batchedTextAboveFloor', 'capturePendingAskId', 'clampToolOutput',
   'countMatchedFetchLimit', 'floorForGen', 'hasUnidentifiedDurableRow', 'hydrateQueuedBubbles', 'isActiveSubagent', 'isAnsweredQuestionEnding', 'isAwaitingSpawnApproval', 'isSpawnApprovalGone', 'isSpawnApprovalRetired',
-  'isSupersededPagingRejection', 'isTerminalWorkflowStatus', 'listForkedSlot', 'mcpAppKey', 'missedChunkMarker', 'normalizeQueueEntries',
+  'captureForkOrigin', 'forkMayOpen', 'isSupersededPagingRejection', 'isTerminalWorkflowStatus', 'listForkedSlot', 'mcpAppKey', 'missedChunkMarker', 'normalizeQueueEntries',
   'pendingQuestionFor', 'queueEditBroadcastAt', 'queueEntryAttachments', 'queueEntryQuote', 'raiseChunkSeq',
   'selectActiveSlotProject', 'selectAutomationForSlot', 'selectComposerBusy', 'selectContinuable',
   'selectProjectChipLocked', 'selectSendAccepted', 'selectSendConfirmed', 'selectSidebarApprovalCounts', 'selectSidebarAutomationRunningKeys',
@@ -105,7 +105,7 @@ const CONSTANTS: Record<string, unknown> = {
 /** The initial state in its declared key order. `lastChunkSeq` and
  *  `lastChunkGen` are present as `undefined`, which JSON would hide. */
 const INITIAL_STATE = {
-  activeSlot: null, messages: [], slotRunning: false, slotStopping: false, slotState: 'idle',
+  activeSlot: null, activeSlotMoves: 0, activeSlotAutoMoves: 0, messages: [], slotRunning: false, slotStopping: false, slotState: 'idle',
   slotStatusDetail: {}, slotHasMore: false, slotOldestIndex: 0, slotCursorKey: null,
   slotSwitchRequestId: null, slotSwitchTarget: null, slotSwitchLatestRequestId: null, slotSwitchOrigin: null, switchSlotGone: null,
   loadingOlder: false, slotOlderError: false, lastChunkSeq: undefined, lastChunkGen: undefined,

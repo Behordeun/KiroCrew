@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, type MutableRefObject, type Dispatch, t
 import { useQuery } from '@tanstack/react-query'
 import { store, type AppDispatch, type AppStore } from '../store'
 import type { ErrorReport } from '../utils/errorReport'
-import { forkSlot, switchSlot, createSlot, type FollowupItem, setPendingInput, clearFollowupCard, openActivityToTab } from '../store/chatSlice'
+import { captureForkOrigin, forkMayOpen, forkSlot, switchSlot, createSlot, type FollowupItem, setPendingInput, clearFollowupCard, openActivityToTab } from '../store/chatSlice'
 import { api } from '../api/client'
 import { safeSetSessionItem } from '../utils/safeStorage'
 import { extractPromptFromToken, extractSlackContextFromToken } from '../utils/tokenPrompt'
@@ -21,7 +21,7 @@ interface ForkSessionOptions {
 
 /**
  * Fork from a transcript row: reads whether a tail fork is offered, forks the slot at that
- * row, and switches to the new session.
+ * row, and switches to the new session unless the user opened another one meanwhile.
  *
  * Called from ChatPage at the position its statements held, so React registers its effects in the same order.
  */
@@ -35,6 +35,9 @@ export function useForkSession({
   const forkDirectionChoice = forkCfg?.tail_fork_enabled === true
   const handleFork = useCallback(async (visibleIndex: number, messageId?: string, explicitDirection?: 'head') => {
     if (!activeSlot) return
+    // Read before the config fetch and the fork request: the user can open
+    // another session while either runs, and the fork then must not take the view.
+    const origin = captureForkOrigin(store.getState())
     let direction: 'head' | 'tail' = 'head' // hoisted so the catch advises the same way
     let control: string | undefined
     try {
@@ -57,7 +60,7 @@ export function useForkSession({
       }
       const result = await dispatch(forkSlot({ slot: activeSlot, atIndex: visibleIndex, messageId, direction })).unwrap()
       if (result.ok) {
-        await dispatch(switchSlot(result.key))
+        if (forkMayOpen(store.getState(), origin)) await dispatch(switchSlot(result.key))
       } else {
         showTranscriptForkFailure(showActionError, result.code, result.error, direction, control)
       }

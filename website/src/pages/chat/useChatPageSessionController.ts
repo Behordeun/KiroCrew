@@ -14,6 +14,7 @@ import {
   fetchHistory,
   resumeFromHistory,
   setActiveSlot,
+  dropActiveSlot,
   setPendingInput,
   switchSlot,
 } from '../../store/chatSlice'
@@ -1013,7 +1014,7 @@ export function useChatPageSessionController({
   // Clear activeSlot when it belongs to a different mode (page switch)
   useEffect(() => {
     if (activeSlot && slots.length > 0 && !filteredSlots.find(s => s.key === activeSlot)) {
-      dispatch(setActiveSlot(null))
+      dispatch(dropActiveSlot())
     }
   }, [activeSlot, slots.length, filteredSlots, dispatch])
 
@@ -1048,7 +1049,7 @@ export function useChatPageSessionController({
       slotHintRef.current = null
       const target = hint && filteredSlots.some(s => s.key === hint) ? hint
         : saved && filteredSlots.find(s => s.key === saved) ? saved : filteredSlots[0].key
-      dispatch(switchSlot(target))
+      dispatch(switchSlot({ key: target, automatic: true }))
     } else if (connected && slotsLoaded && !autoCreatedRef.current) {
       // Connected, slots fetched, and truly empty — auto-create one
       autoCreatedRef.current = true

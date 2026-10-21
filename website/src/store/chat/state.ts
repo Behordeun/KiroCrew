@@ -159,6 +159,15 @@ export interface ChatState {
   recoveryRevision?: number
   lastRecoveryRequestId?: string
   activeSlot: string | null
+  /** Count of moves of `activeSlot` to a different session, bumped by
+   *  `enterActiveSlot`. A request that may take the view when it settles
+   *  (a fork) compares it with the count at its start: equal `activeSlot`
+   *  alone cannot tell "never moved" from "moved away and came back". */
+  activeSlotMoves?: number
+  /** Moves the chat page made on its own (`dropActiveSlot` and its
+   *  `automatic` auto-select). Kept apart from `activeSlotMoves`, which then
+   *  counts only moves the user asked for. */
+  activeSlotAutoMoves?: number
   messages: ChatMessage[]
   slotRunning: boolean
   slotStopping: boolean
@@ -581,6 +590,8 @@ export interface ChatState {
 
 export const initialState: ChatState = {
   activeSlot: null,
+  activeSlotMoves: 0,
+  activeSlotAutoMoves: 0,
   messages: [],
   slotRunning: false,
   slotStopping: false,
