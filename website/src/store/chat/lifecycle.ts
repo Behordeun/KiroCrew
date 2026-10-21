@@ -192,6 +192,15 @@ export const resumeFromHistory = createAsyncThunk(
   },
 )
 
+/** The action that lists a successful fork in the sidebar. Every fork path
+ *  dispatches this before activating the fork: the chat page clears an active
+ *  session its slot list lacks. memory_mode is the parent's, echoed by the
+ *  server; without it the new tab would read as persistent until the next
+ *  slots refresh. */
+export function listForkedSlot(d: Pick<ChatSlot, 'key'> & Partial<Pick<ChatSlot, 'title' | 'messages' | 'folder_id' | 'memory_mode' | 'pinned'>>) {
+  return addSlotOptimistic({ key: d.key, title: d.title || d.key, messages: d.messages || 0, running: false, folder_id: d.folder_id, memory_mode: d.memory_mode, ...(d.pinned ? { pinned: true } : {}) })
+}
+
 export const forkSlot = createAsyncThunk(
   'chat/forkSlot',
   async (
@@ -219,11 +228,7 @@ export const forkSlot = createAsyncThunk(
       }
       throw e
     }
-    if (d.ok) {
-      // memory_mode is the parent's, echoed by the server; without it the new
-      // tab would read as persistent until the next slots refresh.
-      dispatch(addSlotOptimistic({ key: d.key, title: d.title || d.key, messages: d.messages || 0, running: false, folder_id: d.folder_id, memory_mode: d.memory_mode, ...(d.pinned ? { pinned: true } : {}) }))
-    }
+    if (d.ok) dispatch(listForkedSlot(d))
     return d
   },
 )
