@@ -7341,6 +7341,9 @@
       "secrets_revoke_all_confirm": "Revoke all?",
       "retried_n_times_one": "Retried {{count}} time",
       "retried_n_times_other": "Retried {{count}} times",
+      "backing_off_after_n_failures_one": "Delayed until {{time}} · {{count}} failure in a row",
+      "backing_off_after_n_failures_other": "Delayed until {{time}} · {{count}} failures in a row",
+      "backoff_ends_on_success": "A successful run ends the delay.",
       "jobs_table": "Scheduled jobs"
     },
     "servicesTab": {

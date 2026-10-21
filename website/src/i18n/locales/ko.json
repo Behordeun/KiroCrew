@@ -15287,6 +15287,8 @@
       "secrets_revoke_all": "모든 시크릿 회수",
       "secrets_revoke_all_confirm": "모두 철회하시겠습니까?",
       "retried_n_times_other": "{{count}}회 재시도했습니다",
+      "backing_off_after_n_failures_other": "{{time}}까지 대기 중 · {{count}}회 연속 실패",
+      "backoff_ends_on_success": "한 번 성공하면 대기가 끝납니다.",
       "jobs_table": "예약된 작업",
       "type_crewmate": "크루메이트",
       "filter_by_crewmate": "크루메이트로 필터",

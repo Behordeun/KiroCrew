@@ -15287,6 +15287,8 @@
       "secrets_revoke_all": "撤销全部密钥",
       "secrets_revoke_all_confirm": "撤销全部？",
       "retried_n_times_other": "已重试 {{count}} 次",
+      "backing_off_after_n_failures_other": "等待至 {{time}} · 连续失败 {{count}} 次",
+      "backoff_ends_on_success": "成功运行一次即可结束等待。",
       "jobs_table": "计划任务",
       "type_crewmate": "队友",
       "filter_by_crewmate": "按队友筛选",

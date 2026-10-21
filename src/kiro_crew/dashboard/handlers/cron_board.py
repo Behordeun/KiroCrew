@@ -41,6 +41,7 @@ async def api_crons(request: web.Request) -> web.Response:
     # module import order entirely.
     from kiro_crew.apps.cron_sdk import app_owner_name
     from kiro_crew.cron import compute_next_run_ts, format_schedule, get_local_tz  # noqa: F811
+    from kiro_crew.cron_service.schedule import backoff_delaying_next_run
 
     state: DashboardState = request.app["state"]
     # Freshness-guaranteed list for the user-facing GET: offloads a locked
@@ -177,6 +178,15 @@ async def api_crons(request: web.Request) -> web.Response:
             "has_result": bool(j.last_result),
             "has_slot": state.has_slot(f"cron-{j.id}"),
             "next_run_ts": compute_next_run_ts(j, now=now),
+            # Why `next_run_ts` may sit later than the schedule says: a job
+            # that keeps failing with auto-pause off (or a raised limit) backs
+            # off, and compute_next_run_ts already returns the shifted time.
+            # The raw epoch, not a "backing off" boolean, so the page compares
+            # it against its own clock and the note clears once it passes.
+            "consecutive_failures": j.consecutive_failures,
+            # Only when the backoff is what moved the next run: null for a
+            # disabled job and for one whose next slot is later anyway.
+            "failure_backoff_until": backoff_delaying_next_run(j, now=now),
             "timezone": redact_credentials(redact_exfiltration_urls(j.timezone or "")[0])[0]
             or None,
             "skip_dates": (

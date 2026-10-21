@@ -29,6 +29,13 @@ export interface CronJob {
   /** The `last_run_ts` `last_retry_count` describes; a mismatch means the count
    *  belongs to an earlier run (a cancelled run advances `last_run_ts` only). */
   last_retry_run_ts?: number
+  /** Failed runs in a row; a success resets it to 0. Absent on an older gateway. */
+  consecutive_failures?: number
+  /** Epoch seconds before which a repeatedly failing job will not fire, or null
+   *  when it is not backing off. `next_run_ts` already includes the shift; this
+   *  says why the next run moved. Compare against the clock: a past value means
+   *  the backoff has elapsed. */
+  failure_backoff_until?: number | null
   /** IANA timezone the cron expression's hour/minute fields are stored in.
    * Absent / null for legacy jobs created without an explicit TZ — treat as UTC. */
   timezone?: string | null

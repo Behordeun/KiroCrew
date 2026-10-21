@@ -368,6 +368,34 @@ def _job_tz(job: CronJob) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
+def backoff_delaying_next_run(job: CronJob, now: float | None = None) -> float | None:
+    """The failure-backoff end that moved this job's next run later, or ``None``.
+
+    ``None`` for a disabled job, which has no next run to move, and for a job
+    whose next scheduled slot already falls at or after the backoff end (an
+    ``every 1d`` job five failures in), whose next run the backoff leaves
+    where it was. The test is :func:`_backoff_shift`, the one
+    :func:`compute_next_run_ts` shifts by.
+    """
+    if not job.enabled:
+        return None
+    return _backoff_shift(job, _compute_next_run_ts_raw(job, now))
+
+
+def _backoff_shift(job: CronJob, unshifted: float | None) -> float | None:
+    """The backoff end when it falls after ``unshifted``, the job's next slot; else ``None``.
+
+    The one copy of the backoff-shift test, shared by :func:`compute_next_run_ts`
+    (which moves the slot) and :func:`backoff_delaying_next_run` (which reports it).
+    """
+    if unshifted is None:
+        return None
+    backoff_until = job.failure_backoff_until()
+    if backoff_until is None or unshifted >= backoff_until:
+        return None
+    return backoff_until
+
+
 def compute_next_run_ts(job: CronJob, now: float | None = None) -> float | None:
     """Return the next fire time as a UTC epoch, or ``None`` if unknown.
 
@@ -381,8 +409,8 @@ def compute_next_run_ts(job: CronJob, now: float | None = None) -> float | None:
     """
     result = _compute_next_run_ts_raw(job, now)
     # A failing job past the default limit: its next fire is the first slot after its backoff.
-    backoff_until = job.failure_backoff_until() if result is not None else None
-    if result is not None and backoff_until is not None and result < backoff_until:
+    backoff_until = _backoff_shift(job, result)
+    if backoff_until is not None:
         if job.schedule.kind == "cron":
             result = _compute_next_run_ts_raw(job, backoff_until)
         else:

@@ -56,7 +56,7 @@ import { uiLocation } from '../uiLocations/uiLocation'
 import { useGuidePredicate, useGuideSelection } from '../guide/guidePredicates'
 import { defaultAgentQuery } from '../api/defaultAgentQuery'
 import { agentOrDefaultLabel } from '../utils/agentLabel'
-import { compareText, fmtDateTimeNumeric } from '../i18n/format'
+import { compareText, fmtDateTimeNumeric, fmtTime } from '../i18n/format'
 import { formatCadence } from '../utils/scheduleCadence'
 import { guideConfirm, guidePick, guidePickControl } from '../uiLocations/targetRegistry'
 const RENDER_TZ_STORAGE_KEY = 'kirocrew.schedule.renderTz'
@@ -1128,7 +1128,35 @@ export default function SchedulePage() {
                     </span>
                   )}
                 </TableCell>
-                <TableCell className="text-muted" title={j.next_run_ts ? fmtDateTimeNumeric(j.next_run_ts) : ''}><span className="block truncate">{fmtIn(j.next_run_ts)}</span></TableCell>
+                {(() => {
+                  // Why the next run sits later than the schedule says: a job
+                  // with auto-pause off (or a raised limit) that keeps failing
+                  // backs off, and `next_run_ts` already carries the shift. The
+                  // gateway sends `failure_backoff_until` only when the backoff
+                  // moved the next run; a past value has elapsed and explains
+                  // nothing. Wraps like the retry note: the column is narrow.
+                  const backoffNote =
+                    typeof j.failure_backoff_until === 'number' && j.failure_backoff_until > Date.now() / 1000
+                      ? i18nT('pages.schedulePage.backing_off_after_n_failures', {
+                        count: j.consecutive_failures ?? 0,
+                        time: fmtTime(j.failure_backoff_until),
+                      })
+                      : ''
+                  const nextRunTitle = j.next_run_ts ? fmtDateTimeNumeric(j.next_run_ts) : ''
+                  return (
+                    <TableCell
+                      className="text-muted"
+                      title={backoffNote
+                        ? `${nextRunTitle}\n${backoffNote}\n${i18nT('pages.schedulePage.backoff_ends_on_success')}`
+                        : nextRunTitle}
+                    >
+                      <span className="block truncate">{fmtIn(j.next_run_ts)}</span>
+                      {backoffNote && (
+                        <span className="block whitespace-normal text-[11px] leading-tight text-warn">{backoffNote}</span>
+                      )}
+                    </TableCell>
+                  )
+                })()}
                 {/* Two controls plus the overflow menu. Anything wider than this
                     is what pushed the column off screen; see CronRowActions.
                     Pinned like the header cell above, on an OPAQUE `bg-card`.

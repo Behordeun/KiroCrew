@@ -293,6 +293,8 @@ class TestCronListFields:
         # serialize — so a field added to the payload fails this test until the
         # stub names it.
         mock_job.last_retry_run_ts = 0.0
+        mock_job.consecutive_failures = 0
+        mock_job.failure_backoff_until.return_value = None
         mock_job.created_ts = None
         mock_job.timezone = ""
         mock_job.skip_dates = []
