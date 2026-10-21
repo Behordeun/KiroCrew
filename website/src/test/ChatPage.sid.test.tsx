@@ -171,6 +171,10 @@ function renderChatPage(opts: {
                 path="/artifacts/:slug"
                 element={<ChatPage embedded embedMode="chat" noUrlSync={hostEmbed?.noUrlSync} />}
               />
+              {/* The two embeds whose ?sid= this page writes itself: the popout
+                  window (PopoutFrame) and the plugin's embed chat frame. */}
+              <Route path="/popout/chat/:slug?" element={<ChatPage embedded embedMode="chat" popout />} />
+              <Route path="/embed/chat/:slug?" element={<ChatPage embedded embedMode="chat" />} />
             </Routes>
             <UrlCapture />
             <NavController />
@@ -367,6 +371,50 @@ describe('ChatPage ?sid= URL parameter', () => {
       })
       await act(async () => { await new Promise(r => setTimeout(r, 150)) })
       expect(currentUrl).toBe('/artifacts/cr-queue')
+    })
+  })
+
+  // ── embedded chat: popout and /embed/chat ────────────────────────────────
+  // In embed mode the ?sid= reader follows the host's URL. It must follow
+  // CHANGES to ?sid=, not treat every mismatch as a host request: a fork in a
+  // popout switches to the child locally while ?sid= still names the source on
+  // the same history entry. That unchanged value must not switch it back: the
+  // popout shows the fork it just made, and ?sid= then follows the child.
+  describe('embedded chat follows a local switch', () => {
+    function activeSlotTrace(store: ReturnType<typeof renderChatPage>['store']) {
+      const trace: (string | null)[] = []
+      store.subscribe(() => {
+        const key = store.getState().chat.activeSlot
+        if (trace.at(-1) !== key) trace.push(key)
+      })
+      return trace
+    }
+
+    it.each(['/popout/chat', '/embed/chat'])('%s keeps a locally switched-to session and names it in ?sid=', async base => {
+      const { store } = renderChatPage({ route: `${base}/debug-video-playback?sid=chat-1-100`, activeSlot: 'chat-1-100', slots })
+      await waitFor(() => expect(currentUrl).toBe(`${base}/debug-video-playback?sid=chat-1-100`))
+      const trace = activeSlotTrace(store)
+      // What handleFork does once the fork lands: switch to the child.
+      await act(async () => { await store.dispatch(switchSlot('chat-2-200')) })
+      await waitFor(() => expect(currentUrl).toBe(`${base}/fix-login-bug?sid=chat-2-200`))
+      expect(store.getState().chat.activeSlot).toBe('chat-2-200')
+      expect(trace).toEqual(['chat-2-200'])
+    })
+
+    it('/embed/chat still follows a host-driven ?sid= change', async () => {
+      const { store } = renderChatPage({ route: '/embed/chat?sid=chat-1-100', activeSlot: 'chat-1-100', slots })
+      await waitFor(() => expect(currentUrl).toBe('/embed/chat/debug-video-playback?sid=chat-1-100'))
+      act(() => navTo('/embed/chat/fix-login-bug?sid=chat-2-200'))
+      await waitFor(() => expect(store.getState().chat.activeSlot).toBe('chat-2-200'))
+    })
+
+    it('/embed/chat follows the host back to the URL session after a local switch', async () => {
+      const { store } = renderChatPage({ route: '/embed/chat?sid=chat-1-100', activeSlot: 'chat-1-100', slots })
+      await waitFor(() => expect(currentUrl).toBe('/embed/chat/debug-video-playback?sid=chat-1-100'))
+      await act(async () => { await store.dispatch(switchSlot('chat-2-200')) })
+      await waitFor(() => expect(currentUrl).toBe('/embed/chat/fix-login-bug?sid=chat-2-200'))
+      act(() => navTo('/embed/chat/debug-video-playback?sid=chat-1-100'))
+      await waitFor(() => expect(store.getState().chat.activeSlot).toBe('chat-1-100'))
     })
   })
 

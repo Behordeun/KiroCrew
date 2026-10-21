@@ -545,6 +545,10 @@ export function useChatPageSessionController({
     return close?.retiredAtGen !== null && close?.retiredAtGen !== undefined
       && slotsGeneration > close.retiredAtGen
   }, [slotsGeneration, urlSidKey, urlSidRemoved])
+  // Embed only: the history entry and `?sid=` last seen agreeing with
+  // `activeSlot`. A mismatch on that same entry is a switch made in this
+  // frame (a fork, a new chat), not a host request; see the reader below.
+  const embedAgreedSidRef = useRef<{ locationKey: string; sid: string } | null>(null)
   // Main dashboard: react ONLY to a genuine Back/Forward (navigationType POP).
   // Our own activeSlot→URL writes are PUSH/REPLACE, so they never re-enter here
   // — that is what avoids the activeSlot↔URL ping-pong. A session switch pushes
@@ -624,7 +628,18 @@ export function useChatPageSessionController({
     }
     if (!connected) return
     const urlSid = searchParams.get('sid') || searchParams.get('slot')
+    if (embedMode && urlSid && urlSid === activeSlot) embedAgreedSidRef.current = { locationKey, sid: urlSid }
     if (!urlSid || urlSid === activeSlot) return
+    // Embed: follow the host when it moves the URL, never because `activeSlot`
+    // moved. A popout is an embed whose URL nobody else drives, and a fork in it
+    // switches to the child while `?sid=` still names the source on the same
+    // entry. Obeying that stale value would switch straight back in the same
+    // commit and leave the URL writer below holding.
+    // Skipping here lets the writer name the new session, which also re-keys the
+    // popout's registration (PopoutFrame reads `?sid=`). A host navigation, even
+    // to the same sid, is a new entry and is still obeyed.
+    const agreed = embedAgreedSidRef.current
+    if (embedMode && agreed && agreed.sid === urlSid && agreed.locationKey === locationKey) return
     // Mobile replaces on every session switch, so an entry here was pushed by a
     // switch only if the write side recorded it as one — see
     // `popMaySwitchSession`. Repair an unrecorded stale sid rather than obeying
