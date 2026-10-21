@@ -1317,11 +1317,11 @@ _WRITE_PROTECTED_HOME_PATHS += [_KIRO_SETTINGS_MCP_JSON]
 
 #: The kiro-cli-owned entries on the write-only tier, as ONE list because they
 #: share an anchoring rule rather than only an owner: each is re-anchored under
-#: ``KIRO_HOME`` and each has its ``$HOME``-rooted form resolved, so a symlink
-#: anywhere below the home root cannot move the real file out from under the
-#: fence. BOTH halves are driven from this tuple -- the ``$HOME`` resolve loop and
-#: the ``KIRO_HOME`` re-anchoring -- so a third kiro-cli leaf joins both by landing
-#: here, and neither half can be the one somebody forgets.
+#: ``KIRO_HOME``, and like every entry each has its ``$HOME``-rooted form
+#: resolved, so a symlink anywhere below the home root cannot move the real file
+#: out from under the fence. The ``KIRO_HOME`` re-anchoring is driven from this
+#: tuple and the ``$HOME`` half from the entries themselves, so a third kiro-cli
+#: leaf joins both by landing here and in the write tier.
 _KIRO_CLI_WRITE_TIER_LEAVES: tuple[str, ...] = (
     _KIRO_AGENTS_DIR,
     _KIRO_SETTINGS_MCP_JSON,
