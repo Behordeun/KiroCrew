@@ -1029,7 +1029,13 @@ export const SessionRow = memo(function SessionRow({ view, actions }: SessionRow
       closeNeutral: releaseLocally,
     }), [rowKey, mode, onRenameStart, onAutoTitle, scope, rowTitle, onOpenSlotInNewTab, closeReachHint, releaseLocally, closeReachLabel])
     const rowActions = useMemo(() => (void langGen, !renamingHere && !foreignRow ? (isMobile ? (
-      <div className="absolute top-1/2 -translate-y-1/2 right-1.5 flex items-center gap-0.5">
+      // In flow, not absolute: the phone ⋮ is always drawn, so the content
+      // column must end before it. Absolutely placed, the column ran to the
+      // row's own pr-3 and a long title painted under the button and its 44px
+      // `mc-touch-hit` area. `-mr-1.5` keeps the button 6px from the row's
+      // edge, where `right-1.5` put it; `ml-3` (12px) covers the 11px the hit
+      // area grows past the 22px button toward the text.
+      <div className="shrink-0 self-center ml-3 -mr-1.5 flex items-center gap-0.5">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" className="mc-touch-hit text-muted/50 active:text-text p-1 cursor-pointer bg-transparent border-none" aria-label={i18nT('pages.chatSidebar.more_options')} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}><MoreVertical size={14} /></button>
