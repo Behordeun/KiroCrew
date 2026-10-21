@@ -1011,6 +1011,7 @@ class DashboardState:
     is_yolo_active = _dashboard_services.is_yolo_active
     request_approval = _dashboard_services.request_approval
     pending_coordinator_approvals = _dashboard_services.pending_coordinator_approvals
+    linked_session_busy = _dashboard_services.linked_session_busy
     _audit_and_broadcast_approval = _dashboard_services._audit_and_broadcast_approval
     _audit_approval = _dashboard_services._audit_approval
     resolve_state_approval = _dashboard_services.resolve_state_approval

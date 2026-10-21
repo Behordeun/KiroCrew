@@ -1468,3 +1468,9 @@ async def handle_message_transport(
                 )
         if _acquired:
             sessions.release(session_key)
+            # The release is what ends the turn for an open dashboard tab bound to
+            # this thread (it reads the lease as the turn running), and a release
+            # raises no slots push of its own. Refresh once more AFTER it, or the
+            # tab keeps showing the finished turn as running until the next
+            # background pass. Best-effort; never raises.
+            await _refresh_dashboard_tab(session_key)

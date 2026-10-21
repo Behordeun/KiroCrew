@@ -319,6 +319,26 @@ async def request_approval(
     )
 
 
+def linked_session_busy(self: DashboardState, session_key: str) -> bool:
+    """Whether *session_key*'s turn lease is held right now.
+
+    The same lease a channel dispatcher checks before it starts or queues a
+    turn (``SessionManager.is_busy``): held for the whole turn by whichever
+    path runs it, released when it ends. A slot bound to that session reads it
+    through ``_ChatSlot.linked_turn_running`` so a channel-path turn is not
+    summarised as interrupted. Never raises; no session manager answers False.
+    """
+    sessions = getattr(self, "sessions", None)
+    is_busy = getattr(sessions, "is_busy", None)
+    if not session_key or not callable(is_busy):
+        return False
+    try:
+        return is_busy(session_key) is True
+    except Exception:
+        logger.debug("linked_session_busy: probe failed for %s", session_key, exc_info=True)
+        return False
+
+
 def pending_coordinator_approvals(self: DashboardState, slot_key: str) -> list[dict]:
     """Live coordinator approvals owned by *slot_key*, oldest first.
 
