@@ -17726,7 +17726,12 @@
         "backend_cpu_only": "Se ejecuta en CPU: este build no tiene GPU",
         "last_recognition_value": "{{duration}} para el texto final, {{rtf}}× la duración del audio",
         "decode_threads_value": "{{n}} hilos de decodificación",
-        "ptt_save_refused": "No se guardó: el almacenamiento del navegador está lleno. Libera espacio e inténtalo de nuevo."
+        "ptt_save_refused": "No se guardó: el almacenamiento del navegador está lleno. Libera espacio e inténtalo de nuevo.",
+        "decode_threads": "Hilos de decodificación",
+        "decode_threads_desc": "Hilos de CPU que usa el modelo local para reconocer la voz. Automático usa la mitad de los núcleos de este equipo, como máximo 16. En un equipo grande con núcleos libres, más hilos terminan cada dictado antes. Un cambio se aplica en el siguiente dictado, que vuelve a cargar el modelo una vez.",
+        "decode_threads_auto": "Automático",
+        "decode_threads_auto_count": "Automático ({{n}})",
+        "decode_threads_env_override": "Esta puerta de enlace usa {{value}} hilos, fijados por KIROCREW_STT_THREADS. Elimina esa variable para usar esta opción."
       },
       "teamsPanel": {
         "above_unlike_slack_the_bot_framework_has_no_outb": "más arriba. A diferencia de Slack, el Bot Framework no tiene un modo solo de salida.",

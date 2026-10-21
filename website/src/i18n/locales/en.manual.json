@@ -8296,7 +8296,12 @@
         "backend_encoder_only": "{{name}} — partly accelerated, text step on CPU",
         "backend_cpu_only": "Runs on CPU — no GPU in this build",
         "last_recognition_value": "{{duration}} for the finished text, {{rtf}}× the audio length",
-        "decode_threads_value": "{{n}} decode threads"
+        "decode_threads_value": "{{n}} decode threads",
+        "decode_threads": "Decode threads",
+        "decode_threads_desc": "CPU threads the local model uses to recognise speech. Auto uses half of this machine's cores, at most 16. On a large machine with cores to spare, more threads finish each dictation sooner. A change applies at the next dictation, which reloads the model once.",
+        "decode_threads_auto": "Auto",
+        "decode_threads_auto_count": "Auto ({{n}})",
+        "decode_threads_env_override": "This gateway uses {{value}} threads, set by KIROCREW_STT_THREADS. Remove that variable to use this choice."
       },
       "teamsPanel": {
         "active": "Active",

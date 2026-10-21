@@ -17726,7 +17726,12 @@
         "backend_cpu_only": "Executa na CPU — sem GPU nesta build",
         "last_recognition_value": "{{duration}} para o texto final, {{rtf}}× a duração do áudio",
         "decode_threads_value": "{{n}} threads de decodificação",
-        "ptt_save_refused": "Não foi salvo: o armazenamento do navegador está cheio. Libere espaço e tente novamente."
+        "ptt_save_refused": "Não foi salvo: o armazenamento do navegador está cheio. Libere espaço e tente novamente.",
+        "decode_threads": "Threads de decodificação",
+        "decode_threads_desc": "Threads de CPU que o modelo local usa para reconhecer a fala. Automático usa metade dos núcleos desta máquina, no máximo 16. Em uma máquina grande com núcleos livres, mais threads terminam cada ditado mais cedo. Uma alteração vale a partir do próximo ditado, que recarrega o modelo uma vez.",
+        "decode_threads_auto": "Automático",
+        "decode_threads_auto_count": "Automático ({{n}})",
+        "decode_threads_env_override": "Este gateway usa {{value}} threads, definidos por KIROCREW_STT_THREADS. Remova essa variável para usar esta escolha."
       },
       "teamsPanel": {
         "above_unlike_slack_the_bot_framework_has_no_outb": "acima. Diferente do Slack, o Bot Framework não tem\n              modo somente de saída.",
