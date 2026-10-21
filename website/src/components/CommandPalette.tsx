@@ -90,6 +90,13 @@ export interface CommandPaletteProps {
    * Optional — when omitted, ⌘Enter on a session falls back to plain open.
    */
   openInSplit?: (ref: SessionRef) => void
+  /**
+   * The query the palette opens with: keys the host caught before the palette
+   * mounted, as when a contributed overlay's chunk failed to load. Read at mount
+   * only. A host that keeps the palette mounted across opens passes none, so its
+   * every open starts empty.
+   */
+  initialQuery?: string
 }
 
 /** Stable no-op so `useActionsProvider` always gets a defined callback. */
@@ -114,6 +121,7 @@ export default function CommandPalette({
   onClose,
   openShortcuts,
   openInSplit,
+  initialQuery = '',
 }: CommandPaletteProps) {
   const vv = useVisualViewport()
   // P0 providers. Each is memoized inside its hook, so identities are stable.
@@ -197,11 +205,14 @@ export default function CommandPalette({
     registerProvider(settings)
   }, [sessions, prompts, artifacts, apps, pages, actions, settings])
 
-  const [query, setQuery] = useState('')
+  // The opening query, fixed at mount so a later prop change cannot rewrite what the
+  // reader is typing. Each open starts from it.
+  const [mountQuery] = useState(initialQuery)
+  const [query, setQuery] = useState(mountQuery)
   const [scope, setScope] = useState<string | null>(null)
   // Debounced query drives the actual fetch so we don't hit the network (and,
   // for artifacts/sessions, re-scan content server-side) on every keystroke.
-  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState(mountQuery)
   const resultsRef = useRef<Result[]>([])
 
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -432,9 +443,9 @@ export default function CommandPalette({
   // Reset query + scope each time the palette (re)opens, and focus input.
   useEffect(() => {
     if (!open) return
-    setQuery('')
+    setQuery(mountQuery)
     setScope(null)
-    setDebouncedQuery('')
+    setDebouncedQuery(mountQuery)
     const prev = document.activeElement
     restoreFocusRef.current = prev instanceof HTMLElement && prev !== document.body ? prev : null
     const id = requestAnimationFrame(() => inputRef.current?.focus())
@@ -447,7 +458,7 @@ export default function CommandPalette({
       if (back.isConnected) back.focus()
       else focusComposerNow()
     }
-  }, [open])
+  }, [open, mountQuery])
 
   // Window-capture listener for the two keys the shared hook doesn't own the
   // way the palette needs: Tab (cycle category) and ⌥/Alt+Enter (preview).

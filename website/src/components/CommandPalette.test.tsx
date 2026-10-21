@@ -203,7 +203,25 @@ vi.mock('../store', () => ({
   useAppSelector: (sel: (s: unknown) => unknown) => sel(H.storeState),
 }))
 
+/**
+ * A contributed overlay whose chunk import is pending until the test settles
+ * `promise`, then rejects, the way a chunk hash removed by a deploy does. Stable
+ * identity, so a re-render does not remount it.
+ */
+const failingChunk = vi.hoisted(() => {
+  const state = { promise: Promise.resolve() as Promise<void>, settled: false }
+  const Overlay = () => {
+    if (!state.settled) throw state.promise.then(() => { state.settled = true })
+    throw new Error('chunk gone')
+  }
+  return { state, Overlay }
+})
+vi.mock('../apps/overlayRegistry', () => ({
+  getBuiltinOverlay: () => failingChunk.Overlay,
+}))
+
 import CommandPalette from './CommandPalette'
+import QuickSearchSurface from './QuickSearchSurface'
 import { useCommandPalette, DOUBLE_SHIFT_WINDOW_MS } from '../hooks/useCommandPalette'
 import { SHORTCUTS_ENABLED_KEY } from '../hooks/useKeyboardShortcuts'
 import { QUICK_SEARCH_SHORTCUT_KEY } from '../lib/quickSearchShortcut'
@@ -1205,5 +1223,47 @@ describe('CommandPalette — focus restore on close', () => {
     rerender(<CommandPalette open={false} onClose={onClose} />)
 
     expect(document.activeElement).not.toBe(prev)
+  })
+})
+
+describe('CommandPalette — fallback for a failed overlay chunk', () => {
+  it('opens on the keys typed before the chunk failed, and Enter acts on them', async () => {
+    // QuickSearchSurface falls back to this palette when the overlay's import rejects.
+    // Keys typed while the import was pending must arrive here: opening on an empty
+    // query shows the recents list, and Enter would switch to the newest session.
+    let release: () => void = () => {}
+    failingChunk.state.settled = false
+    failingChunk.state.promise = new Promise<void>(r => { release = r })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const onClose = vi.fn()
+      render(
+        <QuickSearchSurface
+          owners={{ 'quick-search': { app: 'command-bar', overlayId: 'command-bar' } }}
+          open
+          onClose={onClose}
+        />,
+        { wrapper },
+      )
+      const catcher = document.activeElement as HTMLInputElement
+      expect(catcher.tagName).toBe('INPUT')
+      fireEvent.change(catcher, { target: { value: 'alice' } })
+      await act(async () => { release(); await failingChunk.state.promise })
+
+      const input = await screen.findByRole('textbox', { name: 'Search everywhere' })
+      expect(input).toHaveValue('alice')
+      expect(await screen.findByText('All Result')).toBeInTheDocument()
+      expect(H.allProvider.search).toHaveBeenCalledWith('alice')
+      expect(screen.queryByText('Recent Session')).toBeNull()
+
+      act(() => H.nav.current?.onChoose?.(0, false))
+      expect(H.onActivateAll).toHaveBeenCalledTimes(1)
+      expect(H.onActivateRecent).not.toHaveBeenCalled()
+      expect(onClose).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+      error.mockRestore()
+    }
   })
 })

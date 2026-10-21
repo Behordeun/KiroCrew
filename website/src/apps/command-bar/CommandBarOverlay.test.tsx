@@ -179,6 +179,27 @@ describe('CommandBarOverlay rows', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/Enter/)
   })
 
+  it('starts from the type-ahead the host caught, and Enter acts on it', async () => {
+    // Keys typed while the chunk loaded arrive as `initialQuery`. Without them the
+    // first render is the idle root, and Enter opens the newest Recent session.
+    resolvingDispatch()
+    const onClose = vi.fn()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <CommandBarOverlay open onClose={onClose} initialQuery="New session" />
+      </QueryClientProvider>,
+    )
+    const input = screen.getByRole('combobox') as HTMLInputElement
+    expect(input.value).toBe('New session')
+    // The caret sits after the caught text, so the next key extends it.
+    expect(input.selectionStart).toBe('New session'.length)
+    expect(screen.getAllByRole('option')[0].textContent).toContain('New Session')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(dispatch).toHaveBeenCalledWith({ type: 'createSlot', arg: undefined })
+  })
+
   it('navigates to the new session so a success is visible off the chat page', async () => {
     // Created from Settings or Task Runner without this, the session lands off-screen
     // and the success reads as a failure -- the user runs it again into a duplicate.

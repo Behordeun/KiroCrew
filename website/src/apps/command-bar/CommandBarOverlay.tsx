@@ -56,9 +56,11 @@ import { commandBarOverlaySlotRenderer } from './CommandBarOverlaySlot'
 export default function CommandBarOverlay({
   open,
   onClose,
+  initialQuery = '',
 }: {
   open: boolean
   onClose: () => void
+  initialQuery?: string
 }) {
   const ime = useImeGuard()
   /**
@@ -78,8 +80,11 @@ export default function CommandBarOverlay({
   const vv = useVisualViewport()
   const inputRef = useRef<HTMLInputElement | null>(null)
   const dialogRef = useRef<HTMLDivElement | null>(null)
-  const [query, setQuery] = useState('')
-  const [debounced, setDebounced] = useState('')
+  // Seeded from what the host caught while this chunk loaded, so keys typed right
+  // after the gesture rank the first render instead of being lost. The host mounts
+  // the bar once per open, so this is also what makes each open start fresh.
+  const [query, setQuery] = useState(initialQuery)
+  const [debounced, setDebounced] = useState(initialQuery)
   const [scope, setScope] = useState<Scope>(null)
   /**
    * The contributed command whose ARGUMENT the field is currently collecting.
@@ -224,10 +229,10 @@ export default function CommandBarOverlay({
     mates,
   } = useCommandBarOverlayEngines({ scope, liveSlots, dispatch, navigate })
 
+  // The query is NOT reset here. It is seeded at mount, and clearing it on the open
+  // edge would drop the type-ahead along with anything typed before this effect ran.
   useEffect(() => {
     if (!open) return
-    setQuery('')
-    setDebounced('')
     setScope(null)
     setArgCommand(null)
     setSelected(0)
