@@ -53,7 +53,7 @@ from kiro_crew.platform.context import (
 )
 
 if TYPE_CHECKING:  # real types for annotations; never imported at runtime
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     from opentelemetry.sdk.metrics import MeterProvider as _MeterProviderT
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader as _ReaderT
@@ -652,6 +652,30 @@ def _default_metrics_dir() -> Path:
     return config_dir() / "metrics"
 
 
+#: Resource attribute naming which Kiro Crew process published a series, for the
+#: processes that need telling apart. Only the MCP gateway daemon sets it today;
+#: every other process leaves it ABSENT, so their resources (and series) are
+#: unchanged. Without it the daemon's ``kirocrew.process.*`` gauges carry the same
+#: resource keys as the main process's and differ only in ``process.pid``.
+RESOURCE_ATTR_PROCESS_ROLE = "kirocrew.process.role"
+#: Its only value: the MCP gateway daemon. A second role gets its own flag (and
+#: a closed set) when a second process has a caller for it.
+PROCESS_ROLE_GATEWAYD = "gatewayd"
+
+_is_gatewayd = False
+
+
+def mark_gatewayd_process() -> None:
+    """Stamp every resource this process builds from now on as the gateway daemon.
+
+    Called once, by gatewayd, before its first ``get_recorder()``: a resource is
+    built once per recorder, and a role that appears mid-life reads downstream
+    as a new series set.
+    """
+    global _is_gatewayd
+    _is_gatewayd = True
+
+
 def _resource_attributes() -> "dict[str, str | int]":
     """Resource attributes for the MeterProvider.
 
@@ -740,6 +764,8 @@ def _resource_attributes() -> "dict[str, str | int]":
         attrs["process.pid"] = int(os.getpid())
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("process.pid resource attr unavailable: %s", exc)
+    if _is_gatewayd:
+        attrs[RESOURCE_ATTR_PROCESS_ROLE] = PROCESS_ROLE_GATEWAYD
     try:
         attrs["service.version"] = beacon.release(__version__)
     except Exception as exc:  # pragma: no cover - defensive
@@ -957,6 +983,16 @@ def _build_recorder() -> _Build:
             register_session_tree_gauge(meter)
         except Exception:
             logger.warning("session-tree gauge unavailable", exc_info=True)
+        # MCP gateway pool gauges: same consent gate and callback contract, in
+        # their OWN try for the same reason as the sets above. They observe only
+        # in the process that bound a pool (gatewayd); everywhere else the
+        # callbacks return before reading anything, so no series is published.
+        try:
+            from kiro_crew.metrics.mcp_gateway_gauges import register_mcp_gateway_gauges
+
+            register_mcp_gateway_gauges(meter)
+        except Exception:
+            logger.warning("mcp gateway gauges unavailable", exc_info=True)
         return _Build(MetricsRecorder(meter), provider, consent)
     except Exception as exc:
         logger.warning("telemetry init failed; metrics disabled: %s", exc)
@@ -1016,11 +1052,48 @@ def otlp_egress_active(cfg: "TelemetryConfig") -> bool:
     raised INSIDE an implementation still propagates: only an absent attribute is
     read as no-destinations.
     """
-    provider = current_context().telemetry
+    provider = _telemetry_provider()
     resolve = getattr(provider, "otlp_destinations", None)
     if resolve is None:
         return False
     return bool(_filter_metric_destinations(resolve(cfg)))
+
+
+#: A process that does not install a platform context names where its telemetry
+#: provider comes from here (see :func:`use_telemetry_provider`). ``None`` -- every
+#: process that boots the platform -- reads ``current_context().telemetry``.
+_provider_factory: "Optional[Callable[[], object]]" = None
+_provider_memo: Optional[object] = None
+_provider_lock = threading.Lock()
+
+
+def use_telemetry_provider(factory: "Optional[Callable[[], object]]") -> None:
+    """Resolve OTLP destinations through *factory* instead of the platform context.
+
+    For a process that never runs ``boot_platform`` (the MCP gateway daemon). On a
+    non-standalone profile ``current_context()`` raises there, so without this its
+    metrics never leave the local sink. The factory is called lazily, at most once
+    successfully, and only from a recorder build that already passed the consent
+    gate -- so an off-consent process never composes anything. A factory that
+    raises is retried on the next build and costs only egress, never collection.
+    ``None`` restores the platform-context path.
+    """
+    global _provider_factory, _provider_memo
+    with _provider_lock:
+        _provider_factory = factory
+        _provider_memo = None
+
+
+def _telemetry_provider() -> object:
+    """The telemetry provider whose ``otlp_destinations`` this process honours."""
+    global _provider_memo
+    factory = _provider_factory
+    if factory is None:
+        return current_context().telemetry
+    with _provider_lock:
+        if _provider_memo is None:
+            _provider_memo = factory()
+        return _provider_memo
 
 
 def _filter_metric_destinations(
@@ -1058,7 +1131,7 @@ def _otlp_destinations(cfg: "TelemetryConfig") -> "tuple[OtlpDestination, ...]":
     """
     try:
         supplied = safe_context_call(
-            lambda: current_context().telemetry.otlp_destinations(cfg),
+            lambda: _telemetry_provider().otlp_destinations(cfg),  # type: ignore[attr-defined]
             # A raising provider contributes NOTHING, but it must not do so
             # quietly: safe_context_call's own log_message is debug-level, and a
             # default install collects WARNING and above, so relying on it alone
@@ -1344,6 +1417,29 @@ def get_recorder() -> MetricsRecorder:
     return _recorder
 
 
+def recheck_consent() -> None:
+    """Re-read ``telemetry.enabled`` now, whatever the recheck window says.
+
+    For a process whose only periodic caller is a timer (the MCP gateway
+    daemon's consent sweeper). ``get_recorder()`` rechecks only once the window
+    has elapsed since the worker's last stamp, and the worker stamps AFTER its
+    config read; a timer that ticks once per window therefore lands just short
+    of it and sees a recheck only every other tick. Calling this from the timer
+    makes every tick a real recheck, so a withdrawal is applied within one tick
+    interval plus the read.
+
+    Never reads config or builds on the calling thread: a live recorder hands
+    the read to the same worker ``get_recorder()`` uses (one at a time; a check
+    already in flight is not doubled). Without a live recorder this is
+    ``get_recorder()``.
+    """
+    with _lock:
+        if _initialized and _recorder is not None:
+            _schedule_consent_check_locked()
+            return
+    get_recorder()
+
+
 def _consent_recheck_due() -> bool:
     """Whether the recheck window has elapsed. Cheap enough for the hot path."""
     return (time.monotonic() - _consent_checked_at) >= _CONSENT_RECHECK_SECS
@@ -1484,11 +1580,15 @@ def reset_for_testing() -> None:
     guarantees every test starts from a state with no worker able to mutate
     module globals underneath it.
     """
-    global _ever_built
+    global _ever_built, _is_gatewayd
     shutdown()
     _wait_for_in_flight_consent_worker()
     with _lock:
         _ever_built = False
+    # A process-level provider override and role (a gatewayd entry point run
+    # in-process) are state too; the next test starts from neither.
+    use_telemetry_provider(None)
+    _is_gatewayd = False
 
 
 #: The registered telemetry applier, kept so ``watch_config`` stays idempotent.

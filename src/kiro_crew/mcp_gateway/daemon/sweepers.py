@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Optional
 from kiro_crew.mcp_gateway import backend_record, hazards, lifecycle_log
 from kiro_crew.mcp_gateway.daemon import logger
 from kiro_crew.mcp_gateway.pool import BackendPool
+from kiro_crew.metrics.provider import recheck_consent
 
 if TYPE_CHECKING:
     from kiro_crew.mcp_gateway import gatewayd as facade
@@ -56,6 +57,37 @@ async def _idle_sweeper(
                     logger.debug("idle sweep evicted %d backends", evicted)
             except Exception:  # pragma: no cover — defensive
                 logger.exception("idle sweep failed; continuing")
+    except asyncio.CancelledError:
+        pass
+
+
+async def _telemetry_consent_sweeper(interval: float, stop_event: asyncio.Event) -> None:
+    """Re-read telemetry consent once per ``interval`` so a change is applied.
+
+    The recorder re-reads ``telemetry.enabled`` only from inside
+    ``get_recorder()``, and in this daemon that is otherwise called only when a
+    backend is acquired. The observable gauges keep exporting from the reader's
+    own thread, so an idle daemon would never notice a withdrawal.
+
+    Each tick FORCES a recheck (``recheck_consent``) rather than calling
+    ``get_recorder()``: that one rechecks only once a full window has passed
+    since the worker's last stamp, which lands after the tick that started the
+    read, so a tick per window would re-read only every other tick. A forced
+    tick bounds a withdrawal at ``interval`` plus the read; gatewayd ticks at
+    half the provider's window. The read and any rebuild run on the provider's
+    worker thread, never on the loop.
+    """
+    try:
+        while not stop_event.is_set():
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+                break
+            except asyncio.TimeoutError:
+                pass
+            try:
+                recheck_consent()
+            except Exception:  # telemetry must never break the daemon
+                logger.debug("telemetry consent recheck failed", exc_info=True)
     except asyncio.CancelledError:
         pass
 
