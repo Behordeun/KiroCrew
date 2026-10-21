@@ -198,6 +198,16 @@ export function useSidebarReveal({ sidebarRootRef, dispatch, localSlots, revealB
       console.debug('reveal-in-sidebar: no session for key', key)
       return
     }
+    // A default-folder create's request (see `revealRequest.openFoldersOnly`):
+    // open the folder path and stop. The user created a chat; they did not ask
+    // to drop their search or filters, so a row a filter hides stays hidden
+    // until they clear it, exactly as after a folder "+" create. A new chat is
+    // never stale-collapsed and has no conductor, and the row needs no flash
+    // to be found, so the steps below do not apply.
+    if (revealRequest.openFoldersOnly) {
+      if (slot.folder_id) expandFolderAncestors(slot.folder_id)
+      return
+    }
     // Reveal means "show me this row", so drop every filter hiding the target
     // rather than scrolling to nothing (#912 D5). Registered in one list: `revealBlockingFilters`.
     for (const dim of revealBlockingFilters) if (dim.hides(slot)) dim.clear(slot)
