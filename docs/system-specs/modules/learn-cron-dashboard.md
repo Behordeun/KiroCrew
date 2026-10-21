@@ -4334,7 +4334,11 @@ still refresh while the dashboard body is blocked. On a new gateway it:
    redirects there);
 3. shows the Linux/macOS or Windows one-line Kiro CLI install command to copy,
    and links to Kiro's official setup page (`OFFICIAL_INSTALL_DOCS_URL`,
-   `https://kiro.dev/cli/`). Neither action runs an installer in Kiro Crew;
+   `https://kiro.dev/cli/`). On a Linux host without `unzip`, which the
+   installer refuses to run without, on the gateway's PATH or in the system bin
+   directories a login shell has, the not-found probe sets `unzip_missing`. The
+   card then names the `apt` and `dnf` commands that install it as a first step,
+   and words the install command as the step after it. Neither action runs an installer in Kiro Crew;
 4. once a viable CLI is found, names the commands the USER runs to sign in
    (`KIRO_CLI_LOGIN_COMMAND`, `kiro-cli login`, for a personal account, and
    `KIRO_CLI_SSO_LOGIN_COMMAND`, `kiro-cli login --use-device-flow --license pro`,
