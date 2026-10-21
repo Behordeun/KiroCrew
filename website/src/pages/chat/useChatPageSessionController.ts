@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { unwrapResult } from '@reduxjs/toolkit'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { NavigateFunction, NavigationType } from 'react-router-dom'
 
@@ -18,7 +19,6 @@ import {
 } from '../../store/chatSlice'
 import type { ChatSlot, SessionInfo } from '../../types'
 import { isChatPageSurface } from '../../utils/channelOrigin'
-import { writePrefill } from '../../utils/navIntent'
 import type { PasteBlock } from '../../utils/pasteTokens'
 import { isSafeReload } from '../../lib/safeReload'
 import { safeSetItem } from '../../utils/safeStorage'
@@ -257,8 +257,8 @@ export function useChatPageSessionController({
    * and drop the literal `1` / `plan` into its composer.
    *
    * Captured at MOUNT because ChatPage's own `?prefill=` reader strips the param
-   * from the URL, and consumed in `newSlotMutation.onSuccess` below, the only
-   * place that knows the created session's key.
+   * from the URL, and handed to `createSlot` by `newSlotMutation` below, which
+   * stages it under the created session's key before activating that session.
    */
   const initialPrefillRef = useRef(initialNewRef.current ? (searchParams.get('prefill') ?? '') : '')
   // Deep-link mount activation in progress — stops the sync effect from stripping
@@ -349,32 +349,39 @@ export function useChatPageSessionController({
 
   // ?new=1: create a blank slot for an embed or a fresh desktop window.
   const newSlotMutation = useMutation({
-    mutationFn: () => dispatch(createSlot({ mode, agent: appDraftAgentRef.current })).unwrap(),
+    // The launcher's prompt rides the create itself: the thunk stages it before
+    // the action that activates the slot, which is the only commit on which
+    // ChatPage's slot-restore effect reads `kirocrew_prefill`. Staging it in
+    // onSuccess would land after that read, so nothing would consume it.
+    mutationFn: async () => {
+      const prompt = initialPrefillRef.current
+      const action = await dispatch(createSlot({ mode, agent: appDraftAgentRef.current, prefill: prompt || undefined }))
+      // A rejected create throws here and keeps the prompt for the retry.
+      const slot = unwrapResult(action)
+      // Spent once: a retry of a failed create still carries the same intent, but
+      // must not re-seed a session the user has since typed into.
+      if (prompt && slot?.key) {
+        // Storage can refuse the write (disabled, or full past the store's own
+        // reclaim). Fall back to the in-memory `pendingInput` channel the command
+        // bar and file explorer already seed composers through, so a refused write
+        // degrades to "the prompt still arrives" rather than "the prompt is gone" —
+        // the launcher's URL is consumed by the navigate in onSuccess either way.
+        // `pendingInput` seeds whichever chat is active when it is dispatched.
+        // That is the new slot unless the user switched chats during the create:
+        // the fulfilled reducer then leaves their choice active, and the prompt
+        // seeds that chat instead.
+        if (!(createSlot.fulfilled.match(action) && action.meta.prefillStaged)) dispatch(setPendingInput(prompt))
+        // Cleared only after the prompt is staged SOMEWHERE, so neither branch can
+        // drop it: this is what makes the seed spent-once rather than lost-once.
+        initialPrefillRef.current = ''
+      }
+      return slot
+    },
     onSuccess: (slot) => {
       newSessionRef.current = false
       setNewSlotFailed(false)
       setSidError('')
       if (!slot?.key) return
-      // Stage the launcher's prompt BEFORE the navigate below: that navigate
-      // drops the query string, and the reader on the other side (ChatPage's
-      // slot-restore effect, via `kirocrew_prefill` with its 30s TTL) consumes
-      // the staged value when the new slot becomes active — so a seed written
-      // afterwards has nothing left to seed from. Spent once: a retry of a failed
-      // create still carries the same intent, but must not re-seed a session the
-      // user has since typed into.
-      if (initialPrefillRef.current) {
-        // Storage can refuse the write (disabled, or full past the store's own
-        // reclaim). Fall back to the in-memory `pendingInput` channel the command
-        // bar and file explorer already seed composers through, so a refused write
-        // degrades to "the prompt still arrives" rather than "the prompt is gone" —
-        // the launcher's URL is consumed by the navigate below either way.
-        if (!writePrefill(slot.key, initialPrefillRef.current)) {
-          dispatch(setPendingInput(initialPrefillRef.current))
-        }
-        // Cleared only after the prompt is staged SOMEWHERE, so neither branch can
-        // drop it: this is what makes the seed spent-once rather than lost-once.
-        initialPrefillRef.current = ''
-      }
       navigate(
         embedMode ? `/embed/chat/${slot.key}` : `/chat?sid=${encodeURIComponent(slot.key)}`,
         { replace: true },
@@ -404,8 +411,8 @@ export function useChatPageSessionController({
     appDraftAgentRef.current = undefined
     if (!embedded && launch?.autoSend === false && !launch.slotKey
       && Date.now() - (launch.ts ?? 0) <= 10_000) {
-      // Retain the claimed draft through create failure/retry. onSuccess is
-      // the single owner of the prefill-before-navigation handoff.
+      // Retain the claimed draft through create failure/retry. The create
+      // mutation is the single owner of the prefill handoff.
       initialPrefillRef.current = launch.message ?? ''
       appDraftAgentRef.current = launch.agent
       delete launchWindow.__mc_chat_launch

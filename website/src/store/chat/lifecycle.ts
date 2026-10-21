@@ -13,6 +13,7 @@ import { isChatPageSurface } from '../../utils/channelOrigin'
 import { mergePreservedPastes } from '../../utils/pasteTokens'
 import { findReport, parseErrorCode } from '../../utils/errorReport'
 import { errMessage } from '../../utils/thunkError'
+import { writePrefill } from '../../utils/navIntent'
 import type { HistoryDeleteRefusal } from '../../utils/historyDeleteRefusal'
 import type { ChatState } from './state'
 import { filterMessages, safeKey } from './wire'
@@ -41,8 +42,8 @@ const configuredDefaultMemoryMode = () =>
 
 export const createSlot = createAsyncThunk<
   ChatSlot,
-  { agent?: string; agent_kind?: 'member' | 'template'; appAgentOwner?: string; model?: string; mode?: string; memory_mode?: string; folder_id?: string | null; title?: string; color_index?: number | null; color_hex?: string | null; project?: string | null; activate?: boolean; sessionFolder?: boolean; defaultFolder?: boolean } | string | undefined,
-  { fulfilledMeta: { originActiveSlot: string | null; activate: boolean } }
+  { agent?: string; agent_kind?: 'member' | 'template'; appAgentOwner?: string; model?: string; mode?: string; memory_mode?: string; folder_id?: string | null; title?: string; color_index?: number | null; color_hex?: string | null; project?: string | null; activate?: boolean; sessionFolder?: boolean; defaultFolder?: boolean; prefill?: string } | string | undefined,
+  { fulfilledMeta: { originActiveSlot: string | null; activate: boolean; prefillStaged?: boolean } }
 >(
   'chat/createSlot',
   async (opts, { getState, fulfillWithValue }) => {
@@ -168,7 +169,16 @@ export const createSlot = createAsyncThunk<
     // the payload, so it can never leak into the persisted slot object. The
     // fulfilled reducer reads action.meta.originActiveSlot to decide whether
     // activating the new slot is safe.
-    return fulfillWithValue(slot, { originActiveSlot, activate })
+    //
+    // `prefill` seeds the new session's composer. It is staged HERE, before the
+    // fulfilled action, because the composer's slot-restore effect reads
+    // `kirocrew_prefill` once, on the commit that activates the slot. A caller
+    // writing it after awaiting this thunk lands after that read and is never
+    // consumed. `prefillStaged` is false when storage refused the write, so the
+    // caller can fall back to another channel.
+    const prefill = typeof opts === 'string' ? undefined : opts?.prefill
+    const prefillStaged = !!prefill && writePrefill(slot.key, prefill)
+    return fulfillWithValue(slot, { originActiveSlot, activate, prefillStaged })
   },
 )
 
