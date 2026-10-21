@@ -243,7 +243,9 @@ describe('command bar — copy the selected row', () => {
     // would test the ranking instead of the copy layer. Hovering is how a reader
     // moves the selection onto a row without activating it.
     await waitFor(() => expect(hasRow('Search Artifacts')).toBe(true))
-    fireEvent.mouseEnter(rowByText('Search Artifacts'))
+    // Hover selects on real pointer motion, so the pointer moves across the row.
+    fireEvent.mouseMove(rowByText('Search Artifacts'), { clientX: 10, clientY: 10 })
+    fireEvent.mouseMove(rowByText('Search Artifacts'), { clientX: 12, clientY: 10 })
     await waitFor(() => expect(selectedRow().textContent).toContain('Search Artifacts'))
     pressCopy()
     await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Nothing here to copy.'))
