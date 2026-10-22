@@ -11,7 +11,7 @@ import { GuideProvider } from './guide/GuideContext'
 import { metricColor } from './utils/metricColor'
 import { railWidthFor } from './hooks/useRailWidth'
 import { FOCUS_INSET } from './hooks/useFocusMode'
-import { OVERLAY_Z_MAX, THEME_DECOR_SLOT_ID, registerThemeDecorSlot } from './lib/themeDecorLayer'
+import { OVERLAY_Z_MAX, THEME_DECOR_BEHIND_SLOT_ID, THEME_DECOR_SLOT_ID, registerThemeDecorBehindSlot, registerThemeDecorSlot } from './lib/themeDecorLayer'
 import { ZoomProvider } from './hooks/ZoomProvider'
 import { api } from './api/client'
 import { MetricsCard } from './shell/topbar/metricsReadout'
@@ -621,6 +621,16 @@ export default function App() {
         data-testid="theme-decor-slot"
         className="fixed inset-0 pointer-events-none"
         style={{ zIndex: OVERLAY_Z_MAX }}
+      />
+      {/* Behind-content slot for `layer: "behind"` overlays. z-index -1 inside
+          the shell's stacking context paints over the shell's bg-bg but under
+          the non-positioned nav and content, so bubbles and cards cover it. */}
+      <div
+        id={THEME_DECOR_BEHIND_SLOT_ID}
+        ref={registerThemeDecorBehindSlot}
+        data-testid="theme-decor-slot-behind"
+        className="fixed inset-0 pointer-events-none"
+        style={{ zIndex: -1 }}
       />
 
       {/* Full-height activity bar slot: ChatSidePanels portals its
