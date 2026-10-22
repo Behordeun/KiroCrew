@@ -129,6 +129,84 @@ class TestRunning:
         assert steer.await_args.kwargs["user_origin"] is False
 
 
+class TestPeer:
+    """A peer's text is a ``user`` row on both paths, never the human stamp."""
+
+    @pytest.mark.asyncio
+    async def test_an_idle_slot_runs_a_peer_send_as_a_user_row(self, state):
+        from kiro_crew.history import HUMAN_TURN_META_KEY
+
+        slot = state.get_or_create_slot("idle")
+        ran: list[str] = []
+
+        async def _fake_run_chat(_state, _slot, prompt, **_kw):
+            ran.append(prompt)
+
+        with patch("kiro_crew.dashboard.chat_runner._run_chat", _fake_run_chat):
+            out = await sd.deliver(state, slot, "peer text", sd.peer(steer=False))
+            await slot.task
+        assert out == sd.DELIVERED_TURN
+        assert ran == ["peer text"]
+        rows = [m for m in slot.messages if m.get("content") == "peer text"]
+        assert [r["role"] for r in rows] == ["user"]
+        assert HUMAN_TURN_META_KEY not in (rows[0].get("meta") or {})
+
+    @pytest.mark.asyncio
+    async def test_a_steer_that_finds_the_turn_ended_delivers_nothing(self, state):
+        """The steer arm alone: the caller's fallback is the one delivery."""
+        slot = state.get_or_create_slot("idle")
+        steer = AsyncMock()
+        with patch("kiro_crew.dashboard.chat_delivery.steer_into_running_turn", steer):
+            out = await sd.deliver(state, slot, "late", sd.peer(steer=True), admission={})
+        assert out == sd.NOT_DELIVERED
+        steer.assert_not_awaited()
+        assert slot.messages == [] and slot._queue == [] and slot.task is None
+
+    @pytest.mark.asyncio
+    async def test_a_running_slot_queues_a_peer_send_that_did_not_ask_to_steer(self, state):
+        slot = _running_slot(state)
+        steer = AsyncMock()
+        with patch("kiro_crew.dashboard.chat_delivery.steer_into_running_turn", steer):
+            out = await sd.deliver(
+                state, slot, "later", sd.peer(steer=False), queue_meta={"sendOrigin": "x"}
+            )
+        assert out == sd.DELIVERED_QUEUED
+        steer.assert_not_awaited()
+        assert slot._queue[0]["content"] == "later"
+        assert slot._queue[0]["meta"]["sendOrigin"] == "x"
+
+    @pytest.mark.asyncio
+    async def test_a_running_slot_steers_a_peer_send_as_a_user_row(self, state):
+        slot = _running_slot(state)
+        client = MagicMock()
+        client.supports_steer = True
+        client.steer = AsyncMock(return_value=True)
+        slot._acp_client = client
+
+        out = await sd.deliver(state, slot, "now", sd.peer(steer=True), admission={})
+
+        assert out == sd.DELIVERED_STEERED
+        rows = [m for m in slot.messages if m.get("content") == "now"]
+        assert [r["role"] for r in rows] == ["user"]
+        assert rows[0]["meta"]["steer"] is True
+        assert "nudge" not in rows[0]["meta"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "steer_outcome, expected",
+        [("requeued", sd.DELIVERED_REQUEUED), ("unavailable", sd.NOT_DELIVERED)],
+    )
+    async def test_a_peer_steer_outcome_maps_to_a_delivery(self, state, steer_outcome, expected):
+        slot = _running_slot(state)
+        steer = AsyncMock(return_value=steer_outcome)
+        with patch("kiro_crew.dashboard.chat_delivery.steer_into_running_turn", steer):
+            out = await sd.deliver(state, slot, "now", sd.peer(steer=True), admission={"a": 1})
+        assert out == expected
+        assert steer.await_args.kwargs["user_origin"] is False
+        assert steer.await_args.kwargs["admission"] == {"a": 1}
+        assert "nudge_meta" not in steer.await_args.kwargs
+
+
 def test_origin_row_is_the_one_mapping():
     assert sd.origin_row(sd.automation(2, "l"))[:2] == ("nudge", "msg msg-nudge")
     assert sd.origin_row(sd.cron("c"))[0] == "inject"

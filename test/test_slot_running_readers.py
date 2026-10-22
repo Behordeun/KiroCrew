@@ -177,6 +177,8 @@ def test_running_and_turn_running_slot_readers_are_enumerated() -> None:
                 # The session-side delivery entry point: idle gets a row and a
                 # turn, a reserved slot gets the queue or a steer.
                 ("session_deliver.py", "deliver"),
+                # A peer's steer needs a running turn to cut into.
+                ("session_deliver.py", "_deliver_peer"),
                 ("session_control_parts/session_create.py", "create_session"),
                 # The roster verb. Reservation state, like `read_messages` beside
                 # it and for the same reason: it reports whether a session is

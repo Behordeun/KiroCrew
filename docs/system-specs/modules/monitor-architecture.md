@@ -252,8 +252,11 @@ sender never picks idle vs running or a row role: `origin_row` maps the origin t
 its row, an idle slot gets that row and a turn, and a running slot gets the steer
 (an automation wake) or a queued card (a cron notification, an app message). A
 script cron's result (`_deliver_script_result`) and an MCP App's `ui/message`
-(`api_mcp_apps_message`) call it too. The idle autonudge fire and a peer
-`session_send` still choose their own branch.
+(`api_mcp_apps_message`) call it too, and so does a peer `session_send`
+(`send_to_target`) with a `peer` origin: a `user` row on both paths, a steer only
+when it asked for one and the slot is running. `send_to_target` keeps its audience
+fence, cancellation shield and post-RPC re-gate around those calls. The idle
+autonudge fire still chooses its own branch.
 
 The `monitoring/` package now has a different extension point:
 `models.MonitorProbe`, a structural Protocol with no behaviour inheritance, plus

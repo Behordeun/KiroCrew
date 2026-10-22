@@ -5,7 +5,9 @@ lands. An idle slot gets the origin's row and a turn; a running slot gets the
 origin's running-path delivery (a steer for an automation wake, the queue for a
 cron notification or an app message). The row's role and meta come from the
 origin alone (:func:`origin_row`), so the same sender never draws as two
-different rows depending on whether the slot happened to be busy.
+different rows depending on whether the slot happened to be busy. A peer
+session's ``session_send`` is a ``user`` row on both paths: a steer when it asks
+for one and the slot is running, else the queue-or-run path.
 
 Callers keep their own authorization, redaction and audit: everything here runs
 after the caller's gate has cleared the delivery. The person's own typing does
@@ -26,6 +28,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 ORIGIN_AUTOMATION = "automation"
 ORIGIN_CRON = "cron"
 ORIGIN_APP = "app"
+#: Another session's ``session_send``: its row is a ``user`` row, written by the
+#: steer or the queue-or-run path like a typed message, and never the human stamp.
+ORIGIN_PEER = "peer"
 
 #: What :func:`deliver` did with the text.
 DELIVERED_TURN = "turn"
@@ -48,10 +53,21 @@ class Origin:
     kind: str
     label: str = ""
     nudge: dict | None = None
+    steer: bool = False
 
 
 def cron(label: str) -> Origin:
     return Origin(ORIGIN_CRON, label=label)
+
+
+def peer(*, steer: bool) -> Origin:
+    """A peer session's text.
+
+    ``steer=True`` is the steer arm only: it never queues or starts a turn, so a
+    caller whose turn ended before the steer ran gets :data:`NOT_DELIVERED` and
+    makes the one queue-or-run delivery itself (``steer=False``).
+    """
+    return Origin(ORIGIN_PEER, steer=steer)
 
 
 def app(label: str) -> Origin:
@@ -93,6 +109,7 @@ async def deliver(
     origin: Origin,
     *,
     admission: dict | None = None,
+    queue_meta: dict | None = None,
 ) -> str:
     """Deliver *text* from *origin* into *slot*; return a ``DELIVERED_*`` outcome.
 
@@ -109,6 +126,8 @@ async def deliver(
     drain re-checks it. :data:`QUEUE_FULL` means the live queue had no room and
     nothing was written.
     """
+    if origin.kind == ORIGIN_PEER:
+        return await _deliver_peer(state, slot, text, origin, admission, queue_meta)
     if slot.running:
         return await _deliver_running(state, slot, text, origin, admission)
     if origin.kind == ORIGIN_AUTOMATION:
@@ -191,3 +210,44 @@ async def _deliver_running(
         )
         return DELIVERED_QUEUED
     raise ValueError(f"unknown delivery origin: {origin.kind!r}")
+
+
+async def _deliver_peer(
+    state: "DashboardState",
+    slot: "_ChatSlot",
+    text: str,
+    origin: Origin,
+    admission: dict | None,
+    queue_meta: dict | None,
+) -> str:
+    """A peer's text: the steer arm when asked, else queue or run it.
+
+    The steer writes the ``user`` steer row; the queue-or-run path writes the
+    ``user`` row a queued or started send gets. ``user_origin=False`` on both, so
+    a peer never inherits the person's exemption from the drain's linked drop.
+    *queue_meta* rides the queue entry only (``enqueue_or_run_prompt``'s
+    ``extra_meta``), and *admission* is the steer's requeue baseline.
+    """
+    if origin.steer:
+        if not slot.running:
+            # The turn ended before this ran. Never fall through to queue-or-run
+            # here: the caller's fallback delivers it, and two arms would run it twice.
+            return NOT_DELIVERED
+        from kiro_crew.dashboard.chat_delivery import (
+            STEER_REQUEUED,
+            STEER_STEERED,
+            steer_into_running_turn,
+        )
+
+        outcome = await steer_into_running_turn(
+            state, slot, text, user_origin=False, admission=admission
+        )
+        if outcome == STEER_STEERED:
+            return DELIVERED_STEERED
+        if outcome == STEER_REQUEUED:
+            return DELIVERED_REQUEUED
+        return NOT_DELIVERED
+    from kiro_crew.dashboard.chat_runner import _run_chat
+
+    started = slot.enqueue_or_run_prompt(text, _run_chat, state, extra_meta=queue_meta)
+    return DELIVERED_TURN if started else DELIVERED_QUEUED
