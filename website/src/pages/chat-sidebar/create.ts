@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { type ErrorReport, findReport } from '../../utils/errorReport'
 import { isStaleProjectDirError, resolveFolderAgent, resolveFolderProjectDir } from '../../utils/folderAgent'
 import { unwrapResult } from '@reduxjs/toolkit'
-import { createSlot, requestSlotFolderOpen } from '../../store/chatSlice'
+import { captureForkOrigin, createSlot, forkMayOpen, type ForkOrigin, requestSlotFolderOpen } from '../../store/chatSlice'
 import { focusComposer } from '../chat/composerFocus'
 import { i18nT } from '../../i18n/t'
 import type { Slot } from './types'
@@ -37,26 +37,26 @@ export type NewTabMode = 'foreground' | 'background' | false
 
 /**
  * The tab mode a gesture's create may still use once it has resolved. A
- * foreground open switches the view, so it is only safe while the user is
- * still on the session they clicked from: if they moved while the create was
- * in flight, switching would take them off the session they just picked (the
+ * foreground open switches the view, so it is only safe while the user has
+ * not moved since they clicked: if they moved while the create was in flight,
+ * even back to the same session, switching would undo what they just picked (the
  * hijack createSlot's own origin check prevents for a plain create, which
  * `activate: false` skips). Then the tab still opens, in the background.
  */
-function settledTabMode(store: { getState: () => RootState }, inNewTab: NewTabMode, originSlot: string | null): NewTabMode {
+function settledTabMode(store: { getState: () => RootState }, inNewTab: NewTabMode, origin: ForkOrigin): NewTabMode {
   if (inNewTab !== 'foreground') return inNewTab
-  return (store.getState().chat?.activeSlot ?? null) === originSlot ? 'foreground' : 'background'
+  return forkMayOpen(store.getState(), origin) ? 'foreground' : 'background'
 }
 
 /**
- * Dispatch createSlot and return the new slot with the session that was
- * active when the create started. createSlot already records that origin in
- * its fulfilled meta, which `.unwrap()` would drop. A rejection throws exactly
+ * Dispatch createSlot and return the new slot with where the user stood
+ * when the create started. createSlot already records that origin in its
+ * fulfilled meta, which `.unwrap()` would drop. A rejection throws exactly
  * as `.unwrap()` does, so the callers' onError paths are unchanged.
  */
-async function createSlotWithOrigin(dispatch: AppDispatch, args: Parameters<typeof createSlot>[0]): Promise<{ slot: Slot; originSlot: string | null }> {
+async function createSlotWithOrigin(dispatch: AppDispatch, args: Parameters<typeof createSlot>[0]): Promise<{ slot: Slot; origin: ForkOrigin }> {
   const action = await dispatch(createSlot(args))
-  if (createSlot.fulfilled.match(action)) return { slot: action.payload, originSlot: action.meta.originActiveSlot ?? null }
+  if (createSlot.fulfilled.match(action)) return { slot: action.payload, origin: { activeSlot: action.meta.originActiveSlot ?? null, moves: action.meta.originActiveSlotMoves, autoMoves: action.meta.originActiveSlotAutoMoves } }
   unwrapResult(action)
   throw new Error('createSlot settled without fulfilling or rejecting')
 }
@@ -123,8 +123,8 @@ export function useFolderChatCreate({ folders, mode, dispatch, dropSlotMutation,
       // contract as the header New button's gestures.
       return createSlotWithOrigin(dispatch, { agent, mode: mode || '', folder_id: folderId, project, activate: !inNewTab, ...(memoryMode ? { memory_mode: memoryMode } : {}) })
     },
-    onSuccess: ({ slot, originSlot }: { slot: Slot; originSlot: string | null }, { folderId, columnId, focus, attempt, inNewTab: requested }: CreateChatInFolderVars) => {
-      const inNewTab = settledTabMode(store, requested ?? false, originSlot)
+    onSuccess: ({ slot, origin }: { slot: Slot; origin: ForkOrigin }, { folderId, columnId, focus, attempt, inNewTab: requested }: CreateChatInFolderVars) => {
+      const inNewTab = settledTabMode(store, requested ?? false, origin)
       // A create that went through supersedes an earlier failure notice for
       // the same folder (e.g. the user fixed the folder's project directory
       // and retried); notices for OTHER folders stay put, and a stale success
@@ -307,8 +307,8 @@ export function useSessionCreate({ setNewChatError, dispatch, mode, onOpenSlotIn
       setNewChatError('')
       return createSlotWithOrigin(dispatch, { mode: mode || '', activate: !inNewTab, defaultFolder: true })
     },
-    onSuccess: ({ slot, originSlot }, { inNewTab: requested }) => {
-      const inNewTab = settledTabMode(store, requested, originSlot)
+    onSuccess: ({ slot, origin }, { inNewTab: requested }) => {
+      const inNewTab = settledTabMode(store, requested, origin)
       if (inNewTab && onOpenSlotInNewTab) {
         onOpenSlotInNewTab(slot.key, { background: inNewTab === 'background' })
         // Background: the user stays on their transcript, so its composer keeps
@@ -348,7 +348,7 @@ export function useSessionCreate({ setNewChatError, dispatch, mode, onOpenSlotIn
   const createRemoteChatMutation = useMutation({
     mutationFn: async (instanceId: string) => {
       setRemoteCrewError('')
-      const originSlot = store.getState().chat?.activeSlot ?? null
+      const origin = captureForkOrigin(store.getState())
       const originWindow = currentCrewWindow()
       const caps = await api.instancesCapabilities(instanceId)
       if (!caps.version_match) {
@@ -361,7 +361,7 @@ export function useSessionCreate({ setNewChatError, dispatch, mode, onOpenSlotIn
       void queryClient.invalidateQueries({ queryKey: ['instance-slots', instanceId] })
       // Same rule as createSlot.fulfilled: a user who moved during the
       // round-trip is not yanked onto the new session.
-      const moved = (store.getState().chat?.activeSlot ?? null) !== originSlot || currentCrewWindow() !== originWindow
+      const moved = !forkMayOpen(store.getState(), origin) || currentCrewWindow() !== originWindow
       if (moved) return
       if (onOpenPeerSession) onOpenPeerSession(instanceId, created.key)
       else openCrewWindow({ instanceId, key: created.key })
