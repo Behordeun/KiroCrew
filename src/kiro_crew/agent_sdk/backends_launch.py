@@ -185,7 +185,8 @@ ACP_BACKEND_LAUNCH: Mapping[str, SelfServedLaunch] = {
         binary="dsh",
         acp_args=("--profile", "acp"),
         bin_env_var="DSH_BIN",
-        install_command="npm i -g @deepseek-ai/dsh",
+        # Exact build the gate routing was measured on; an rc as upstream ships no stable.
+        install_command="npm i -g @deepseek-ai/dsh@0.2.0-rc.2",
         protocol_version=1,
         missing_hint=(
             "The ACP plugin package alone does not serve ACP: it is a plugin, and "
