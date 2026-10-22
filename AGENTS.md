@@ -323,8 +323,9 @@ job's `semgrep/test-determinism.yaml` refuses the commonest on a new line, and
 `test/test_flake_pattern_ratchet.py` counts per file the clock, wait, port, environment
 and module-cache shapes those patterns miss, failing a change that adds one to a file
 (measured against its merge-base; a deliberate one carries `# flake-ok: <reason>`).
-It is a local, pre-push gate (why: testing-conventions.md "Determinism contract"):
-run `python -m pytest -n0 test/test_flake_pattern_ratchet.py` before pushing.
+Fast Gate's `flake-pattern-ratchet` job runs it on every pull request and fails when it
+compares nothing (why: testing-conventions.md "Determinism contract"); run
+`python -m pytest -n0 test/test_flake_pattern_ratchet.py` before pushing to see it first.
 Contract:
 [testing-conventions § Determinism contract](docs/system-specs/common/testing-conventions.md#determinism-contract-read-this-first).
 
