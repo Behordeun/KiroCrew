@@ -907,6 +907,10 @@ export function useChatPageSessionController({
       popInFlightRef.current = false
     }
     if (!activeSlot) {
+      // A popout's `?sid=` names the session it was opened for. Dropping it
+      // would leave a reload with no sid of its own, and PopoutFrame would
+      // register the window for whatever chat it picked next.
+      if (popout) return
       if (sp.has('sid') && !initialSidRef.current && !pendingSidRef.current) {
         navigate(basePath, { replace: true })
       }
@@ -997,7 +1001,7 @@ export function useChatPageSessionController({
     // POPs are still funnelled through the `popInFlightRef` bail above, so this
     // adds a re-check, not a new writer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSlot, filteredSlots, slots, slotsGeneration, urlSidClose, urlSidRemoved, rewriteEligible, navigate, basePath, locationPathname, locationKey, embedded, noUrlSync, isMobile])
+  }, [activeSlot, filteredSlots, slots, slotsGeneration, urlSidClose, urlSidRemoved, rewriteEligible, navigate, basePath, locationPathname, locationKey, embedded, noUrlSync, isMobile, popout])
 
   // Re-fetch slot messages on mount (handles nav away + back).
   // Skip when newSession=1 — createSlot in send() will set the active slot;
@@ -1022,12 +1026,22 @@ export function useChatPageSessionController({
   // If no slots exist at all, auto-create one so the user lands in a ready chat
   const autoCreatedRef = useRef(false)
   const hadActiveSlotRef = useRef(false)
+  // The last chat THIS window showed. A popout is bound to it.
+  const lastShownSlotRef = useRef<string | null>(null)
+  // This window's own recency stack (activeSlot is never in it). The stored
+  // key is shared by every tab and popout of the origin, so it cannot say
+  // what this window was doing.
+  // Read through a ref: `switchSlot` rewrites the array on every dispatch, so
+  // as an effect dependency it would re-run the pick it just made.
+  const slotHistory = useAppSelector(s => s.chat.slotHistory)
+  const slotHistoryRef = useRef(slotHistory); slotHistoryRef.current = slotHistory
   // The hub's record of this pane's last chat (#16009), used for the first
   // pick only. A soft hint, unlike ?sid=: a chat that is gone falls through.
   const slotHintRef = useRef(embedded ? null : searchParams.get(PANE_SLOT_HINT_PARAM))
   useEffect(() => {
     if (activeSlot) {
       hadActiveSlotRef.current = true
+      lastShownSlotRef.current = activeSlot
       slotHintRef.current = null
       return
     }
@@ -1036,7 +1050,14 @@ export function useChatPageSessionController({
     // a different slot and orphan the linked one (breaking Slack mirroring).
     if (tokenConsumingRef.current) return
     if (newSessionRef.current || newSlotFailed) return
-    if (searchParams.get('slot') || searchParams.get('sid') || initialSidRef.current) return
+    const listed = new Set(filteredSlots.map(s => s.key))
+    // A popout only ever opens its own chat: the one it showed last, which its
+    // `?sid=` still names (the URL writer keeps it). With that chat unlisted it
+    // shows no chat and creates none, also after a reload, and it reopens the
+    // chat when a later frame lists it again.
+    const bound = popout && hadActiveSlotRef.current ? lastShownSlotRef.current : null
+    if (popout && !(bound && listed.has(bound))) return
+    if (!bound && (searchParams.get('slot') || searchParams.get('sid') || initialSidRef.current)) return
     // A crash-recovery reload opens nothing. The remembered chat -- or the first
     // one, which is often the same busy chat -- may be what froze the renderer,
     // and reopening it would freeze and kill it again (#12907). The user picks.
@@ -1044,11 +1065,16 @@ export function useChatPageSessionController({
     // closing it moves to a sibling as usual.
     if (filteredSlots.length > 0 && isSafeReload() && !hadActiveSlotRef.current) return
     if (filteredSlots.length > 0) {
-      const saved = localStorage.getItem(slotStorageKey)
+      // The stored key is a refresh memory, read for the first pick only. Every
+      // tab and popout rewrites it on each slots frame, so once this window has
+      // shown a chat, its own recency stack decides where it lands.
+      const recent = hadActiveSlotRef.current ? (slotHistoryRef.current ?? []).filter(k => listed.has(k)).pop() : undefined
+      const saved = hadActiveSlotRef.current ? null : localStorage.getItem(slotStorageKey)
       const hint = slotHintRef.current
       slotHintRef.current = null
-      const target = hint && filteredSlots.some(s => s.key === hint) ? hint
-        : saved && filteredSlots.find(s => s.key === saved) ? saved : filteredSlots[0].key
+      const target = bound ? bound
+        : hint && listed.has(hint) ? hint
+        : recent ?? (saved && listed.has(saved) ? saved : filteredSlots[0].key)
       dispatch(switchSlot({ key: target, automatic: true }))
     } else if (connected && slotsLoaded && !autoCreatedRef.current) {
       // Connected, slots fetched, and truly empty — auto-create one
@@ -1057,7 +1083,7 @@ export function useChatPageSessionController({
       // never the default crewmate alias.
       dispatch(createSlot({ mode }))
     }
-  }, [activeSlot, filteredSlots, searchParams, dispatch, slotStorageKey, connected, slotsLoaded, mode, newSlotFailed, newSessionRef, tokenConsumingRef])
+  }, [activeSlot, filteredSlots, searchParams, dispatch, slotStorageKey, connected, slotsLoaded, mode, newSlotFailed, newSessionRef, tokenConsumingRef, popout])
 
   // Slot switch: the virtualizer (keyed on sessionId = activeSlot) owns entry
   // placement — it force-pins to the bottom (arming follow) or restores a
