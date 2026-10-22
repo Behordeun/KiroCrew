@@ -416,11 +416,18 @@ export interface ChatState {
    *  cross-field nonce comparison has to restore.
    *
    *  `openFoldersOnly` marks a request the user did not ask for: the one a
-   *  default-folder create raises so its new row is not left inside a collapsed
-   *  folder. It opens the row's folder path, the same visibility a folder "+"
-   *  create gives, and nothing else: no filter, search or hide is cleared, and
-   *  there is no scroll or flash. */
-  revealRequest: { kind: 'session' | 'folder'; target: string; nonce: number; openFoldersOnly?: boolean } | null
+   *  default-folder create or an opened fork raises so its new row is not left
+   *  inside a collapsed folder. It opens the row's folder path, the same
+   *  visibility a folder "+" create gives, and nothing else: no filter, search
+   *  or hide is cleared, and there is no scroll or flash.
+   *
+   *  `folderId` is the folder the server filed the new row in, read from its
+   *  create or fork response. The folder-path open uses it instead of the
+   *  sidebar's row, because the row can be missing or stale when the request
+   *  runs: a slots frame can predate the new key or still carry an older copy
+   *  of the row. The sidebar keeps the request pending until the folder query
+   *  lists that folder, and drops it once the query settles without it. */
+  revealRequest: { kind: 'session' | 'folder'; target: string; nonce: number; openFoldersOnly?: boolean; folderId?: string } | null
   /** Never-reset counter feeding `revealRequest.nonce`, so revealing the same
    *  session (or folder) twice produces two distinct requests (a key-only request
    *  would make the second reveal indistinguishable from the first). Monotonic

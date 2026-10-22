@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, type MutableRefObject, type Dispatch, t
 import { useQuery } from '@tanstack/react-query'
 import { store, type AppDispatch, type AppStore } from '../store'
 import type { ErrorReport } from '../utils/errorReport'
-import { captureForkOrigin, forkMayOpen, forkOpenSettled, forkOpenStarted, forkSlot, switchSlot, createSlot, type FollowupItem, setPendingInput, clearFollowupCard, openActivityToTab } from '../store/chatSlice'
+import { captureForkOrigin, forkMayOpen, forkOpenSettled, forkOpenStarted, forkSlot, switchSlot, createSlot, type FollowupItem, setPendingInput, clearFollowupCard, openActivityToTab, requestSlotFolderOpen } from '../store/chatSlice'
 import { api } from '../api/client'
 import { safeSetSessionItem } from '../utils/safeStorage'
 import { extractPromptFromToken, extractSlackContextFromToken } from '../utils/tokenPrompt'
@@ -69,6 +69,11 @@ export function useForkSession({
       if (result.ok) {
         if (forkMayOpen(store.getState(), origin)) {
           const switching = dispatch(switchSlot(result.key))
+          // The child inherits this session's folder, which can be collapsed when
+          // the session was opened from the command bar, a tab or a link: open
+          // that path so the child's row shows. switchSlot.pending has already
+          // made the child active, so the request follows the activation.
+          dispatch(requestSlotFolderOpen({ key: result.key, folder_id: result.folder_id }))
           release()
           await switching
         }

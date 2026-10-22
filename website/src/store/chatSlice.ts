@@ -884,11 +884,20 @@ const chatSlice = createSlice({
      *  folders, scroll it into view, flash it). Consumed and cleared by
      *  ChatSidebar once it is mounted and ready — see `revealRequest`. */
     requestSlotReveal(state, action: PayloadAction<string>) { state.revealNonce += 1; state.revealRequest = { kind: 'session', target: action.payload, nonce: state.revealNonce } },
-    /** Ask the sidebar only to open a session row's folder path, keeping the
-     *  user's search and filters (see `revealRequest.openFoldersOnly`). Set by
-     *  the header New tab gesture that opens the new chat in the foreground,
-     *  which creates with `activate: false` and so skips createSlot's own request. */
-    requestSlotFolderOpen(state, action: PayloadAction<string>) { state.revealNonce += 1; state.revealRequest = { kind: 'session', target: action.payload, nonce: state.revealNonce, openFoldersOnly: true } },
+    /** Ask the sidebar only to open the folder path of a session the user just
+     *  opened, keeping their search and filters (see `revealRequest.openFoldersOnly`).
+     *  `folder_id` comes from the create or fork response, not from the listed row,
+     *  which can lag it. Set by every fork entry that opens its child (a fork child
+     *  inherits its source's folder, which can be collapsed or inside a collapsed
+     *  parent) and by the header New tab gesture that opens the new chat in the
+     *  foreground, which creates with `activate: false` and so skips createSlot's
+     *  own request. No-op for a session filed at the top level. */
+    requestSlotFolderOpen(state, action: PayloadAction<{ key: string; folder_id?: string | null }>) {
+      const { key, folder_id: folderId } = action.payload
+      if (!folderId) return
+      state.revealNonce += 1
+      state.revealRequest = { kind: 'session', target: key, nonce: state.revealNonce, openFoldersOnly: true, folderId }
+    },
     clearSlotReveal(state) { state.revealRequest = null },
     /** Ask the sidebar to reveal a FOLDER row: make it visible, expand it and every
      *  collapsed ancestor, scroll it into view, flash it. Set by the command

@@ -413,7 +413,7 @@ export function addLifecycleCases(builder: ActionReducerMapBuilder<ChatState>): 
       const arg = action.meta.arg
       if (typeof arg === 'object' && arg?.defaultFolder === true && action.payload.folder_id) {
         state.revealNonce += 1
-        state.revealRequest = { kind: 'session', target: action.payload.key, nonce: state.revealNonce, openFoldersOnly: true }
+        state.revealRequest = { kind: 'session', target: action.payload.key, nonce: state.revealNonce, openFoldersOnly: true, folderId: action.payload.folder_id }
       }
       // The replay floor belongs to the slot that was streaming, not to this
       // one. `state.lastChunkSeq` is the ACTIVE slot's floor, and a brand-new

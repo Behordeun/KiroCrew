@@ -4,7 +4,7 @@ import { api, ApiError } from '../api/client'
 import { apiErrorCode, isSlotCapError } from '../api/apiError'
 import { store, useAppDispatch } from '../store'
 import type { MuteFlag } from '../store/dashboardSlice'
-import { captureForkOrigin, deleteSlot, forkMayOpen, forkOpenSettled, forkOpenStarted, listForkedSlot, switchSlot } from '../store/chatSlice'
+import { captureForkOrigin, deleteSlot, forkMayOpen, forkOpenSettled, forkOpenStarted, listForkedSlot, requestSlotFolderOpen, switchSlot } from '../store/chatSlice'
 import { updateSlotPin, updateSlotMuteFlag, setSlotMuteFlagError, markSlotRead, markSlotUnread, slotWriteStampOf } from '../store/dashboardSlice'
 import { emitSlotRead } from '../lib/slotReadRelay'
 import { copySessionLink } from '../utils/shareUrl'
@@ -260,6 +260,10 @@ export function useSessionActions(mode?: string, opts?: {
         // listed, and the view and its chrome (Split View) stay as they are.
         if (!forkMayOpen(store.getState(), started.origin)) return
         dispatch(switchSlot(data.key))
+        // The child inherits the source's folder, which can be collapsed (the
+        // source row sits in the pinned group or a board lane, or another tab
+        // collapsed the folder meanwhile): open that path so the active row shows.
+        dispatch(requestSlotFolderOpen({ key: data.key, folder_id: data.folder_id }))
         // switchSlot.pending has already made the fork the active slot.
         onOpenedRef.current?.(data.key)
       }
