@@ -606,7 +606,10 @@ def test_the_runner_only_clears_text_on_an_observed_terminal() -> None:
     the accumulator is cleared, so the scan has to read it here). Only that
     named statement and comments are allowed through: an arbitrary statement
     between the guard and the reset still fails, which is what keeps this from
-    degrading into "the two lines appear somewhere in the file".
+    degrading into "the two lines appear somewhere in the file". The reset drops
+    the wire redactor's withheld tail first (``_drop_wire_tail``), which settles a
+    run held at an earlier tool call while the segment it may belong to is still
+    there to be cleared with it.
     """
     runner = (
         pathlib.Path(__file__).resolve().parents[1]
@@ -628,10 +631,8 @@ def test_the_runner_only_clears_text_on_an_observed_terminal() -> None:
         r"|(?:turn\.)?assistant_text|\))\n)*"
     )
     assert re.search(
-        r"if not event\.synthesized:[ \t]*\n"
-        + filler
-        + r'[ \t]*(?:turn\.)?assistant_text = (?:""|_cleared_segment_text\(slot\))[ \t]*\n'
-        r"[ \t]*_wsred\.reset\(\)",
+        r"if not event\.synthesized:[ \t]*\n" + filler + r"[ \t]*_drop_wire_tail\(turn\)[ \t]*\n"
+        r'[ \t]*(?:turn\.)?assistant_text = (?:""|_cleared_segment_text\(slot\))[ \t]*\n',
         src,
     ), "the compaction-terminal text reset must be guarded by `not event.synthesized`"
 

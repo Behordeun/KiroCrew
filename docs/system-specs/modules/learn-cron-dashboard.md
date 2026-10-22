@@ -2748,7 +2748,10 @@ persisted order is `[assistant(pre-steer), user(steer), assistant(post-steer)]`
 — identical to the live view. The cut persists SILENTLY: `broadcast=False`
 (no `chat_segment`), `quiet_persist=True` (no per-message `chat_message` from
 the append), and the wire redactor's withheld tail is dropped via
-`_wsred.reset()` rather than emitted (no late `chat_chunk`). At the cut
+`_drop_wire_tail()` rather than emitted (no late `chat_chunk`); a run it still
+holds from an earlier tool call or approval prompt is settled first, back on the
+row it was cut from or into the cut segment (see security.md, "A tool call or an
+approval prompt does not end the dashboard's redaction window"). At the cut
 boundary every client has already finalized its streaming message — the
 initiating tab froze at optimistic-push time, other tabs freeze on the
 `steer_push` echo — so any of those events would materialize a duplicate copy

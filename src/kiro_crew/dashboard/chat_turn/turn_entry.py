@@ -410,7 +410,10 @@ async def _turn_open(turn: _ChatTurn) -> _Flow | None:
     # this withholds the trailing credential-class run until it is confirmed safe
     # so raw fragments never reach WS/SSE consumers. assistant_text and the
     # slot's raw segment copy (what _flush_segment redacts as one text and
-    # saves) are accumulated independently and are unaffected. Reset per segment via _flush_text_stream / _wsred.reset().
+    # saves) are accumulated independently and are unaffected. Flushed where the
+    # reply's text ends (_flush_text_stream) and dropped with an abandoned segment
+    # (_drop_wire_tail); a tool call or approval prompt inside the reply does
+    # neither, see _cut_segment.
     # Deliberately NOT an owner-view seam: this wire stream fans to every
     # connected dashboard client, owner or not, and the finalized text is
     # redacted before it is appended, so the owner's credential-redaction switch
@@ -418,6 +421,9 @@ async def _turn_open(turn: _ChatTurn) -> _Flow | None:
     # viewer only -- see ``security.redaction_switch``).
     _wsred = StreamRedactor()
     turn._wsred = _wsred
+    # The runs _wsred holds across a tool call or approval prompt, one per cut
+    # crossed before its next output (see _cut_segment / _settle_held).
+    turn._held_runs = []
     # Set once the end-of-turn flush has saved ``assistant_text`` as the reply.
     turn._reply_flushed = False
     # The reply rows this turn appended, snapshotted before _flush_file_changes

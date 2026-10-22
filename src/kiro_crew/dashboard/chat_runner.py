@@ -388,6 +388,9 @@ from kiro_crew.dashboard.chat_turn.segment_flush import (
     _append_command_reply,
     _cleared_segment_text,
     _flush_segment,
+    _give_back_run,
+    _hold_segment_tail,
+    _open_segment_with,
     _redact_delta,
     _redact_segment,
     _reflow_label_and_audit,
@@ -494,12 +497,16 @@ from kiro_crew.dashboard.chat_turn.turn_marker import (  # noqa: F401
     _retire_local_turn_marker,
 )
 from kiro_crew.dashboard.chat_turn.turn_reply_seams import (
+    _cut_segment,
+    _drop_wire_tail,
     _emit_error,
     _emit_stale,
     _emit_stall,
     _flush_text_stream,
     _flush_thinking_stream,
+    _held_continued,
     _persist_partial_reply,
+    _settle_held,
     _steer_segment_cut,
 )
 from kiro_crew.dashboard.chat_turn.turn_spec_hooks import (
@@ -644,6 +651,7 @@ from kiro_crew.dashboard.state import (  # noqa: F401
     build_refusal_steer_notice,
     build_stale_recovery_prompt,
     build_tool_stall_recovery_prompt,
+    chat_message_note,
     context_entry_expired,
     durable_row_count,
     parse_hook_continuations,
@@ -2235,9 +2243,10 @@ async def _run_chat(
 
             if event.kind == EVENT_TEXT_CHUNK:
                 # If we just exited a tool group, finalize the streaming
-                # message so post-tool text starts a fresh message.
+                # message so post-tool text starts a fresh message. The wire
+                # redactor is NOT flushed: what it still holds from before the
+                # tools is joined to this text (see _cut_segment).
                 if in_tool_group:
-                    _flush_text_stream(turn)
                     _open_construct = open_construct_at_end(turn.assistant_text)
                     turn._open_construct = _open_construct
                     if turn.assistant_text and turn._open_construct:
@@ -2249,8 +2258,7 @@ async def _run_chat(
                             turn._open_construct,
                         )
                     elif turn.assistant_text:
-                        _flush_segment(state, slot, turn.assistant_text)
-                        turn.assistant_text = ""
+                        _cut_segment(turn)
                         _turn_flushed_visible_text = True
                         turn._turn_flushed_visible_text = _turn_flushed_visible_text
                     else:
@@ -2385,7 +2393,11 @@ async def _run_chat(
                 # the trailing (possibly-partial-credential) run is withheld until
                 # the next chunk or the segment flush. assistant_text above still
                 # accumulates the full text for the authoritative final redaction.
+                # The first output after a tool call or approval prompt also
+                # settles the run held there (see _cut_segment).
                 wire = _wsred.feed(event.text)
+                if wire:
+                    wire = _settle_held(turn, wire, continued=True)
                 if wire:
                     _ttft_visible.mark(wire)
                     turn.chunk_seq += 1
@@ -2567,8 +2579,8 @@ async def _run_chat(
                             turn.assistant_text
                         )
                         turn._compaction_dropped_leak = _compaction_dropped_leak
+                        _drop_wire_tail(turn)
                         turn.assistant_text = _cleared_segment_text(slot)
-                        _wsred.reset()
             elif event.kind == EVENT_CLEAR_STATUS:
                 # A confirmed native clear is the one destructive slash command:
                 # replaying the persisted Kiro Crew history afterwards would undo
@@ -2611,8 +2623,8 @@ async def _run_chat(
                 turn._turn_msg_boundary = _turn_msg_boundary
                 _turn_start_mid = ""
                 turn._turn_start_mid = _turn_start_mid
+                _drop_wire_tail(turn)
                 turn.assistant_text = _cleared_segment_text(slot)
-                _wsred.reset()
                 turn._produced_visible_output = True
                 # slot_clear FIRST: it wipes the client's message list, so the
                 # confirmation row must be delivered after it on every path
@@ -2763,8 +2775,8 @@ async def _run_chat(
                     _rebased = _current_binding(turn)
                     selected_binding = _rebased[:1] + selected_binding[1:2] + _rebased[2:]
                     turn.selected_binding = selected_binding
+                    _drop_wire_tail(turn)
                     turn.assistant_text = _cleared_segment_text(slot)
-                    _wsred.reset()
                     turn._produced_visible_output = True
                     slot.append(
                         "assistant",
@@ -3631,8 +3643,8 @@ async def _run_chat(
             # the notice is cleared by this same purge rather than by suppression
             # upstream.
             slot.purge_chunks()
+            _drop_wire_tail(turn)
             turn.assistant_text = _cleared_segment_text(slot)
-            _wsred.reset()
             turn._produced_visible_output = True
             await _send_chat_done(state, slot, continuing=True, ends_turn=False)
 
@@ -3739,6 +3751,12 @@ async def _run_chat(
         # "Compacting..."). The notice stays in `assistant_text` — it is real
         # output and must stream, flush and persist — but it is not an answer,
         # and the branch below is what decides whether one was given.
+        #
+        # A run the live stream held at the turn's last tool call or approval
+        # prompt is settled first: nothing more will join it, and it either goes
+        # back on the row it was cut from or opens this segment's text.
+        if turn._held_runs:
+            _flush_text_stream(turn)
         _answer_text = _answer_text_only(turn.assistant_text, _compaction_notice_chunks)
         _continuation_answer_text = _answer_text_only(
             turn.assistant_text[_compaction_text_offset:], _compaction_notice_chunks

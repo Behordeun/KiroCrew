@@ -58,11 +58,10 @@ if TYPE_CHECKING:
         _steer_policy_notice,
     )
     from kiro_crew.dashboard.chat_turn.native_cards import _safe_native_crew_debug_title
-    from kiro_crew.dashboard.chat_turn.segment_flush import _flush_segment
     from kiro_crew.dashboard.chat_turn.tool_rows import _tcid_identity_key, _tool_meta
     from kiro_crew.dashboard.chat_turn.turn_ledgers import _wt_note_approved
     from kiro_crew.dashboard.chat_turn.turn_locals import _ChatTurn, _Flow
-    from kiro_crew.dashboard.chat_turn.turn_reply_seams import _flush_text_stream
+    from kiro_crew.dashboard.chat_turn.turn_reply_seams import _cut_segment
     from kiro_crew.dashboard.chat_turn.turn_spec_hooks import _fire
 
 
@@ -345,8 +344,9 @@ async def _on_permission_request(turn: _ChatTurn, event) -> Literal[_Flow.CONTIN
     # same open-construct deferral as the tool-call cut applies: an
     # approval-gated call (parent or child) that lands inside an
     # open options marker, fence or widget would otherwise split it
-    # and undo a deferral the tool-call site just made.
-    _flush_text_stream(turn)
+    # and undo a deferral the tool-call site just made. Like the tool
+    # call, the prompt does not end the reply: the run the wire
+    # redactor still withholds waits for the text after it.
     _open_construct = open_construct_at_end(turn.assistant_text)
     turn._open_construct = _open_construct
     if turn.assistant_text and _open_construct:
@@ -358,8 +358,7 @@ async def _on_permission_request(turn: _ChatTurn, event) -> Literal[_Flow.CONTIN
             _open_construct,
         )
     elif turn.assistant_text:
-        _flush_segment(state, slot, turn.assistant_text)
-        turn.assistant_text = ""
+        _cut_segment(turn)
         _turn_flushed_visible_text = True
         turn._turn_flushed_visible_text = _turn_flushed_visible_text
     _pre_tool_hooks_fired = False

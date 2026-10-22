@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         DashboardState,
         SecurityEvent,
         _ChatSlot,
+        chat_message_note,
         credential_records,
         crew_log_emit,
         effective_session_key,
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
         reflow_and_label_glued_option_marker,
         register_images_off_loop,
         register_widgets_off_loop,
+        row_mid,
         sel,
         sel_is_warm,
         telemetry_channel_of,
@@ -204,6 +206,106 @@ def _cleared_segment_text(slot: _ChatSlot) -> str:
     """
     _reset_segment_copy(slot)
     return ""
+
+
+def _hold_segment_tail(slot: _ChatSlot, text: str, tail: str) -> str | None:
+    """Leave *tail* off the slot's raw segment copy and return *text* without it.
+
+    *tail* is raw text the live stream still withholds at a display boundary
+    inside the reply (a tool call, an approval prompt), and *text* is the
+    segment as it streamed. The cut keeps the copy the copy of the text it
+    returns, so the flush's checks hold for the shorter segment. None when the
+    copy and *text* do not both end with *tail* as it was written: the two
+    cannot then be cut at the same place, and the caller saves the segment
+    whole.
+    """
+    raw = slot.segment_raw_text
+    if not tail or raw is None or not raw.endswith(tail) or not text.endswith(tail):
+        return None
+    kept = text[: len(text) - len(tail)]
+    slot.segment_raw_text = raw[: len(raw) - len(tail)]
+    slot.segment_shown_sha = hashlib.sha256(kept.encode("utf-8", "surrogatepass"))
+    return kept
+
+
+def _open_segment_with(slot: _ChatSlot, text: str, head: str) -> str:
+    """Put *head* at the start of the slot's raw segment copy; return *text* with it in front.
+
+    *head* is raw text the live stream held at a display boundary that turned
+    out to be part of what followed it, and *text* the segment streamed since.
+    It goes through the per-delta removers like any streamed delta, so the
+    flush redacts the two as one text, as the live stream did.
+    """
+    shown, removed = _redact_delta(head)
+    text = shown + text
+    raw = slot.segment_raw_text
+    if raw is not None:
+        raw = head + raw
+        if len(raw) > _SEGMENT_RAW_MAX_CHARS:
+            slot.segment_raw_text = None
+            slot.segment_removed = {}
+        else:
+            slot.segment_raw_text = raw
+            for value, tag in removed:
+                slot.segment_removed.setdefault(value, tag)
+    slot.segment_shown_sha = hashlib.sha256(text.encode("utf-8", "surrogatepass"))
+    return text
+
+
+def _give_back_run(
+    state: DashboardState,
+    slot: _ChatSlot,
+    row: dict[str, Any],
+    text: str,
+    variant_idx: int | None,
+) -> None:
+    """Put *text* back at the end of *row*, the segment row it was held off, and tell open tabs.
+
+    *text* is what the live stream released for a run it held at a display
+    boundary, once the run proved to be a word of its own. *variant_idx* is the
+    row's variant when the run was cut off it: a row showing another variant
+    since is left as it is. The text is appended to the content the row holds
+    now, which a save may have rewritten in place (an inline image's path).
+
+    *text* is also queued on the slot's delivery queue as the ``chunk`` it was
+    held back from: the /api/chat SSE stream and the OpenAI-compatible replies
+    build the reply from the chunks they drain and never see a row patch. It
+    goes on the queue only, not in the window (the row already holds it) and
+    not on the WebSocket (open tabs take the patch below).
+
+    The rebuilt content gets the glued-footer repair the row's save made: a run
+    given back after an ``[OPTIONS:]`` footer is prose glued to it.
+    """
+    if not text:
+        return
+    slot.push_wire_frame("chunk", text)
+    if row.get("variant_idx") != variant_idx:
+        return
+    before = row.get("content") or ""
+    content = _reflow_label_and_audit(slot, before + text)
+    row["content"] = content
+    variants = row.get("variants")
+    if (
+        isinstance(variants, list)
+        and isinstance(variant_idx, int)
+        and 0 <= variant_idx < len(variants)
+        and isinstance(variants[variant_idx], dict)
+        and variants[variant_idx].get("content") == before
+    ):
+        variants[variant_idx]["content"] = content
+    slot._dirty = True
+    # In the form the row's own frame carried it (allowed links shown, display
+    # pass run), so an open tab and a reload agree on the row.
+    shown = chat_message_note(slot.key, row, workspace=getattr(slot, "workspace", None))
+    state.broadcast_ws(
+        "chat_message_update",
+        {
+            "slot": slot.key,
+            "ts": row.get("ts", ""),
+            "mid": row_mid(row),
+            "content": shown["content"],
+        },
+    )
 
 
 def _redact_segment(slot: _ChatSlot, text: str) -> tuple[str, list[dict], list[dict]]:
@@ -501,8 +603,8 @@ def _flush_segment(
     broadcast: bool = True,
     quiet_persist: bool = False,
     interrupted: bool = False,
-) -> None:
-    """Finalize current text block as a segment and persist it.
+) -> dict[str, Any]:
+    """Finalize current text block as a segment, persist it, and return its row.
 
     ``quiet_persist`` additionally suppresses the per-message ``chat_message``
     broadcast that ``slot.append`` emits for the finalized assistant message.
@@ -670,6 +772,7 @@ def _flush_segment(
     # dashboard-surfaced copy of the widget, so it must not persist a credential
     # the segment redaction just stripped out of chat.
     _schedule_widget_registration(state, slot, redacted, str(last_msg.get("ts", "")))
+    return last_msg
 
 
 def _schedule_widget_registration(

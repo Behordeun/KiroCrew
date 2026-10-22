@@ -124,6 +124,7 @@ class _ChatTurn:
     _first_turn_history_assembled: "bool"
     _had_empty_response_verdict: "bool"
     _held: "dict[str, Any]"
+    _held_runs: "list[tuple[dict[str, Any], str, int | None, int]]"
     _incoming_message: "str"
     _interrupted_turn_preamble: "str"
     _irreversible_consumption_reported: "bool"
