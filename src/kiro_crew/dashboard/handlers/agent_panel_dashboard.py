@@ -29,6 +29,13 @@ from kiro_crew.crew_log import emit as crew_log_emit
 from kiro_crew.crew_log import projection
 from kiro_crew.dashboard.handlers.agent_panel_publish import _resolve_publishing_crew
 from kiro_crew.dashboard.handlers.agent_panel_read import _panel_slot
+from kiro_crew.dashboard.handlers.dashboard_page_checks import (
+    MANUAL_FIELDS_NOTE,
+    page_rendering,
+    shape_warnings,
+    skipped_note,
+    theme_warnings,
+)
 from kiro_crew.dashboard.handlers.members import _member_names_for_slug
 from kiro_crew.dashboard.handlers.session_ledger import _session_unit
 from kiro_crew.dashboard.state import DashboardState, _normalize_slot_key
@@ -281,7 +288,9 @@ async def api_dashboard_fields(request: web.Request) -> web.Response:
             slug=slug,
         )
 
-    return web.json_response(await asyncio.to_thread(_read))
+    # How a page draws the types a text cell shows raw, on the read an agent makes
+    # before it writes or rebuilds a page.
+    return web.json_response({**await asyncio.to_thread(_read), "rendering": page_rendering()})
 
 
 async def api_dashboard_types(request: web.Request) -> web.Response:
@@ -310,7 +319,7 @@ async def api_dashboard_types(request: web.Request) -> web.Response:
     state: DashboardState = request.app["state"]
     unit = _session_unit(state, request.headers.get("X-Session-Key", ""))
     reached = await asyncio.to_thread(_folded_through, slot, unit)
-    return web.json_response(dashboard_types.describe(reached))
+    return web.json_response({**dashboard_types.describe(reached), "rendering": page_rendering()})
 
 
 def _folded_through(slot: str, unit: str) -> dict[str, int | None]:
@@ -832,6 +841,16 @@ async def api_dashboard_save(request: web.Request) -> web.Response:
 
     # After saving, so a page that throws is still saved and one more save fixes it.
     verification = await _page_check(slug, crew_name, slot, saved_package)
+    if isinstance(verification, dict) and verification.get("status") == "skipped":
+        # A skipped run checked nothing: said in so many words, so the crewmate does not
+        # read "verification" as a pass on a host with no browser.
+        verification["note"] = skipped_note(str(verification.get("reason") or ""))
+    sources = field_sources(saved_package)
+    manual = [row["field"] for row in sources if row["source"] == "manual"]
+    # Off the loop: both checks read the page text the crewmate wrote, up to the view cap.
+    shapes, themes = await asyncio.to_thread(
+        lambda: (shape_warnings(saved_package), theme_warnings(saved_package))
+    )
 
     # NO BROADCAST: the page in force has not changed. `dashboard_apply` puts it live.
     return web.json_response(
@@ -840,9 +859,39 @@ async def api_dashboard_save(request: web.Request) -> web.Response:
             "saved": {"package": art.slug, "package_version": int(art.version), **counts},
             # What the page raised over a synthetic copy of the record; None for a block layout.
             "verification": verification,
+            # Every field with its type and where its value comes from, and the
+            # hand-written ones named, so the crewmate sees which cells stay current only
+            # while it keeps writing them.
+            "fields": sources,
+            "manual_fields": manual,
+            **({"manual_note": MANUAL_FIELDS_NOTE} if manual else {}),
+            # Checked here, by the gateway, because the page run above is skipped on a
+            # host with no browser: a list bound to a text cell, a theme for one scheme.
+            **({"shape_warnings": shapes} if shapes else {}),
+            **({"theme_warnings": themes} if themes else {}),
             "next": "dashboard_apply puts this page live on your Dashboard as a new version",
         }
     )
+
+
+def field_sources(package: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Each field the model declares: its type and source (``fold:<fold>.<path>`` or ``manual``).
+
+    ``manual`` is a field the crewmate fills itself (``{"agentic": true}``); everything
+    else names the crew-log fold the gateway pushes it from.
+    """
+    types = ((package.get("model") or {}).get("types")) or {}
+    out: list[dict[str, str]] = []
+    for name, spec in types.items():
+        source = spec.get("source") if isinstance(spec, Mapping) else None
+        if isinstance(source, Mapping) and source.get("fold") and not source.get("agentic"):
+            path = str(source.get("path") or "")
+            where = f"fold:{source['fold']}" + (f".{path}" if path else "")
+        else:
+            where = "manual"
+        kind = spec.get("type") if isinstance(spec, Mapping) else None
+        out.append({"field": str(name), "source": where, "type": str(kind or "")})
+    return out
 
 
 def _apply_own_package(slug: str, crew_name: str, slot: str) -> Any:

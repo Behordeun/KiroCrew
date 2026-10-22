@@ -1247,7 +1247,11 @@ migration that rewrites or drops the stranded tags first.
 
 A `dashboard` artifact holds one mate's layout package — `bound_to`,
 `model`, `view` and `theme` — canonicalised by
-`kiro_crew.artifact_store.dashboard_package` on every write. Five rules differ
+`kiro_crew.artifact_store.dashboard_package` on every write. A missing `theme`,
+or a `theme` with no `tokens`, is stored as `{"tokens": {}}`, because an MCP
+client can drop an empty object before it arrives; so `dashboard_save` (its MCP
+schema and `DASHBOARD_SAVE_SCHEMA`) takes `theme` as optional, and a bad token
+value is still refused. Five rules differ
 from every other kind. The first three are enforced in `ArtifactStore`,
 because they are about the record a write lands on; the last two are enforced
 where the thing they judge is known — the writer's identity at the HTTP layer,
@@ -1312,7 +1316,17 @@ the page's shape in the canonicaliser:
   at the HTTP layer and described below.
 - **`view.html` is an agent-written page, and its shape is checked while its
   author is still there.** Exactly one of `view.html` or `view.blocks`, never
-  both and never neither. The HTML is an inline BODY: the host supplies
+  both and never neither. A package bound to a crewmate (`bound_to` of
+  `crewmate:<slug>`) is `view.html` only: the gate refuses its `view.blocks` and
+  names the `view.html` shape to send instead
+  (`dashboard_package._require_html_for_a_crewmate`), because the crewmate
+  Dashboard tab draws a page and has no block renderer. A package bound to a
+  session may still be written as blocks. The page is drawn wearing its
+  `theme`: `member_dashboard_fields.render_package_page` puts one `<style>`
+  ahead of the page, after the host's own stylesheet, holding the tokens on
+  `:root` and then `theme.css` (`dashboard_package.theme_stylesheet`, which runs
+  the gate's own theme check, so a stored theme the gate would now refuse draws
+  nothing and the page keeps the host's look). The HTML is an inline BODY: the host supplies
   `<!doctype>`, `<html>`, `<head>` and `<body>` and owns the page's security
   policy, so a document tag in the field is refused — by
   `dashboard_frame.validate_page`, called here so the author meets the frame's
@@ -1449,6 +1463,75 @@ request filter that answers only the page, no name resolution, a proxy at a clos
 and no WebRTC. A library the page loads from the CDN allowlist is therefore not fetched,
 and a page whose script stops at that library's undefined name is `skipped` and not
 `failed` (any other error is still `failed`).
+
+A `skipped` result carries a `note` saying in words that nothing was run or
+checked (`dashboard_page_checks.VERIFICATION_SKIPPED`). The reply also lists
+every field the model declares in `fields`, each with its `type` and its
+`source` (`fold:<fold>.<path>`, or `manual` for a hand-written one), names the
+hand-written ones under `manual_fields`. Their `manual_note` distinguishes a
+verified, dated project observation from an automatically refreshed reading.
+Numbers, arrays and objects can hold verified snapshots; their source and
+observation time remain visible, and existing folded facts still use folds.
+Two checks on the package text ride the reply whatever the page run did;
+neither refuses the save. `shape_warnings` names arrays, objects and timestamps
+bound to text cells and explains that visible unformatted cells show raw values.
+A script-only field can subscribe without a text binding or hidden sink.
+
+`theme_warnings` uses CSS-text heuristics to locate possible unpaired colours,
+not to assert a measured contrast failure. The existing checks examine fixed
+foreground/background pairs, positioned surfaces and undefined fallback
+variables, accounting for host variables, theme tokens and stylesheet-defined
+custom properties. Their messages ask the author to inspect actual surfaces
+in light and dark and preserve the intended design. A decorative surface can
+remain when it carries no text. A defined custom property is not an error.
+The host stylesheet retains its scheme-aware fallbacks. The colour checks read
+at most `MAX_THEME_RULES` (400) CSS rules and 16 selectors per rule, and a page
+past that bound is told the check stopped (`THEME_CUT_SHORT`).
+A type check (`font_warnings`, carried in `theme_warnings`) adds a soft line,
+worded as a pairing rule, when the page sets more than two distinct font
+families (a role variable and its generic families count as one: sans, serif
+or mono) or names a typeface instead of a role variable or a generic family;
+an `@font-face` that loads an inline `data:` font counts as the family it
+names. The frame's base styles carry three type role variables built only from
+CSS generic families, never a named typeface: `--font-sans: system-ui,
+sans-serif` (the body default), `--font-serif: ui-serif, serif` and
+`--font-mono: ui-monospace, monospace`.
+
+The MCP text preserves the catalog's `row_keys`, `names_the_row`, `row_note`
+and `nested_rows` beside each path. Nested rows are script-readable metadata,
+not new dotted index paths. Each nested group is bracketed and retains its
+full parent context (for example `items[].tasks[].events`), so a task's event
+keys cannot be mistaken for board keys. Goal and waiting rows, workstream boards, task
+spans, hourly series and task events are described alongside worker and timeline
+rows. Tests compare these keys with the real fold renderers. Row hints stay on
+their parent path line, so the path budget does not consume or truncate them
+as separate paths.
+
+The dashboard authoring skill and first-build/tool descriptions invite a
+coherent project-led theme, wallpaper, texture, frames and ambient or data-driven
+motion. They retain truthful measurements, readable light/dark surfaces,
+plain labels and the existing frame boundary. State distributions use real
+counts; a worker state alone is not completion progress. Relevant milestones
+can explain project outcomes without copying the Profile form. The page is
+judged as a whole composition as well as a view of the work; a successful script
+check alone establishes neither visual quality nor later-update behaviour.
+
+`theme.css` refuses `@import`, `<script`, `</style` and `javascript:`, and a
+`url()` whose target is not an inline `data:` URL
+(`dashboard_package._theme_fetches`, one linear pass): the frame has no network, so
+an address would load nothing, and the refusal (`THEME_URL_REFUSAL`) says a
+texture or wallpaper can be an inline `data:` URL, which the frame's
+`img-src data:` admits.
+
+The page's session folds (`usage`, `timeline`, `tools`, `subagents`) are keyed by
+the unit the slot's LIVE session serves when it is one of the slot's units
+(`member_dashboard._live_or_newest_unit`, through `crew_log.resolve.
+unit_for_session_key`), and by the newest unit in succession otherwise: newest
+orders a slot's unrelated chains by their roots' header clock, so a later
+unrelated unit would otherwise feed the page another session's spend.
+
+The `kirocrew-core` MCP tools render the field types and warnings as text
+(`mcp_panel._render_saved`, `_render_rendering`) before the apply instruction.
 
 It costs the gateway little by construction. It runs only for a save of `view.html`,
 never for a write, a preview, an apply or a page load. One check runs at a time across
