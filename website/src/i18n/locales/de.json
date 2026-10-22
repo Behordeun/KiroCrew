@@ -16339,6 +16339,8 @@
         "show_thinking_inline": "Denkprozess inline anzeigen",
         "show_timestamps": "Zeitstempel anzeigen",
         "show_token_usage": "Kontext-Token anzeigen",
+        "sidebar_click_opens_tab": "Sitzungen aus der Seitenleiste in einem Sitzungs-Tab öffnen",
+        "sidebar_click_opens_tab_desc": "Ein Klick auf eine Sitzung öffnet sie in einem eigenen Sitzungs-Tab, statt die Sitzung im aktiven Tab zu ersetzen.",
         "simplified_tool_call_names": "Vereinfachte Werkzeugaufrufnamen",
         "tool_calls_start_expanded": "Tool-Aufrufe ausgeklappt anzeigen",
         "tool_calls_start_expanded_desc": "Zeilen von Tool-Aufrufen mit sichtbarer Eingabe und Ausgabe öffnen statt eingeklappt. Zeilen, die du von Hand öffnest oder schließt, behalten deine Wahl.",

@@ -1195,6 +1195,18 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "configKey": "dashboard.session_folder_root"
   },
   {
+    "id": "chat.open-sidebar-sessions-in-a-session-tab",
+    "label": "Open Sidebar Sessions in a Session Tab",
+    "labelKey": "pages.settings.chatPanel.sidebar_click_opens_tab",
+    "hint": "A click opens the session in its own session tab instead of replacing the active tab's session.",
+    "tab": "chat",
+    "type": "toggle",
+    "occurrence": 1,
+    "params": {
+      "sub": "sessions"
+    }
+  },
+  {
     "id": "chat.pin-the-latest-turn",
     "label": "Pin the latest turn",
     "labelKey": "pages.settings.chatPanel.pin_last_prompt",

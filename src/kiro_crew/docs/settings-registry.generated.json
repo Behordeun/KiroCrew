@@ -666,6 +666,13 @@
       "configKey": "dashboard.session_folder_root"
     },
     {
+      "id": "chat.open-sidebar-sessions-in-a-session-tab",
+      "label": "Open Sidebar Sessions in a Session Tab",
+      "tab": "chat",
+      "route": "/settings/chat/sessions?highlight=chat.open-sidebar-sessions-in-a-session-tab",
+      "hint": "A click opens the session in its own session tab instead of replacing the active tab's session."
+    },
+    {
       "id": "chat.pin-the-latest-turn",
       "label": "Pin the latest turn",
       "tab": "chat",

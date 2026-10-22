@@ -545,6 +545,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
     setAppSlotLaunch,
     closeSessionTab,
     drawerPopRef,
+    ensureSlotTab,
     handleResumeSession,
     highlightTs,
     initialMidRef,
@@ -908,13 +909,23 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
     hasLiveAppTab, jiraSourceHostsRef, bitbucketServerSourceHostsRef, search, selectSource, setRevealedSources, sourceHostsRef, tabsCtl, drawerPopRef, chatFolders, setSidebarPinned, sidebarPinned, sidebarPinnedRef,
     sidebarAutoHidden, toggleAct,
   })
+  // "Open Sidebar Sessions in a Session Tab" (Settings > Chat > Sessions). A
+  // sidebar row's click, Enter/Space and source chip all call `onSelectSlot`
+  // after their `switchSlot`, so one handler covers each; the flyout below is
+  // the same list while the sidebar is collapsed.
+  const sidebarClickOpensTab = chatConfig.sidebarClickOpensTab
+  const selectFromSidebar = useCallback((key: string) => {
+    clearSplitOnSelect()
+    if (sidebarClickOpensTab) ensureSlotTab(key)
+  }, [clearSplitOnSelect, sidebarClickOpensTab, ensureSlotTab])
   const flyoutSwitch = useCallback((key: string) => {
     // User gesture on a listed session row (collapsed-sidebar flyout): the
     // announced class, same as the expanded sidebar's own rows.
     dispatch(switchSlot({ key, announceOnMissing: true }))
     setSplitMode(false)
+    if (sidebarClickOpensTab) ensureSlotTab(key)
     flyout.close()
-  }, [dispatch, flyout, setSplitMode])
+  }, [dispatch, flyout, setSplitMode, sidebarClickOpensTab, ensureSlotTab])
   const {
     flyoutNew, panelReserve, panelMaximized, panelFillWidth, mobileSessionsToggle, topbarSessionsToggle, mobileNewSessionItem, switchMemoryMode, showComposerMemoryChip, memorySwitching, composerOptimizing, handleOptimizingChange,
   } = usePanelLayout({
@@ -950,7 +961,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
       <SessionsSidebarChrome
         embedMode={embedMode} mode={mode} activeSlot={activeSlot} connected={connected} creatingSlot={creatingSlot} dispatch={dispatch} filteredSlots={filteredSlots} isMobile={isMobile}
         keyboardInset={keyboardInset} mobileNavRail={mobileNavRail} surfaceUnreadSlots={surfaceUnreadSlots} titleInTopbar={titleInTopbar} topbarSlot={topbarSlot} topbarTrailSlot={topbarTrailSlot}
-        vv={vv} activityOpen={activityOpen} clearSplitOnSelect={clearSplitOnSelect} history={history} historyHasMore={historyHasMore} navigateToEmbeddedSlot={navigateToEmbeddedSlot}
+        vv={vv} activityOpen={activityOpen} selectFromSidebar={selectFromSidebar} history={history} historyHasMore={historyHasMore} navigateToEmbeddedSlot={navigateToEmbeddedSlot}
         openEmbeddedCrewWindow={openEmbeddedCrewWindow} splitMode={splitMode} defaultAgent={defaultAgent} installedAgents={installedAgents} sidebarAgents={sidebarAgents} sidebarChoices={sidebarChoices}
         setActionError={setActionError} showActionError={showActionError} canStageSessionRef={canStageSessionRef} chatPaneEl={chatPaneEl} stageSessionRef={stageSessionRef}
         openSlotInNewTab={openSlotInNewTab} ownsSessionTabs={ownsSessionTabs} activePoppedOut={activePoppedOut} focusActivePopout={focusActivePopout} openActivePopout={openActivePopout}
