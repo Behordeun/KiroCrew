@@ -11,6 +11,7 @@ from aiohttp import web
 
 from kiro_crew.config.loader import KiroCrewConfig, resolve_agent_identity
 from kiro_crew.dashboard import transcript_snapshot
+from kiro_crew.dashboard.chat_folders import _unhide_folder
 from kiro_crew.dashboard.chat_persistence import (
     _coerce_requested_mode,
     save_slot_off_loop,
@@ -500,6 +501,7 @@ async def fork_slot(
     audit_operation: str = FORK_AUDIT_OPERATION,
     stamp: "Callable[[_ChatSlot], None] | None" = None,
     recheck: "Callable[[], None] | None" = None,
+    reveal_folder: bool = True,
 ) -> "ForkResult | web.Response":
     """Copy *source*'s transcript up to (or after) the fork point into a new slot.
 
@@ -535,6 +537,13 @@ async def fork_slot(
     eligibility, the source's addressability, the folder's existence -- true at
     the act rather than at the moment they were first read, across the
     suspensions this function takes for the transcript read and the memory bind.
+
+    ``reveal_folder`` says whether a hidden folder the child is filed into is
+    un-hidden once the fork is acknowledged. The human route leaves it True: a
+    person forking a session wants to see the child. ``session_control``'s
+    agent fork passes True only when the agent named the folder, matching agent
+    ``session_create``, so an agent fork that merely inherits a folder the user
+    hid leaves that choice alone.
 
     Returns a :class:`ForkResult` on success. A refusal is returned as the
     finished ``web.Response`` -- this module's refusal shape, kept so its coded
@@ -1170,7 +1179,7 @@ async def fork_slot(
         )
         raise
     # Acknowledgment boundary. The destination save above is the last await
-    # before this fork is answered, and it takes the DESTINATION's history lock
+    # before the acknowledgment check below, and it takes the DESTINATION's history lock
     # -- nothing in it serialises against the SOURCE's permanent delete. So a
     # delete that began after the pre-copy probe passed can commit inside that
     # await, and the copy now on disk is a conversation the user has since
@@ -1262,6 +1271,25 @@ async def fork_slot(
             f"memory_mode={new_slot.memory_mode}"
         ),
     )
+    if reveal_folder and new_slot.folder_id:
+        # Model-B un-hide, as create and resume do: a child filed into a hidden
+        # folder (inherited from the parent, or named by ``stamp``) would be a
+        # session the sidebar hides by construction. The agent route asks for
+        # it only for a folder the agent named. It runs only past the
+        # acknowledgment boundary, so a refused fork leaves the user's choice
+        # alone, and before the push below, so the frame that announces the
+        # child already shows its folder. Best-effort: the child is saved and
+        # acknowledged, so a folder-store failure must not fail the fork and
+        # invite a retry that makes a duplicate.
+        try:
+            await _unhide_folder(state, new_slot.folder_id)
+        except Exception:
+            logger.warning(
+                "chat_fork: fork %s committed but un-hiding folder %s failed",
+                new_slot.key,
+                new_slot.folder_id,
+                exc_info=True,
+            )
     _sync_dashboard_slots(state)
     state.push_slots_update()
     _schedule_fork_title(state, new_slot)
