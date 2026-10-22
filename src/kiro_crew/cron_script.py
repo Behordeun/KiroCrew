@@ -1056,6 +1056,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# How many bytes of an MCP server's captured stderr ``_stderr_tail`` reads,
+# taken from the END. The capture grows for the whole session, so reading it
+# whole would make error reporting cost O(session output). The read only has
+# to reach far enough back for ``_safe_tail_redaction_window`` to see its
+# window plus the context before it (PEM markers, the severed line).
+_STDERR_TAIL_READ_SPAN = 64 * 1024
+
 
 class SkipError(Exception):
     """Abort this tick silently. Cron fires again next interval."""
@@ -1558,22 +1565,44 @@ class McpToolClient:
         return {} if msg is None else msg
 
     def _stderr_tail(self, limit: int = 1024) -> str:
-        """Return the last `limit` bytes of the subprocess's captured stderr.
+        """Return the last `limit` characters of the subprocess's captured stderr.
 
-        Credentials and exfiltration URLs are redacted before the tail is
-        surfaced in an error so a failing spawn (e.g. an auth dump or an
-        attacker-controlled MCP server) can't leak secrets or beacon URLs
-        into logs, Slack, or the dashboard.
+        Credentials and exfiltration URLs are redacted BEFORE the tail is cut,
+        so a secret straddling the cut cannot survive as an unredacted
+        fragment. This uses the same rule as the script-stderr tail:
+        ``redact`` runs over ``_safe_tail_redaction_window`` (the kept slice
+        plus ``_REDACT_STRADDLE_MARGIN``, with severed lines and open
+        private-key blocks masked), and only then is the tail sliced.
+
+        Only the last ``_STDERR_TAIL_READ_SPAN`` bytes are read. When that
+        read starts mid-file, its first line is dropped (it was cut, so a
+        credential on it may have lost its anchor), and a private-key block
+        that opened before the read is treated as still open.
         """
         path = getattr(self, "_stderr_file", None)
         if path is None:
             return ""
         try:
-            with open(path.name, errors="replace") as fh:
+            span = max(_STDERR_TAIL_READ_SPAN, 4 * (limit + _REDACT_STRADDLE_MARGIN))
+            with open(path.name, "rb") as fh:
                 fh.seek(0, os.SEEK_END)
-                size = fh.tell()
-                fh.seek(max(0, size - limit))
-                return redact(fh.read().strip())
+                start = max(0, fh.tell() - span)
+                open_label, carry = _pem_state_before(fh, start) if start > 0 else (None, "")
+                fh.seek(start)
+                text = fh.read(span).decode("utf-8", errors="replace")
+            if start > 0:
+                newline = text.find("\n")
+                if newline == -1:
+                    return _REDACTED_CREDENTIAL_TAG
+                severed = carry + text[: newline + 1]
+                open_label = _pem_open_label(severed, 0, len(severed), open_label)
+                text = text[newline + 1 :]
+                if open_label is not None:
+                    # The block opened before the read. Restore its BEGIN so
+                    # the window helper sees it open and masks its body.
+                    text = f"-----BEGIN {open_label}-----\n" + text
+            text = text.strip()
+            return redact(_safe_tail_redaction_window(text, limit))[-limit:]
         except Exception as exc:
             # Defensive — _stderr_tail runs inside error reporting itself, so we
             # never raise here. We DO log the exception type at debug so that a
@@ -2150,6 +2179,43 @@ def _pem_open_label(text: str, pos: int, endpos: int, open_label: str | None = N
         elif kind == "END" and label == open_label:
             open_label = None
     return open_label
+
+
+#: Chunk size and marker carry for ``_pem_state_before``'s streaming scan.
+_PEM_SCAN_CHUNK = 64 * 1024
+_PEM_SCAN_CARRY = 256
+
+
+def _pem_state_before(fh: Any, end: int) -> tuple[str | None, str]:
+    """Return the private-key block open at byte ``end`` of ``fh``, and a carry.
+
+    Streams ``fh[0:end]`` in fixed chunks, so memory stays bounded however
+    large the file is. Markers are ASCII, so latin-1 decoding keeps byte
+    offsets and cannot fail. The carry is the unscanned tail (at most
+    ``_PEM_SCAN_CARRY`` chars past the last marker); the caller prepends it
+    to the text after ``end`` so a marker split by ``end`` is still seen.
+    """
+    open_label: str | None = None
+    carry = ""
+    fh.seek(0)
+    pos = 0
+    while pos < end:
+        chunk = fh.read(min(_PEM_SCAN_CHUNK, end - pos))
+        if not chunk:
+            break
+        pos += len(chunk)
+        buf = carry + chunk.decode("latin-1")
+        last_end = 0
+        for m in _PEM_KEY_MARKER_RE.finditer(buf):
+            kind, label = m.group(1), m.group(2)
+            if open_label is None:
+                if kind == "BEGIN":
+                    open_label = label
+            elif kind == "END" and label == open_label:
+                open_label = None
+            last_end = m.end()
+        carry = buf[max(last_end, len(buf) - _PEM_SCAN_CARRY) :]
+    return open_label, carry
 
 
 def _mask_from_open_block(window: str, label: str) -> str:
