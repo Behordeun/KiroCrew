@@ -48,6 +48,14 @@ function settledTabMode(store: { getState: () => RootState }, inNewTab: NewTabMo
   return forkMayOpen(store.getState(), origin) ? 'foreground' : 'background'
 }
 
+/** The action a plain folder create's repeat guard is scoped to: the folder,
+ *  the board lane when the "+" sits on one, and the memory mode. Only a click
+ *  that would send the same request again is a repeat; New incognito or New
+ *  temporary chat on a folder whose plain "+" is pending is a different one. */
+function plainCreateKey(folderId: string, columnId?: string, memoryMode?: string): string {
+  return JSON.stringify([folderId, columnId ?? null, memoryMode ?? null])
+}
+
 /**
  * Dispatch createSlot and return the new slot with where the user stood
  * when the create started. createSlot already records that origin in its
@@ -97,6 +105,12 @@ export function useFolderChatCreate({ folders, mode, dispatch, dropSlotMutation,
   // cannot resurrect a stale notice (and a stale success cannot clear a newer
   // failure's notice).
   const folderCreateAttemptRef = useRef(0)
+  // A plain folder create is in flight (see `createChatInFolder`). Set before
+  // `mutate` so the second click of a double click sees it: `creatingSlot`
+  // only flips once the mutation has dispatched `createSlot`.
+  // Keyed by action (folder, board lane and memory mode, see
+  // `plainCreateKey`), so a different create is never dropped as a repeat.
+  const plainCreatePendingRef = useRef(new Set<string>())
   const store = useStore<RootState>()
   // `inNewTab` is the folder-create twin of createChatMutation's flag (see the
   // comment there): either tab gesture creates the session WITHOUT activating
@@ -200,6 +214,9 @@ export function useFolderChatCreate({ folders, mode, dispatch, dropSlotMutation,
       const report = typeof raw === 'string' ? findReport(raw) : undefined
       setFolderCreateError({ folderId, columnId, message, title, report, offerSettings: isStaleProjectDir })
     },
+    onSettled: (_data, _err, { folderId, columnId, memoryMode, inNewTab }: CreateChatInFolderVars) => {
+      if (!inNewTab) plainCreatePendingRef.current.delete(plainCreateKey(folderId, columnId, memoryMode))
+    },
   })
   /** The offline create refusal, in one place: the folder-row `+` buttons reach
    *  it through `createChatInFolder`, and the header split button's primary
@@ -215,6 +232,23 @@ export function useFolderChatCreate({ folders, mode, dispatch, dropSlotMutation,
     if (!connected) {
       refuseCreateOffline()
       return
+    }
+    // A plain create that repeats one still in flight (same folder, board lane
+    // and memory mode) is dropped, so a double or triple click on a folder's
+    // "+" makes one session. The check sits at the sink so the tree "+", the
+    // board-lane "+" and the create menu's folder rows all follow it. Any
+    // other create, such as a "+" on another folder or lane, or New incognito
+    // chat on the same folder, is a separate request and goes through. It
+    // reads only this hook's pending marks, not the global
+    // `creatingSlot`: that flag is also set by header New and by background
+    // creates, and a folder "+" during one of those is a separate request the
+    // user expects to see. The tab gestures (Cmd/Ctrl-click, middle-click) are
+    // exempt: each one opens its own new tab, so a quick run of them is a
+    // batch of tabs on purpose.
+    if (!opts?.inNewTab) {
+      const key = plainCreateKey(folderId, opts?.columnId, opts?.memoryMode)
+      if (plainCreatePendingRef.current.has(key)) return
+      plainCreatePendingRef.current.add(key)
     }
     // A nested folder selected from the create menu may be hidden behind one
     // or more collapsed ancestors. Expand the complete path optimistically so
