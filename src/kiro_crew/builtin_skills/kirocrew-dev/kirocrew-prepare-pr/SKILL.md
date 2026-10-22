@@ -250,6 +250,7 @@ their module docstring instead.
 | `diff_signals.py [base] [--check-body]` | 1 / 2 / 3 | changed files + flagged signals; `--check-body` adds the two body checks and CI's template check on `<git-dir>/prepare-pr-body.md` | **0 · 20 unaccounted area · 21 `What changed` over `WORD_LIMIT` · 22 template section (all `--check-body` only) · 2 env / body file missing** |
 | `push_guard.py` | 1 / 2 / 3 | builds every commit and guards every push; each mode is shown at the step that runs it, and each refusal names its fix | **0 safe · 40 refused · 41 stray staged paths / op mid-way · 2 env · 64 usage** |
 | `pr_status.py [pr#]` | 3 | readiness, rollup, threads, current-head runs and reviewer stamps; `--reviewers` pins the fleet; `--json` appends a machine line | **0 clean · 10 running · 20 failing/findings · 2 env** |
+| `regen_shared.py [base]` | 1 | rebuild shared generated files after the rebase (`references/split-and-regen.md`) | **0 · 20 rewrote · 2 env** |
 | `green_age.py [--base B] [--pr N]` | 3 | has the base moved in this PR's files since its CI ran? Information, never a gate | **0 fresh · 30 STALE · 2 env** |
 | `pr_findings.py [pr#]` | 3 | failing log tails, unresolved threads, reviewer findings with stable `span=` ids, whole-design items first | 0 · 2 env |
 | `pr_findings.py [pr#] --rounds` | 1 / 3 | the loop's cross-round memory, read from the PR thread: goal, dispositions per judged head, spans, self-added code, mechanisms, recurrence | **0 · 30 retrospective due · 2 env** |
