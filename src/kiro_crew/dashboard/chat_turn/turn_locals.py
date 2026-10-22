@@ -173,6 +173,7 @@ class _ChatTurn:
     _replay_accepted_this_turn: "bool"
     _replay_pending: "bool"
     _reply_flushed: "bool"
+    _reply_mids_snapshot: "list[str] | None"
     _request_prefix_context: "str"
     _responsive_owner: "Task[Any] | None"
     _responsive_recovery: "list[dict[str, str]]"
