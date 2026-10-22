@@ -438,7 +438,13 @@ def _url_payload_command(n: int) -> str:
 #: Raised again, from 32,060, by 37 lines for ``exfil_url_rules._heavy_percent_encoding``
 #: and its manifest entry: words percent-encoded in a URL path (a Chinese headline) do not trip the heavy
 #: percent-encoding rule. It is new rule logic, not glue; nothing else moved.
-_PACKAGE_LINE_BUDGET = 32_097
+#:
+#: Raised by 14, from 32,097, for each harness's own permission files on the write
+#: tier: the leaf splice and the project-file matcher alias in ``paths_lists``; the
+#: leaves joining the override arm, and the resolved-root list it reads, in
+#: ``paths_targets``; and one ``or`` clause, its import and three ``TYPE_CHECKING``
+#: lines in ``paths``. The registry lives in ``agent_sdk``.
+_PACKAGE_LINE_BUDGET = 32_111
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
