@@ -41,6 +41,14 @@ export function closeHoldForUrl<T>(closing: Record<string, T>, key: string | nul
 // so it may only retire the notice, never move them.
 const SID_RECOVERY_WINDOW_MS = 30_000
 
+/** The key of the history entry the browser stands on, which can be ahead of
+ *  the rendered `location.key` while a router transition is uncommitted. The
+ *  fallback mirrors react-router's own for an entry it never wrote state to. */
+function liveHistoryKey(): string {
+  const state = window.history.state as { key?: unknown } | null
+  return typeof state?.key === 'string' && state.key ? state.key : 'default'
+}
+
 interface UseChatPageSessionControllerArgs {
   activeSlot: string | null
   activeSlotRef: MutableRefObject<string | null>
@@ -300,6 +308,27 @@ export function useChatPageSessionController({
   /** A push has been issued and its destination key is not minted yet — the sync
    *  effect records it on the commit that push lands in. */
   const pushedEntryPending = useRef(false)
+  /**
+   * The sync effect's last URL write while the router has not committed it.
+   *
+   * `<BrowserRouter>` commits location changes inside `startTransition`, so
+   * after `navigate()` the browser is already on the new entry while the
+   * rendered `locationKey` and `searchParams` still describe `fromKey`, the
+   * entry the write left. Until a commit moves `locationKey` off `fromKey`, the
+   * rendered URL is stale: a re-run must compare against `url`, not decide a
+   * second push from the old `?sid=`. `sid` is the session the write named, so
+   * a re-run can tell a same-session amend from a further session switch.
+   */
+  const inFlightWriteRef = useRef<{ fromKey: string; url: string; sid: string; pushed: boolean } | null>(null)
+  /**
+   * Set when Back lands on `fromKey` before the push off it committed. The
+   * router then commits the key it already showed, which the POP reader would
+   * otherwise treat as a re-render it has already honoured, and no URL input of
+   * the sync effect changes. The reader consumes it; the sync effect holds
+   * while it is set, because its rendered `?sid=` still looks like the switch.
+   */
+  const poppedToOriginKeyRef = useRef<string | null>(null)
+  const [popOverWriteTick, setPopOverWriteTick] = useState(0)
   /** The one URL write a close holds back while its DELETE is unanswered: the
    *  entry naming the closing `sid`, standing under the `landing` session the
    *  close switched to. Per-mount, cleared once the URL moves off that sid. */
@@ -557,6 +586,27 @@ export function useChatPageSessionController({
   // `activeSlot`. A mismatch on that same entry is a switch made in this
   // frame (a fork, a new chat), not a host request; see the reader below.
   const embedAgreedSidRef = useRef<{ locationKey: string; sid: string } | null>(null)
+  // Back that lands before our push committed. The browser reports it at once;
+  // the router reports it only when its transition commits, and then with the
+  // entry key it was already showing. Read the live entry here, because nothing
+  // the reader sees in render can tell this POP from a stale re-render. The embed
+  // chat popout also records writes, so it drops the stale record here; only the
+  // main dashboard's POP reader honours the mark.
+  useEffect(() => {
+    if (embedMode === 'sessions' || noUrlSync) return
+    const onPopState = () => {
+      const write = inFlightWriteRef.current
+      if (!write?.pushed) return
+      if (liveHistoryKey() !== write.fromKey) return
+      inFlightWriteRef.current = null
+      pushedEntryPending.current = false
+      if (embedMode) return
+      poppedToOriginKeyRef.current = write.fromKey
+      setPopOverWriteTick(n => n + 1)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [embedMode, noUrlSync])
   // Main dashboard: react ONLY to a genuine Back/Forward (navigationType POP).
   // Our own activeSlot→URL writes are PUSH/REPLACE, so they never re-enter here
   // — that is what avoids the activeSlot↔URL ping-pong. A session switch pushes
@@ -623,7 +673,17 @@ export function useChatPageSessionController({
     // arm on the first non-POP nav and only honor POP once armed — this ignores
     // the mount POP (deep-link load, owned by initialSidRef) so it can't wrongly
     // arm popInFlightRef and freeze the next switch.
-    if (!embedMode) {
+    // A Back the browser took off our uncommitted push (see `poppedToOriginKeyRef`)
+    // is honoured whatever the router has committed so far: the entry we stand on
+    // is the one the push left, and it names the session to return to. The mark
+    // is consumed before the `connected` gate, as any POP is, so an offline Back
+    // cannot leave it set and hold URL sync on this entry.
+    const poppedOverWrite = !embedMode && poppedToOriginKeyRef.current === locationKey
+    if (poppedOverWrite) {
+      poppedToOriginKeyRef.current = null
+      popReadyRef.current = true
+      lastLocKeyRef.current = locationKey
+    } else if (!embedMode) {
       if (navigationType !== 'POP') { popReadyRef.current = true; lastLocKeyRef.current = locationKey; return }
       if (!popReadyRef.current) return
       // navigationType stays 'POP' after a Back/Forward until our own navigate()
@@ -680,7 +740,7 @@ export function useChatPageSessionController({
     if (!rewriteEligible(urlSid)) return
     popInFlightRef.current = true
     repairPoppedSid()
-  }, [searchParams, filteredSlots, slots, slotsGeneration, urlSidClose, urlSidRemoved, rewriteEligible, activeSlot, activeSlotRef, dispatch, embedMode, navigationType, locationKey, locationPathname, locationHash, connected, noUrlSync, navigate, isMobile])
+  }, [searchParams, filteredSlots, slots, slotsGeneration, urlSidClose, urlSidRemoved, rewriteEligible, activeSlot, activeSlotRef, dispatch, embedMode, navigationType, locationKey, locationPathname, locationHash, connected, noUrlSync, navigate, isMobile, popOverWriteTick])
 
   // Timeout: if slot never appears after 5s, show an error. Keep the denied key
   // so a later authoritative slots frame can revoke that verdict; keeping
@@ -884,10 +944,17 @@ export function useChatPageSessionController({
     // entry the push created — the Forward target. Placed ahead of every early
     // return: the run that lands here is exactly the one where the URL already
     // agrees with `activeSlot`, which is the earliest bail.
-    if (pushedEntryPending.current) {
+    // A run still standing on the entry our last write left is a re-run before
+    // that write committed, not the landing.
+    if (inFlightWriteRef.current && inFlightWriteRef.current.fromKey !== locationKey) inFlightWriteRef.current = null
+    const inFlight = inFlightWriteRef.current
+    if (pushedEntryPending.current && !inFlight) {
       pushedEntryPending.current = false
       pushedSessionEntryKeys.current.add(locationKey)
     }
+    // Back already took the browser off our uncommitted push; the POP reader owns
+    // this entry, and the stale `?sid=` here would push the URL forward again.
+    if (poppedToOriginKeyRef.current === locationKey) return
     const sp = searchParamsRef.current
     // Back/Forward (POP) activation in flight: the browser already set the URL to
     // the target session and activeSlot is catching up via the switchSlot the
@@ -917,15 +984,9 @@ export function useChatPageSessionController({
       return
     }
     pendingSidRef.current = false
-    // `current` is the key the URL names, legacy `?slot=` included, so close
-    // eligibility below reads the same key as the POP reader. The no-op bail
-    // compares the canonical `?sid=` alone: a legacy URL naming the active
-    // session still falls through and is rewritten to `?sid=`.
-    const current = sp.get('sid') || sp.get('slot')
     const slot = filteredSlots.find(s => s.key === activeSlot)
     const slug = slot?.title && slot.title !== slot.key ? toSlug(slot.title) : ''
     const expectedPath = `${basePath}${slug ? '/' + slug : ''}`
-    if (sp.get('sid') === activeSlot && locationPathname === expectedPath) return
     const next = new URLSearchParams(sp)
     next.set('sid', activeSlot)
     next.delete('slot')
@@ -936,6 +997,26 @@ export function useChatPageSessionController({
     // Never re-write a credential the token effect already stripped
     // (session deep links arrive as `/chat?sid=…&token=…`).
     next.delete('token')
+    const url = `${expectedPath}?${next}`
+    // Our last write has not committed, so `sp` and `locationPathname` name the
+    // entry it left and cannot decide anything. The browser is on the written
+    // entry: leave it if it already says this, and amend it in place when the
+    // session is the same, as when the title lands and the slug changes. A
+    // different session is a further switch, decided below against the written
+    // entry.
+    if (inFlight) {
+      if (inFlight.url === url) return
+      if (inFlight.sid === activeSlot) {
+        inFlight.url = url
+        navigate(url, { replace: true })
+        return
+      }
+    } else if (sp.get('sid') === activeSlot && locationPathname === expectedPath) return
+    // `current` is the key the entry we stand on names, legacy `?slot=` included,
+    // so close eligibility below reads the same key as the POP reader. The no-op
+    // bail above compares the canonical `?sid=` alone: a legacy URL naming the
+    // active session still falls through and is rewritten to `?sid=`.
+    const current = inFlight ? inFlight.sid : (sp.get('sid') || sp.get('slot'))
     // Push vs replace — see `shouldReplaceSessionUrl` for why mobile never
     // pushes. Kept as a named predicate rather than an inline boolean so the
     // reasoning has somewhere to live and a test can pin it.
@@ -987,11 +1068,16 @@ export function useChatPageSessionController({
     // commit the push lands in. Recording only the entry left behind made Forward
     // read as stale, and the reader REPAIRS what it declines, so Forward
     // overwrote the very session it should have restored.
+    //
+    // A push on top of an uncommitted write leaves the written entry behind, so
+    // its live key is recorded too. `fromKey` stays the rendered key, because
+    // only a commit off it ends the in-flight window.
     if (!replace) {
-      pushedSessionEntryKeys.current.add(locationKey)
+      pushedSessionEntryKeys.current.add(inFlight ? liveHistoryKey() : locationKey)
       pushedEntryPending.current = true
     }
-    navigate(`${basePath}${slug ? '/' + slug : ''}?${next}`, { replace })
+    inFlightWriteRef.current = { fromKey: locationKey, url, sid: activeSlot, pushed: !replace }
+    navigate(url, { replace })
     // `locationKey` and not just `locationPathname`: consuming the mobile
     // drawer's history entry lands on a DIFFERENT entry whose pathname is
     // IDENTICAL (the entry was a duplicate), so pathname alone reports no change
