@@ -12,6 +12,6 @@ adds nothing. Phase 1.5 checks the body against the diff either way.
 6. **Manual verification** — steps done/needed, or "N/A — unit coverage sufficient" with a one-line why.
 7. **Screenshots / video — MANDATORY for any user-visible UI change**, uploaded as GitHub attachments with `gh ... --attach`, never committed, bar one scoped exception. See *Screenshots* in SKILL.md.
 8. **Issue link** — `Closes #<n>` on a line of its own. See *Issue first* in SKILL.md.
-9. **Pattern harvest** — `fix`/`revert` PRs only: `Rule candidate:` + `Pattern:`, or `Not generalizable:`.
+9. **Sibling sweep, then Pattern harvest** — `fix`/`revert` PRs only. `## Sibling sweep` lists every other place with the same defect, `Sibling: <path>[:<line>] -- changed here | tracked in #<n> | not affected -- <why>`, or `Siblings: none -- <why>` (advisory for now: `--check-body` prints findings, exit 23 once CI enforces it). `## Pattern harvest`: `Rule candidate:` + `Pattern:`, or `Not generalizable:`.
 
 Omit a section only when truly not applicable, and say so.

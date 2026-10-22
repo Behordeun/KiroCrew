@@ -141,6 +141,18 @@
 
 <!-- Link to relevant issues, e.g. Fixes #123 -->
 
+## Sibling sweep
+
+<!-- fix/revert PRs only; delete this section otherwise. List every OTHER place
+     with the same defect, found by searching for what the defect lives in (not
+     for your fix), one line each:
+       Swept: <the search you ran, e.g. git grep -nE "redact\(" -- src/>
+       Sibling: <path>[:<line>] -- changed here | tracked in #<n> | not affected -- <why, 8+ characters>
+     or, when the defect has no second site:
+       Siblings: none -- <why, 8+ characters>
+     PR Hygiene checks the shape and that each path exists; it cannot check that
+     the list is complete, so run the search. -->
+
 ## Pattern harvest
 
 <!-- REQUIRED for fix/revert PRs (PR Hygiene checks that this section is

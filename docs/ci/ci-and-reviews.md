@@ -2089,9 +2089,16 @@ of the AUTOSDE rules; the semantic half is delegated to the line reviewers.
   a filled `**Goal:**` line under Problem / Motivation. On failure its error
   annotation names the missing parts and the fix (rebuild from the template,
   save the description, no push), and the step writes the full steps to the job
-  summary. Last, on the merge-base diff, it requires a reader list on take-away
+  summary. Next, on the merge-base diff, it requires a reader list on take-away
   diffs (`.github/scripts/take_away_check.py`, skipped for dependabot); see
-  [take-away-changes.md](../system-specs/common/take-away-changes.md). All five
+  [take-away-changes.md](../system-specs/common/take-away-changes.md). Last, a
+  `fix`/`revert` PR is checked for a `## Sibling sweep` section listing the other
+  places with the same defect (`.github/scripts/sibling_list_check.py`, run from the
+  base ref so a branch cannot weaken it; shape and path existence only, never
+  completeness). The sweep check is **advisory**: it annotates a warning and passes
+  until `ENFORCE_FROM` in the script names a date, after which it fails pull requests
+  opened on or after that date. Locally `diff_signals.py --check-body` prints the same
+  findings and returns exit 23 only once the check is enforcing. The first five
   checks are blocking.
 
 Separately, **`dependency-review.yml`** fails a PR that adds or changes a
