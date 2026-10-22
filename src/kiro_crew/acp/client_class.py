@@ -1127,6 +1127,7 @@ class AcpClient:
     _classify_failed_start = _client_lifecycle._classify_failed_start
     _settle_stderr = _client_lifecycle._settle_stderr
     _sandbox_init_failure = _client_lifecycle._sandbox_init_failure
+    _delegate_launch_failure = _client_lifecycle._delegate_launch_failure
     _registration_throttle_line = _client_lifecycle._registration_throttle_line
     shutdown = _client_lifecycle.shutdown
     _retire_liveness_state = _client_lifecycle._retire_liveness_state
