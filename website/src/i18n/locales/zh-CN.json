@@ -3245,7 +3245,11 @@
         "untitled": "未命名会议",
         "renameFailed": "无法重命名会议。",
         "minutesSaveFailed": "无法保存你的修改。",
-        "minutesRevertFailed": "无法放弃你的修改。"
+        "minutesRevertFailed": "无法放弃你的修改。",
+        "anotherMeetingActiveNamed": "“{{title}}”仍在进行。请在会议中打开它，先选择“结束并复核”。",
+        "anotherMeetingReviewing": "“{{title}}”仍在复核中。请在会议中打开它，先选择“关闭会议”。",
+        "sttStreamingDisabled": "实时转写已关闭。请在 设置 → 语音 中确认已启用语音输入、所选提供方支持流式传输，并已开启流式传输。",
+        "openVoiceSettings": "打开语音设置"
       },
       "settings": {
         "addTerm": "添加",

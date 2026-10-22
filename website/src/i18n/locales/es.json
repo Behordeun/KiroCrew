@@ -3385,7 +3385,11 @@
         "untitled": "Reunión sin título",
         "renameFailed": "No se pudo cambiar el nombre de la reunión.",
         "minutesSaveFailed": "No se pudieron guardar tus cambios.",
-        "minutesRevertFailed": "No se pudieron descartar tus cambios."
+        "minutesRevertFailed": "No se pudieron descartar tus cambios.",
+        "anotherMeetingActiveNamed": "«{{title}}» sigue en marcha. Ábrela en Reuniones y elige primero «Terminar y revisar».",
+        "anotherMeetingReviewing": "«{{title}}» sigue en revisión. Ábrela en Reuniones y elige primero «Cerrar la reunión».",
+        "sttStreamingDisabled": "La transcripción en vivo está desactivada. En Ajustes → Voz, comprueba que la entrada de voz esté activada, que el proveedor admita streaming y que Streaming esté activado.",
+        "openVoiceSettings": "Abrir ajustes de voz"
       },
       "settings": {
         "addTerm": "Añadir",

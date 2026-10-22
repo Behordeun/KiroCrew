@@ -3475,7 +3475,11 @@
         "untitled": "Réunion sans titre",
         "renameFailed": "Impossible de renommer la réunion.",
         "minutesSaveFailed": "Impossible d'enregistrer tes modifications.",
-        "minutesRevertFailed": "Impossible d'abandonner tes modifications."
+        "minutesRevertFailed": "Impossible d'abandonner tes modifications.",
+        "anotherMeetingActiveNamed": "« {{title}} » est toujours en cours. Ouvre-la dans Réunions et choisis d’abord « Terminer et passer en revue ».",
+        "anotherMeetingReviewing": "« {{title}} » est encore en revue. Ouvre-la dans Réunions et choisis d’abord « Clore la réunion ».",
+        "sttStreamingDisabled": "La transcription en direct est désactivée. Dans Paramètres → Voix, vérifie que la saisie vocale est activée, que le fournisseur gère le streaming et que Streaming est activé.",
+        "openVoiceSettings": "Ouvrir les paramètres vocaux"
       },
       "settings": {
         "addTerm": "Ajouter",

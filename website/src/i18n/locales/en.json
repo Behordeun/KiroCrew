@@ -2064,7 +2064,11 @@
         "untitled": "Untitled meeting",
         "renameFailed": "Could not rename the meeting.",
         "minutesSaveFailed": "Could not save your edits.",
-        "minutesRevertFailed": "Could not discard your edits."
+        "minutesRevertFailed": "Could not discard your edits.",
+        "anotherMeetingActiveNamed": "“{{title}}” is still running. Open it in Meetings and choose End and review first.",
+        "anotherMeetingReviewing": "“{{title}}” is still in review. Open it in Meetings and choose Close the meeting first.",
+        "sttStreamingDisabled": "Live transcription is off. In Settings → Voice, check that speech input is enabled, the provider can stream, and Streaming is on.",
+        "openVoiceSettings": "Open Voice settings"
       },
       "settings": {
         "addTerm": "Add",
