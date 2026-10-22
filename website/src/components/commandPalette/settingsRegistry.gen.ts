@@ -1121,6 +1121,19 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     }
   },
   {
+    "id": "chat.keep-side-panel-open",
+    "label": "Keep Side Panel Open",
+    "labelKey": "pages.settings.chatPanel.side_panel_always_open",
+    "hint": "Opens the side panel in every chat, including new chats and after a reload. Closing it hides it until you switch chats. This setting does not apply on a phone.",
+    "tab": "chat",
+    "type": "toggle",
+    "occurrence": 1,
+    "params": {
+      "sub": "sidepanel"
+    },
+    "configKey": "dashboard.side_panel_always_open"
+  },
+  {
     "id": "chat.link-previews",
     "label": "Link Previews",
     "labelKey": "pages.settings.chatPanel.link_previews",
@@ -1205,6 +1218,19 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "params": {
       "sub": "sessions"
     }
+  },
+  {
+    "id": "chat.pin-summary-in-side-panel",
+    "label": "Pin Summary in Side Panel",
+    "labelKey": "pages.settings.chatPanel.side_panel_pin_summary",
+    "hint": "Shows Summary as the first side panel tab. Whenever the panel opens, it shows Summary. Opening a file or another item still shows that item. Needs Session summaries on.",
+    "tab": "chat",
+    "type": "toggle",
+    "occurrence": 1,
+    "params": {
+      "sub": "sidepanel"
+    },
+    "configKey": "dashboard.side_panel_pin_summary"
   },
   {
     "id": "chat.pin-the-latest-turn",

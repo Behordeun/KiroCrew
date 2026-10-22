@@ -36,6 +36,21 @@ export const persistActivityOpen = (slot: string | null, open: boolean): void =>
   if (!slot) return
   safeSetItem(ACTIVITY_OPEN_PREFIX + slot, String(open))
 }
+/** The panel state a chat is entered with: its own saved choice (closed when it
+ *  has none), or open while Keep side panel open is on and the entry CHANGES the
+ *  chat. Re-entering the chat already shown (a return to the chat page, a switch
+ *  that fell back to it) keeps that state, so a panel the user closed stays
+ *  closed until a chat switch. */
+export const entryActivityOpen = (state: ChatState, changesChat: boolean, cached: { activityOpen?: boolean } | undefined): boolean =>
+  (state.sidePanelAlwaysOpen && changesChat) || (cached?.activityOpen ?? false)
+/** Put every chat's panel back on its own saved choice. Keep side panel open
+ *  saves no choice, but a chat entered while it was on holds `true` in its
+ *  in-memory bucket, and would reopen with it until the next reload. */
+export function restoreSavedActivityOpen(state: ChatState): void {
+  const saved = loadActivityOpenMap()
+  for (const [slot, bucket] of Object.entries(state.slotActivity)) bucket.activityOpen = saved[slot] ?? false
+  if (state.activeSlot) state.activityOpen = saved[state.activeSlot] ?? false
+}
 /** Seed the per-slot activity buckets from the persisted open map so the first
  *  switchSlot on cold load restores each chat's panel open/closed state (the
  *  bucket's toolLog/subagents are runtime-only and start empty). */
@@ -227,6 +242,14 @@ export interface ChatState {
      *  running-but-not-yet-streaming turn legitimately reads state 'idle'
      *  while running is true, so deriving one from the other drops it. */
     run: { state: SlotState; running: boolean; stopping: boolean }
+    /** `sidePanelReopenSlot` before `enterActiveSlot` moved it to the target.
+     *  The restore puts it back while the field still names the gone target.
+     *  If the hold lifted during the read, a saved value naming the origin
+     *  opens the origin's panel instead. A toggle or the setting turning off
+     *  during the read clears it (see `toggleActivity` and
+     *  `setSidePanelAlwaysOpen`). A hold that starts, or lifts and comes back,
+     *  during the read is not covered (see `switchSlot.rejected`). */
+    sidePanelReopenSlot: string | null
   } | null
   /** A user-facing switch gesture hit a session the server no longer has
    *  (#6372). ChatPage renders it through the pane-level ErrorNotice — the
@@ -388,6 +411,31 @@ export interface ChatState {
    *  `workflow_run_event` WS broadcasts; consumed by WorkflowProgressBar. */
   workflowRuns: Record<string, WorkflowRunProgress>
   activityOpen: boolean
+  /** Keep side panel open (`dashboard.side_panel_always_open`), as the chat page
+   *  dispatches it: off on a phone, where the panel covers the chat. While true,
+   *  entering a chat opens its panel without saving that as the chat's choice
+   *  (`mc-activity-open:<slot>`), so turning it off brings each choice back. */
+  sidePanelAlwaysOpen: boolean
+  /** The user's Keep side panel open setting as the full chat page last
+   *  reported it, or null before its first report: the page reports it only
+   *  once the dashboard config read has returned data, so a failed read
+   *  reports nothing, like a pending one. It lives in the store, which
+   *  outlives the chat page, because the setting turns on in Settings: a
+   *  sibling route that unmounts the page. A page that mounts again reads the
+   *  turn-on from this. A toggle of the panel before the first report sets it
+   *  to true, so that report opens nothing: the user chose before the setting
+   *  was known. */
+  sidePanelAlwaysOpenSetting: boolean | null
+  /** The chat whose panel opens when a phone or embed hold lifts
+   *  (`sidePanelAlwaysOpen` off while the setting stays on), or null. The hold
+   *  sets it to the chat whose open panel it closed. A chat change during the
+   *  hold sets it to the chat entered, which the setting would have opened. A
+   *  switch that falls back because the chat it entered is gone gives the
+   *  origin its reopen back (see `slotSwitchOrigin` for the case it misses). So a trip through
+   *  the hold does not close a panel the setting opened. A toggle of the panel
+   *  and the setting itself turning off cancel the reopen, also the one a
+   *  switch in flight saved to give back. */
+  sidePanelReopenSlot: string | null
   activityTab: 'changes' | 'issues' | 'subagents' | 'workflows' | 'logs' | 'links' | 'side' | 'artifacts'
   /** Monotonic counter bumped ONLY by `openActivityToTab` — i.e. only when
    *  something deliberately asks for a view (a slash command, a sub-agent /
@@ -652,6 +700,9 @@ export const initialState: ChatState = {
   toolLog: [],
   workflowRuns: {},
   activityOpen: false,
+  sidePanelAlwaysOpen: false,
+  sidePanelAlwaysOpenSetting: null,
+  sidePanelReopenSlot: null,
   activityTab: 'changes' as const,
   activityTabRequest: 0,
   revealRequest: null,

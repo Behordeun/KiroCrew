@@ -622,6 +622,14 @@
       "hint": "Expand history sidebar by default"
     },
     {
+      "id": "chat.keep-side-panel-open",
+      "label": "Keep Side Panel Open",
+      "tab": "chat",
+      "route": "/settings/chat/sidepanel?highlight=key%3Adashboard.side_panel_always_open",
+      "hint": "Opens the side panel in every chat, including new chats and after a reload. Closing it hides it until you switch chats. This setting does not apply on a phone.",
+      "configKey": "dashboard.side_panel_always_open"
+    },
+    {
       "id": "chat.link-previews",
       "label": "Link Previews",
       "tab": "chat",
@@ -671,6 +679,14 @@
       "tab": "chat",
       "route": "/settings/chat/sessions?highlight=chat.open-sidebar-sessions-in-a-session-tab",
       "hint": "A click opens the session in its own session tab instead of replacing the active tab's session."
+    },
+    {
+      "id": "chat.pin-summary-in-side-panel",
+      "label": "Pin Summary in Side Panel",
+      "tab": "chat",
+      "route": "/settings/chat/sidepanel?highlight=key%3Adashboard.side_panel_pin_summary",
+      "hint": "Shows Summary as the first side panel tab. Whenever the panel opens, it shows Summary. Opening a file or another item still shows that item. Needs Session summaries on.",
+      "configKey": "dashboard.side_panel_pin_summary"
     },
     {
       "id": "chat.pin-the-latest-turn",
