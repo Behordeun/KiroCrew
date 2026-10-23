@@ -42,8 +42,8 @@ const configuredDefaultMemoryMode = () =>
 
 export const createSlot = createAsyncThunk<
   ChatSlot,
-  { agent?: string; agent_kind?: 'member' | 'template'; appAgentOwner?: string; model?: string; mode?: string; memory_mode?: string; folder_id?: string | null; title?: string; color_index?: number | null; color_hex?: string | null; project?: string | null; activate?: boolean; sessionFolder?: boolean; defaultFolder?: boolean; prefill?: string } | string | undefined,
-  { fulfilledMeta: { originActiveSlot: string | null; originActiveSlotMoves: number; originActiveSlotAutoMoves: number; activate: boolean; prefillStaged?: boolean } }
+  { agent?: string; agent_kind?: 'member' | 'template'; appAgentOwner?: string; model?: string; mode?: string; memory_mode?: string; folder_id?: string | null; title?: string; color_index?: number | null; color_hex?: string | null; project?: string | null; activate?: boolean; sessionFolder?: boolean; defaultFolder?: boolean; prefill?: string; automatic?: boolean } | string | undefined,
+  { fulfilledMeta: { originActiveSlot: string | null; originActiveSlotMoves: number; originActiveSlotAutoMoves: number; activate: boolean; prefillStaged?: boolean; automatic?: boolean } }
 >(
   'chat/createSlot',
   async (opts, { getState, fulfillWithValue }) => {
@@ -70,6 +70,10 @@ export const createSlot = createAsyncThunk<
     // do so before the user is able to type into it. Defaults to true — every
     // existing caller keeps the create-and-focus behaviour.
     const activate = typeof opts === 'string' ? true : opts?.activate !== false
+    // `automatic` is the chat page's own create for an empty list. Its
+    // activation counts in `activeSlotAutoMoves`, like the page's auto-select,
+    // so a create or fork the user started meanwhile may still open.
+    const automatic = typeof opts === 'object' && opts.automatic === true
     // `sessionFolder: false` is for a purpose-built chat (an app's session, an
     // intake, a hand-off) that should keep the default project even when the
     // owner turned on a fresh folder per new chat. A carried project opts out
@@ -179,7 +183,7 @@ export const createSlot = createAsyncThunk<
     // caller can fall back to another channel.
     const prefill = typeof opts === 'string' ? undefined : opts?.prefill
     const prefillStaged = !!prefill && writePrefill(slot.key, prefill)
-    return fulfillWithValue(slot, { originActiveSlot: origin.activeSlot, originActiveSlotMoves: origin.moves, originActiveSlotAutoMoves: origin.autoMoves, activate, prefillStaged })
+    return fulfillWithValue(slot, { originActiveSlot: origin.activeSlot, originActiveSlotMoves: origin.moves, originActiveSlotAutoMoves: origin.autoMoves, activate, prefillStaged, automatic })
   },
 )
 
@@ -401,7 +405,7 @@ export function addLifecycleCases(builder: ActionReducerMapBuilder<ChatState>): 
         state.slotHistory = pushHistory(state.slotHistory, state.activeSlot)
         parkActiveTranscript(state)
       }
-      enterActiveSlot(state, action.payload.key)
+      enterActiveSlot(state, action.payload.key, action.meta.automatic === true)
       state.lastCreatedActivation = { slot: action.payload.key, requestId: action.meta.requestId }
       // A default-folder create learns its folder only from this response, so
       // no caller can open a collapsed default folder (or a collapsed

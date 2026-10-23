@@ -1210,8 +1210,9 @@ export function useChatPageSessionController({
       // Connected, slots fetched, and truly empty — auto-create one
       autoCreatedRef.current = true
       // Agent-less: the server stamps the default custom agent (a template),
-      // never the default crewmate alias.
-      dispatch(createSlot({ mode }))
+      // never the default crewmate alias. `automatic`: the page's own move,
+      // which leaves a create or fork the user started free to open.
+      dispatch(createSlot({ mode, automatic: true }))
     }
   }, [activeSlot, filteredSlots, searchParams, dispatch, slotStorageKey, connected, slotsLoaded, mode, newSlotFailed, newSessionRef, tokenConsumingRef, popout, openPending, openWaitLapsed])
 

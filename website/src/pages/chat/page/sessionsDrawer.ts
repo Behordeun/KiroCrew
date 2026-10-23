@@ -1,7 +1,8 @@
 import type { NavigateFunction, NavigationType, Location } from 'react-router-dom'
 import { useState, useRef, useCallback, useEffect, useMemo, type MutableRefObject, type Dispatch, type SetStateAction } from 'react'
 import { useMotionValue, useTransform } from 'framer-motion'
-import type { AppDispatch } from '../../../store'
+import { useStore } from 'react-redux'
+import type { AppDispatch, RootState } from '../../../store'
 import type { ChatSlot, ChatFolder } from '../../../types'
 import { type SourceLinkKind, parseSourceLinkUrl, commitRevealedSource, type RevealedSources } from '../../../utils/pullRequestLinks'
 import { useShellSlot } from '../../../hooks/useShellSlot'
@@ -324,7 +325,41 @@ export function useSessionsDrawer({
   }, [location.key, navigationType])
   // Close the drawer when a session is selected. Routed through closeSidebar so
   // it slides out — flipping straight to 'closed' would unmount it on the spot.
-  useEffect(() => { if (isMobile) closeSidebar() }, [activeSlot]) // eslint-disable-line react-hooks/exhaustive-deps
+  //
+  // A move AWAY from a session that is closing is not a selection. Closing the
+  // active session hands `activeSlot` to a neighbour (or to null for the last
+  // one) so the pane behind has something to show, and the user is still in the
+  // list managing rows; dismissing the drawer there would drop them into a
+  // conversation they never picked. `deleteSlot/pending` arms the close hold
+  // before that hand-off is dispatched, so the hold names the outgoing key on
+  // the very render that sees the new one. Read through the store at effect
+  // time rather than a selector: the hold map churns on every close and list
+  // reply, and nothing here renders off it.
+  //
+  // Nor is a move the page makes on its own. `enterActiveSlot` counts those
+  // in `activeSlotAutoMoves` and a user's in `activeSlotMoves`: the page's
+  // auto-select after it lost the active chat, and the blank session it
+  // creates when a close emptied the list. If only the automatic count moved
+  // since the last change, the list stays up. A move to no session at all is
+  // never a pick either, for example a close's landing switch that failed.
+  //
+  // Nullish is one value here: closing the last session sets `activeSlot` to
+  // null and the slot-state reset that follows leaves it undefined.
+  const reduxStore = useStore<RootState>()
+  const prevActiveSlotRef = useRef(activeSlot ?? null)
+  const userMovesRef = useRef(reduxStore.getState().chat.activeSlotMoves ?? 0)
+  useEffect(() => {
+    const left = prevActiveSlotRef.current
+    const now = activeSlot ?? null
+    const state = reduxStore.getState()
+    const userMoves = state.chat.activeSlotMoves ?? 0
+    const userMoved = userMoves !== userMovesRef.current
+    prevActiveSlotRef.current = now
+    userMovesRef.current = userMoves
+    if (!isMobile || now === left || now === null || !userMoved) return
+    if (left && state.dashboard.closingSlots?.[left]) return
+    closeSidebar()
+  }, [activeSlot]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (isMobile && crewWindow) closeSidebar() }, [crewWindow]) // eslint-disable-line react-hooks/exhaustive-deps
   // Leaving the mobile viewport: drop the panel with no slide. There is no
   // mobile drawer to animate on the other side of that crossing, and the
