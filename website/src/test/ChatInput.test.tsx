@@ -1132,7 +1132,7 @@ describe('ChatInput', () => {
       },
     )
 
-    it('disabled while running', () => {
+    it('stays enabled while running and says a pick applies from the next message', () => {
       renderWithProviders(
         <ChatInput {...defaultProps}
           providerId="acp"
@@ -1143,11 +1143,16 @@ describe('ChatInput', () => {
           isRunning
         />
       )
-      // The chip still shows the level while running, so the title (the only
-      // readout on a narrow shelf) and the accessible name keep carrying it.
-      const btn = screen.getByTitle('Stop the current response to switch model · Reasoning effort: Medium')
-      expect(btn).toBeDisabled()
-      expect(btn).toHaveAccessibleName('Stop the current response to switch model · Reasoning effort: Medium')
+      // A pick during a response is committed and applied from the next
+      // message (the project chip's contract), so the chip is never disabled.
+      // It still shows the level while running, so the title (the only
+      // readout on a narrow shelf) and the accessible name keep carrying it,
+      // followed by the one line that matters then.
+      const label = 'Model: claude-opus-4.7 · Reasoning effort: Medium\nYour next message runs on the model you pick. This reply finishes on the model it started with.'
+      const btn = screen.getByTestId('composer-model-chip')
+      expect(btn).toBeEnabled()
+      expect(btn).toHaveAttribute('title', label)
+      expect(btn).toHaveAccessibleName(label)
     })
 
     it('carries the effort level on the routed chip too', () => {

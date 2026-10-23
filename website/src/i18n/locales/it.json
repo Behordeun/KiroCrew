@@ -6493,7 +6493,6 @@
       "stop_generation": "Arresta la generazione",
       "stop_recording": "Interrompi la registrazione",
       "stop_the_current_response_to_switch_agents": "Ferma la risposta corrente per cambiare agente",
-      "stop_the_current_response_to_switch_model": "Ferma la risposta corrente per cambiare modello",
       "stopping": "Arresto in corso…",
       "stopping_2": "Arresto in corso",
       "switch_not_confirmed": "Cambio non ancora confermato: verrà applicato se la connessione viene ripristinata.",
@@ -6538,6 +6537,7 @@
       "compacting_context_stop_unavailable": "Compattazione del contesto — impossibile interrompere finché non termina",
       "click_again_to_force_stop_resets_session": "Fai di nuovo clic per forzare l’arresto (riavvia la sessione; i tuoi messaggi restano, l’agente conserva un estratto recente)",
       "model_inherited_default": "Questa sessione usa il modello predefinito ({{name}}). Non ha un modello proprio, quindi cambia se cambia il predefinito. Fai clic per fissarne uno.",
+      "model_switch_applies_next_turn": "Il tuo prossimo messaggio userà il modello che scegli. Questa risposta si conclude con il modello con cui è iniziata.",
       "terminal_attachments": "Rimuovi gli allegati prima di eseguire un comando del terminale.",
       "terminal_folder_attachments": "Rimuovi le cartelle allegate prima di eseguire il comando. Rimuovere una cartella elimina anche il suo riferimento {{folderRef}} dal comando.",
       "terminal_default_directory": "Directory iniziale del terminale",
@@ -19434,7 +19434,8 @@
   },
   "utils": {
     "agentSwitchFeedback": {
-      "turn_in_flight": "Un turno è in corso — riprova quando sarà terminato."
+      "turn_in_flight": "Un turno è in corso — riprova quando sarà terminato.",
+      "model_deferred": "{{model}} subentra dal tuo prossimo messaggio. Questa risposta si conclude con il modello con cui è iniziata."
     },
     "channelOrigin": {
       "direct_message": "Messaggio diretto"

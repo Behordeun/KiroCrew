@@ -228,6 +228,71 @@ class TestFallbackServedTurnAttribution:
         assert rows[0]["model"] == "pinned-model", rows[0]
 
     @pytest.mark.asyncio
+    async def test_a_deferred_mid_turn_pick_is_not_billed_to_the_running_turn(
+        self, tmp_path, monkeypatch
+    ):
+        """A model pick taken WHILE this turn streams lands on slot.model at once
+        (api_chat_slot_model's deferred branch), but the live session was never
+        switched, so the turn ran on what the provider serves. The row must name
+        the served model, and the committed pick must survive — the backfill must
+        not overwrite an Auto pick's "" with the served id."""
+        from unittest.mock import AsyncMock, patch
+
+        from kiro_crew.acp.types import TurnUsage
+        from kiro_crew.dashboard.chat import _run_chat
+        from kiro_crew.dashboard.handlers import usage as usage_mod
+        from kiro_crew.providers.base import EVENT_COMPLETE, EVENT_TEXT_CHUNK, LLMEvent
+
+        shard_dir = tmp_path / "usage" / "tokens"
+        monkeypatch.setattr(usage_mod, "_TOKEN_USAGE_DIR", shard_dir)
+
+        state = self._make_state(tmp_path, monkeypatch)
+
+        async def _stream(msg):
+            yield LLMEvent(kind=EVENT_TEXT_CHUNK, text="served by the primary")
+            # The user picks "" (Auto) WHILE the turn streams: the deferred
+            # branch commits it to slot.model and marks the boundary. The live
+            # session is NOT switched, so the turn still runs on primary-model.
+            slot.model = ""
+            slot._deferred_model_switch_key = "s1"
+            yield LLMEvent(kind=EVENT_COMPLETE, usage=TurnUsage(credits=9.0))
+
+        # The live session serves primary-model (the deep handle's _model).
+        client, handle = _deep_chain_client(_stream, primary="primary-model")
+        self._wire_sessions(state, client)
+        slot = state.get_or_create_slot("s1")
+        slot._titled = True
+        slot.model = "primary-model"
+
+        # The tail runs apply_deferred_model_switch, which on this non-ACP fake
+        # arms a reset; stub the consume so the fake harness is not asked to
+        # tear down and rebuild a session it does not model. The completion's
+        # attribution (the behaviour under test) has already run by then.
+        monkeypatch.setattr(
+            "kiro_crew.dashboard.chat_runner._consume_pending_reset",
+            AsyncMock(return_value=False),
+        )
+
+        # Suppresses the background drain's real sleeps like the three sibling
+        # tests; the test waits on _drain_bg, never on a clock.
+        with patch("asyncio.sleep", new_callable=AsyncMock):  # flake-ok: drain sleeps
+            await _run_chat(state, slot, "hello")
+            await self._drain_bg(state)
+
+        rows = self._rows(shard_dir)
+        assert len(rows) == 1, rows
+        assert rows[0]["model"] == "primary-model", (
+            "a turn running while a deferred pick waits must bill the served "
+            f"model, not the pending pin; got {rows[0]['model']!r}"
+        )
+        # The Auto pick survives: the backfill must not write the served id over
+        # the committed "" while the boundary marker is set.
+        assert slot.model == "", (
+            "the deferred pick must not be overwritten by the completion backfill; "
+            f"slot.model is {slot.model!r}"
+        )
+
+    @pytest.mark.asyncio
     async def test_stale_sticky_fallback_is_not_billed_after_a_resume(self, tmp_path, monkeypatch):
         """GPT review finding on 3f55ca11f: the sticky candidate can OUTLIVE the
         swap it records.

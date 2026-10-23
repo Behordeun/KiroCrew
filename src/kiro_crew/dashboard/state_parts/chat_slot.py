@@ -162,6 +162,7 @@ class _ChatSlot:
         "_pending_discard_conversation_key",
         "_pending_discard_from_wake",
         "_pending_model_pick",
+        "_deferred_model_switch_key",
         "_eager_spawn_task",
         "_eager_spawn_failures",
         "_eager_spawn_retry_at",
@@ -412,6 +413,7 @@ class _ChatSlot:
     _pending_discard_conversation_key: str | None
     _pending_discard_from_wake: bool
     _pending_model_pick: Any
+    _deferred_model_switch_key: str
     _eager_spawn_task: asyncio.Task[None] | None
     _eager_spawn_failures: int
     _eager_spawn_retry_at: float

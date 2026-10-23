@@ -226,11 +226,12 @@ class TestSlotModelSwitchAtomicity:
             )
 
     @pytest.mark.asyncio
-    async def test_mid_turn_switch_answers_409_without_reset(self):
+    async def test_mid_turn_switch_is_committed_and_deferred_without_reset(self):
         # _try_live_model_switch declines a mid-turn live switch, and the old
         # unlocked handler then fell through to the reset — tearing down the
-        # in-flight turn mid-stream. The handler must answer busy instead:
-        # no live switch, no reset, slot model untouched.
+        # in-flight turn mid-stream. The handler takes neither path: the pick
+        # is committed on the slot, marked for the turn boundary, and answered
+        # deferred; the live session is untouched and nothing is reset.
         from kiro_crew.providers.acp import AcpProvider
 
         slot = _ChatSlot("test")
@@ -243,19 +244,21 @@ class TestSlotModelSwitchAtomicity:
         async with TestClient(TestServer(_make_app(state))) as client:
             resp = await client.post("/api/chat/slots/test/model", json={"model": _MODEL_B})
             data = await resp.json()
-            assert resp.status == 409
-            assert data["code"] == "turn_in_flight"
-            assert slot.model == _MODEL_A
+            assert resp.status == 200
+            assert data["deferred"] is True
+            assert slot.model == _MODEL_B
+            assert slot._deferred_model_switch_key
             provider.client.set_model.assert_not_awaited()
             state.sessions.reset.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_cold_start_turn_answers_409_via_slot_running(self):
+    async def test_cold_start_turn_defers_via_slot_running(self):
         # A first message can be INSIDE the multi-second provider.start() when
         # the switch arrives: no session is registered yet, so the provider
         # pre-check sees nothing — but slot.running is set at dispatch, so the
-        # handler still answers 409 instead of committing a model the
-        # cold-starting session did not capture.
+        # handler still defers instead of resetting a session the
+        # cold-starting turn is about to register on the old model; the
+        # boundary moves that session once it is idle.
         slot = _ChatSlot("test")
         slot.model = _MODEL_A
         running_task = MagicMock()
@@ -265,9 +268,10 @@ class TestSlotModelSwitchAtomicity:
         async with TestClient(TestServer(_make_app(state))) as client:
             resp = await client.post("/api/chat/slots/test/model", json={"model": _MODEL_B})
             data = await resp.json()
-            assert resp.status == 409
-            assert data["code"] == "turn_in_flight"
-            assert slot.model == _MODEL_A
+            assert resp.status == 200
+            assert data["deferred"] is True
+            assert slot.model == _MODEL_B
+            assert slot._deferred_model_switch_key
             state.sessions.reset.assert_not_awaited()
 
     @pytest.mark.asyncio

@@ -6269,7 +6269,6 @@
       "stop_generation": "停止生成",
       "stop_recording": "停止录音",
       "stop_the_current_response_to_switch_agents": "停止当前回复以切换代理",
-      "stop_the_current_response_to_switch_model": "停止当前回复以切换模型",
       "stopping": "正在停止…",
       "stopping_2": "正在停止",
       "switch_not_confirmed": "切换尚未确认——连接恢复后将自动生效。",
@@ -6314,6 +6313,7 @@
       "compacting_context_stop_unavailable": "正在压缩上下文，完成前无法停止",
       "click_again_to_force_stop_resets_session": "再次点击强制停止（会重启会话；你的消息会保留，助手保留最近的一段摘录）",
       "model_inherited_default": "此会话运行在默认模型（{{name}}）上。它没有自己的模型，因此默认模型变化时它也会变化。点击可固定一个。",
+      "model_switch_applies_next_turn": "你下一条消息会用你选的模型。这条回复会用开始时的模型完成。",
       "terminal_attachments": "运行终端命令前，请移除附件。",
       "terminal_folder_attachments": "运行前先移除文件夹附件。移除文件夹也会移除命令中对应的 {{folderRef}} 引用。",
       "terminal_default_directory": "终端启动目录",
@@ -18850,7 +18850,8 @@
   },
   "utils": {
     "agentSwitchFeedback": {
-      "turn_in_flight": "当前有一轮对话正在进行 — 等它结束后再试。"
+      "turn_in_flight": "当前有一轮对话正在进行 — 等它结束后再试。",
+      "model_deferred": "{{model}} 从你的下一条消息开始接手。这条回复会用开始时的模型完成。"
     },
     "channelOrigin": {
       "direct_message": "私信"

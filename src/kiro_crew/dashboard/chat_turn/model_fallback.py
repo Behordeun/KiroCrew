@@ -740,7 +740,14 @@ async def _settle_session_model(
         # would turn "inherit" into a pin, and the slot would stop following
         # a later change to the default. The chip reads the served model
         # through ``_sync_served_model`` instead.
-        if crew_model:
+        #
+        # Nor while a deferred model pick is pending: a mid-turn Auto pick
+        # commits ``slot.model = ""`` and marks ``_deferred_model_switch_key``
+        # for the boundary. Backfilling the served (old) model here would
+        # overwrite that "" and the boundary would then apply the old model,
+        # silently undoing the pick — the same guard the completion backfill
+        # carries (``turn_stats``).
+        if crew_model and not slot._deferred_model_switch_key:
             slot.model = _backfill_canonical_model(client, provider_name) or slot.model
     elif is_new or resumed:
         # Record the verdict for BOTH answers, not only the withhold: it is

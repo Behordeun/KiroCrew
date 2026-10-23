@@ -605,6 +605,10 @@ its own once the cache refreshes with a list that carries it.
   the call and raises `AcpModelUnavailable` itself, so the handler answers 400 and
   the slot keeps its old model instead of reporting a switch the session never
   made. `AcpClient.set_model` (dedicated runtime) raises inside the call as before.
+  The same raise reaches `session_control.apply_deferred_model_switch` when a pick
+  taken mid-turn lands at the turn boundary; with no request left to answer it arms
+  the deferred reset instead, and the cold start's withheld-pin handling is what
+  tells the user (see "Model switch during a response" in learn-cron-dashboard).
   On a backend that switches through `session/set_model` (kiro-cli),
   `AcpSessionHandle.set_model` waits briefly for the adapter's reply before
   recording the model. An explicit error reply is recorded in `model_pin_refused`

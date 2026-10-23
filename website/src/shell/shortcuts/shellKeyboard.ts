@@ -7,7 +7,7 @@ import { createSlot, setAgentSwitchNotice } from '../../store/chatSlice'
 import { pendingSlotSwitch, pendingSlotSwitchTarget, performSlotSwitch } from '../../lib/slotSwitch'
 import { performAgentSlotSwitch } from '../../lib/agentSwitch'
 import { focusComposerElement, queryComposerOrExpand } from '../../pages/chat/composerFocus'
-import { agentSwitchFailureMessage } from '../../utils/agentSwitchFeedback'
+import { agentSwitchFailureMessage, modelSwitchDeferredMessage } from '../../utils/agentSwitchFeedback'
 import { api } from '../../api/client'
 import { newTerminalByChord, toggleTerminalByChord } from '../../lib/terminalChordFocus'
 import { focusPopout as focusTerminalPopout } from '../../utils/terminalPopout'
@@ -213,6 +213,8 @@ export function useShellKeyboard({ toggleFocusMode, toggleNav, terminalEnabled, 
         await performSlotSwitch('model', activeSlot, name,
           async () => {
             const r = await api.chatSlotModel(activeSlot, name)
+            // Taken during a response: committed now, applies from the next message.
+            if (r?.deferred) store.dispatch(setAgentSwitchNotice(modelSwitchDeferredMessage(r.model ?? name)))
             return r?.model ?? name
           },
           (value) => store.dispatch(updateSlot({ key: activeSlot, model: value })))
@@ -238,6 +240,8 @@ export function useShellKeyboard({ toggleFocusMode, toggleNav, terminalEnabled, 
         await performSlotSwitch('model', activeSlot, name,
           async () => {
             const r = await api.chatSlotModel(activeSlot, name)
+            // Taken during a response: committed now, applies from the next message.
+            if (r?.deferred) store.dispatch(setAgentSwitchNotice(modelSwitchDeferredMessage(r.model ?? name)))
             return r?.model ?? name
           },
           (value) => store.dispatch(updateSlot({ key: activeSlot, model: value })))

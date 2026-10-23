@@ -76,9 +76,11 @@ class TestLinkedSlotSessionKey:
             assert state.sessions.reset.await_args.args[0] == "slack:123.456"
 
     @pytest.mark.asyncio
-    async def test_model_switch_sees_the_linked_sessions_active_turn(self):
-        # The busy probe now lands on the live linked session: an in-flight
-        # channel turn answers 409 instead of a silent success over it.
+    async def test_model_switch_on_a_busy_linked_session_answers_409_not_deferred(self):
+        # A channel-linked session runs native channel turns whose loops never
+        # apply a deferred pick, so the mid-turn deferral is confined to pure
+        # dashboard sessions: a busy channel-linked slot keeps the 409, not a
+        # deferred commit. Nothing is mutated and no reset runs.
         from kiro_crew.providers.acp import AcpProvider
 
         slot = _ChatSlot("test")
@@ -96,6 +98,31 @@ class TestLinkedSlotSessionKey:
             assert resp.status == 409
             assert data["code"] == "turn_in_flight"
             assert slot.model == _MODEL_A
+            assert not slot._deferred_model_switch_key
+            state.sessions.reset.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_channel_resumed_dashboard_key_keeps_the_409_not_deferred(self):
+        # A `!sessions` resume keeps its ``dashboard:`` key but is driven by the
+        # channel (mirror link accepts inbound resume), so its native turns never
+        # apply a deferred pick. The key prefix alone says "dashboard", so the
+        # mirror-inbound signal is what keeps the mid-turn pick at 409 rather
+        # than deferring a pick nothing would land.
+        from kiro_crew.providers.acp import AcpProvider
+
+        slot = _ChatSlot("test")
+        slot.model = _MODEL_A
+        provider = MagicMock(spec=AcpProvider)
+        provider.has_active_turn.return_value = True
+        state = _mock_state(slot, provider=provider)
+        state.sessions.mirror_accepts_inbound = MagicMock(return_value=True)
+        async with TestClient(TestServer(_make_app(state))) as client:
+            resp = await client.post("/api/chat/slots/test/model", json={"model": _MODEL_B})
+            data = await resp.json()
+            assert resp.status == 409
+            assert data["code"] == "turn_in_flight"
+            assert slot.model == _MODEL_A
+            assert not slot._deferred_model_switch_key
             state.sessions.reset.assert_not_awaited()
 
     @pytest.mark.asyncio

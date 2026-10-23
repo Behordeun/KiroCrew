@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useModelsDegraded } from '../providers/modelListHealth'
 import { defaultWriteFailureOf, type DefaultWriteFailure } from './AgentDropdownList'
-import { agentSwitchFailureMessage } from '../utils/agentSwitchFeedback'
+import { agentSwitchFailureMessage, modelSwitchDeferredMessage } from '../utils/agentSwitchFeedback'
 import { useProvider } from '../providers'
 import { useAgents } from '../hooks/useAgents'
 import { useFilteredDropdown } from '../hooks/useFilteredDropdown'
@@ -250,6 +250,10 @@ export function useChatPanePickerActions({ slotKey, paneSlot, dispatch, queryCli
             // effort aborts this pick before anything is sent.
             await afterEffort
             const r = await api.chatSlotModel(slotKey, name)
+            // A pick taken during a response is committed now and applies
+            // from the next message; the store write below shows it at once,
+            // so this line is what tells the user the running reply keeps its model.
+            if (r?.deferred) dispatch(setAgentSwitchNotice(modelSwitchDeferredMessage(r.model ?? name)))
             return r?.model ?? name
           },
           // The routing flag is written from the REQUEST, not from the response's

@@ -6269,7 +6269,6 @@
       "stop_generation": "生成を停止",
       "stop_recording": "録音を停止",
       "stop_the_current_response_to_switch_agents": "現在の応答を停止してエージェントを切り替え",
-      "stop_the_current_response_to_switch_model": "現在の応答を停止してモデルを切り替え",
       "stopping": "停止中…",
       "stopping_2": "停止中",
       "switch_not_confirmed": "切り替えはまだ確認されていません。接続が回復すると適用されます。",
@@ -6314,6 +6313,7 @@
       "compacting_context_stop_unavailable": "コンテキストを圧縮中 — 完了するまで停止できません",
       "click_again_to_force_stop_resets_session": "もう一度クリックして強制停止（セッションを再起動します。メッセージは残り、エージェントは最近の抜粋を保持します）",
       "model_inherited_default": "このセッションはデフォルトモデル（{{name}}）で動作します。独自のモデルを持たないため、デフォルトが変わると変わります。固定するにはクリックしてください。",
+      "model_switch_applies_next_turn": "次のメッセージは選んだモデルで実行されます。この返答は開始時のモデルのまま完了します。",
       "terminal_attachments": "ターミナルコマンドを実行する前に添付ファイルを削除してください。",
       "terminal_folder_attachments": "実行前に添付フォルダーを取り除く必要があります。フォルダーを取り除くと、コマンド内の {{folderRef}} 参照も消えます。",
       "terminal_default_directory": "ターミナル起動時のディレクトリ",
@@ -18850,7 +18850,8 @@
   },
   "utils": {
     "agentSwitchFeedback": {
-      "turn_in_flight": "ターンが進行中です — 完了してからもう一度お試しください。"
+      "turn_in_flight": "ターンが進行中です — 完了してからもう一度お試しください。",
+      "model_deferred": "{{model}} は次のメッセージから引き継ぎます。この返答は開始時のモデルのまま完了します。"
     },
     "channelOrigin": {
       "direct_message": "ダイレクトメッセージ"

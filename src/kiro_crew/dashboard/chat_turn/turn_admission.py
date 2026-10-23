@@ -687,6 +687,7 @@ async def _turn_admit(turn: _ChatTurn) -> _Flow | None:
     # so the consume below cold-starts this turn on the new model.
     # circular import: session_control imports this package's modules at module level.
     from kiro_crew.dashboard.session_control import (
+        apply_deferred_model_switch,
         apply_pending_model_pick,
         arm_model_switch_reset,
         prewarm_enabled_check,
@@ -735,9 +736,20 @@ async def _turn_admit(turn: _ChatTurn) -> _Flow | None:
                 _stamped,
             )
             arm_model_switch_reset(state, slot)
+    # A model pick the picker took while a turn ran on this session, not yet
+    # landed: normally the end of that turn lands it (``_end_turn_tail``), and
+    # this is the backstop for a turn that ended without its tail or ran on a
+    # sibling alias. Before the consume below, because landing it may ARM the
+    # reset that consume spends. ``session_lock_held=True``: this turn already
+    # holds ``slot_switch_session_lock(session_key)`` for its cold start, so the
+    # helper must take only ``_model_pick_lock`` -- that lock is not reentrant,
+    # and re-acquiring it here would hang the turn at session creation.
+    await apply_deferred_model_switch(state, slot, session_lock_held=True)
     # Consume a deferred project-change reset queued while idle, before
-    # get_or_create or we'd reuse the stale session for one turn. Safe here:
-    # no session lock is held yet, so reset() can't self-kill.
+    # get_or_create or we'd reuse the stale session for one turn. Safe even
+    # though the dispatch lock (slot_switch_session_lock) is held here: reset()
+    # does not take that lock, and driven from the gateway rather than from
+    # inside the session's own process group it cannot self-kill its caller.
     await _consume_pending_reset(state, slot)
     # Same "before get_or_create or we reuse a stale session for one turn"
     # reasoning as the reset above, for a staleness the session map cannot

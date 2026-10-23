@@ -411,7 +411,8 @@ def test_a_runtime_label_is_returned_as_a_description_never_as_a_label() -> None
         "session_open",
         # The shelf unmounts with a collapsed message box: Expand composer first.
         "Show the message input",
-        "no_response_running",
+        # The model chip stays enabled while a response runs, so the picker no
+        # longer requires no_response_running.
     ]
     # Matched by its description's own words, the basis says so (and is never
     # "exact_label": there is no label to match).

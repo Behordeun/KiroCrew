@@ -2073,6 +2073,7 @@
       "agent_cycle_hint": "Next agent: Alt+Shift+A · Previous: Alt+Shift+Z",
       "agent_cycle_hint_mac": "Next agent: ⌥⇧A · Previous: ⌥⇧Z",
       "model_inherited_default": "This session runs on the default model ({{name}}). It has no model of its own, so it changes if the default does. Click to pin one.",
+      "model_switch_applies_next_turn": "Your next message runs on the model you pick. This reply finishes on the model it started with.",
       "approve_sub_agent": "Approve sub-agent: {{name}}",
       "branch": "Branch: {{branch}}",
       "detached_head_at": "Detached HEAD at {{branch}}",
@@ -2105,7 +2106,6 @@
       "steer_act_on_this_as_soon_as_possible_enter": "Steer — act on this as soon as possible (Enter)",
       "stop_recording": "Stop recording",
       "stop_the_current_response_to_switch_agents": "Stop the current response to switch agents",
-      "stop_the_current_response_to_switch_model": "Stop the current response to switch model",
       "switch_not_confirmed": "Switch not confirmed yet — it will apply if the connection recovers.",
       "dictation_added": "Dictation added to your message",
       "mic_in_use_elsewhere": "Microphone in use in another chat",
@@ -9112,7 +9112,8 @@
   },
   "utils": {
     "agentSwitchFeedback": {
-      "turn_in_flight": "A turn is running — try again when it finishes."
+      "turn_in_flight": "A turn is running — try again when it finishes.",
+      "model_deferred": "{{model}} takes over from your next message. This reply finishes on the model it started with."
     },
     "cronUtils": {
       "create": "Create",

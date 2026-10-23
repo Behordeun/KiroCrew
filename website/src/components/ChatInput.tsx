@@ -1712,9 +1712,10 @@ function ChatInput({
                the next one starts in the new one. The dashboard reads
                slot.project live, so the running reply's file links follow the
                new project at once; the tooltip names the reply's start project
-               and says so. The agent and model
-               chips stay locked: their routes answer 409 turn_in_flight
-               instead of staging. A composer busy only with attached
+               and says so. The model chip follows the same contract (its
+               route commits the pick and answers deferred: true, see
+               ModelChip); the agent chip stays locked: its route answers 409
+               turn_in_flight instead of staging. A composer busy only with attached
                sub-agents keeps the chip locked too: the deferred reset stays
                armed while children share the runtime, so a pick there would
                not land at the next turn. */

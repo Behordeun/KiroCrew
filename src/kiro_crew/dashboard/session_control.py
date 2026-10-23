@@ -172,6 +172,7 @@ if TYPE_CHECKING:  # every owner-defined name this module forwards, for type che
         _pick_audit_fields,
         _pick_fields,
         _target_busy_error,
+        apply_deferred_model_switch,
         apply_pending_model_pick,
         arm_model_switch_reset,
         effort_commit_needs_reset,

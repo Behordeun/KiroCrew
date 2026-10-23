@@ -423,6 +423,7 @@ _BASE_SLOT_DEFAULTS: dict[str, tuple[str, str | None]] = {
     "_cycle_reached_provider": ("value", "False"),
     "_dashboard_card_exempt": ("value", "False"),
     "_dashboard_card_identity": ("type", "builtins.str"),
+    "_deferred_model_switch_key": ("value", "''"),
     "_deferred_notes": ("value", "[]"),
     "_detail_render_lock": ("type", "asyncio.locks.Lock"),
     "_dirty_flag": ("value", "False"),

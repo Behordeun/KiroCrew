@@ -13,7 +13,7 @@ import { api } from '../../../api/client'
 import { useFilteredDropdown } from '../../../hooks/useFilteredDropdown'
 import { useModelPickerHiddenModelsQuery, useModelPickerConfigured, shouldSeparateModelEffort, filterInteractiveModels, effortToCarry, switchGroupedModel } from '../../../hooks/useInteractiveModels'
 import { jevRouteOffered, withJevRoute, JEV_ROUTE_MODEL } from '../../../lib/jevRoute'
-import { agentSwitchFailureMessage } from '../../../utils/agentSwitchFeedback'
+import { agentSwitchFailureMessage, modelSwitchDeferredMessage } from '../../../utils/agentSwitchFeedback'
 import { focusComposer } from '../composerFocus'
 import { i18nT } from '../../../i18n/t'
 import { fetchDashboardConfig } from '../../../api/dashboardConfigQuery'
@@ -291,6 +291,10 @@ export function useSessionChoices({
             // effort aborts this pick before anything is sent.
             await afterEffort
             const r = await api.chatSlotModel(activeSlot, modelName)
+            // A pick taken during a response is committed now and applies
+            // from the next message; the store write below shows it at once,
+            // so this line is what tells the user the running reply keeps its model.
+            if (r?.deferred) dispatch(setAgentSwitchNotice(modelSwitchDeferredMessage(r.model ?? modelName)))
             return r?.model ?? modelName
           },
           // The routing flag is written from the REQUEST, not from the response's

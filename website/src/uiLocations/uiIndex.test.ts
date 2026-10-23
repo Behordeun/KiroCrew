@@ -1503,7 +1503,6 @@ describe('the committed index', () => {
       { kind: 'condition', id: 'session_open' },
       // The shelf unmounts with a collapsed message box.
       { kind: 'shown_by', location: 'composer.expand', when: 'composer_collapsed' },
-      { kind: 'condition', id: 'no_response_running' },
     ])
     expect(byId.get('chat.memory-mode')!.placements[0].requires).toEqual([{ kind: 'condition', id: 'empty_session' }])
     // Only a description location carries a description key.

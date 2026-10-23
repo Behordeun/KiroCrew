@@ -365,20 +365,27 @@ export function ModelChip({ modelName, modelIsJevRouted, modelIsInheritedDefault
   const effortShown = effortIsDefault
     ? i18nT('components.reasoningEffortDropdown.default_with_level', { level: effortLabel(reasoningEffort || '') })
     : effortLabel(reasoningEffort || '')
-  // The chip is disabled while a response runs: a guide to it says so.
+  // The chip stays enabled while a response runs -- a pick then is committed
+  // and applied from the next message (the gateway answers `deferred: true`;
+  // the running reply finishes on the model it started with), the project
+  // chip's contract. The predicate is still reported from here because the
+  // send control's location requires it; it no longer gates this chip.
   useGuidePredicate('no_response_running', !isRunning)
   const effortSuffix = hasEffort
     ? ` · ${i18nT('components.reasoningEffortDropdown.reasoning_effort')}: ${effortShown}`
     : ''
-  const modelChipLabel = `${isRunning
-    ? i18nT('components.chatInput.stop_the_current_response_to_switch_model')
-    : modelIsJevRouted
-      ? i18nT('pages.chatPage.model_auto_jev_description')
-      : modelIsInheritedDefault
-        ? i18nT('components.chatInput.model_inherited_default', { name: modelName })
-        : modelIsAutoChosen
-          ? `${i18nT('components.chatInput.model_2', { name: modelName })} · ${i18nT('components.jobForm.auto')}`
-          : i18nT('components.chatInput.model_2', { name: modelName })}${effortSuffix}`
+  const modelChipName = modelIsJevRouted
+    ? i18nT('pages.chatPage.model_auto_jev_description')
+    : modelIsInheritedDefault
+      ? i18nT('components.chatInput.model_inherited_default', { name: modelName })
+      : modelIsAutoChosen
+        ? `${i18nT('components.chatInput.model_2', { name: modelName })} · ${i18nT('components.jobForm.auto')}`
+        : i18nT('components.chatInput.model_2', { name: modelName })
+  // While a response runs the name is followed by the one line that matters
+  // then: a pick applies from the next message, as the project chip says.
+  const modelChipLabel = `${modelChipName}${effortSuffix}${isRunning
+    ? `\n${i18nT('components.chatInput.model_switch_applies_next_turn')}`
+    : ''}`
   // Opens on the mouse press (usePressActivation); keyboard and touch on click.
   const bindPress = usePressActivation()
   const press = bindPress<HTMLButtonElement>(el => {
@@ -398,7 +405,6 @@ export function ModelChip({ modelName, modelIsJevRouted, modelIsInheritedDefault
       press.onPointerDown(e)
     }}
     onClick={press.onClick}
-    disabled={isRunning}
     data-testid="composer-model-chip"
     {...uiLocation('chat.model-picker')}
     // Inherited default: the explanation rides on hover (title) AND keyboard

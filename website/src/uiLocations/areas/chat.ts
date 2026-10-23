@@ -152,7 +152,8 @@ export const LOCATIONS = {
         { kind: 'condition', id: 'session_open' },
         // The shelf unmounts with a collapsed message box (ChatInput).
         { kind: 'shown_by', location: 'composer.expand', when: 'composer_collapsed' },
-        { kind: 'condition', id: 'no_response_running' },
+        // No `no_response_running`: a pick during a response is taken and
+        // applied from the next message (ModelChip), so the chip is never disabled.
       ],
     }],
   },

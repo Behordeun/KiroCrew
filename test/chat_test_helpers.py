@@ -368,6 +368,7 @@ def _make_state(tmp_path, **kwargs):
     sessions.mirror_link_nonce = MagicMock(side_effect=_mirror_link_nonce)
     sessions.clear_mirror_link_if = MagicMock(side_effect=_clear_mirror_link_if)
     sessions.find_mirror_sessions = MagicMock(side_effect=_find_mirror_sessions)
+    sessions.mirror_accepts_inbound = MagicMock(side_effect=lambda key: key in _inbound_keys)
     state = DashboardState(
         sessions=sessions,
         crons=MagicMock(list_jobs=MagicMock(return_value=[]), status=MagicMock(return_value={})),

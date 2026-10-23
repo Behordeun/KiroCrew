@@ -6493,7 +6493,6 @@
       "stop_generation": "Arrêter la génération",
       "stop_recording": "Arrêter l’enregistrement",
       "stop_the_current_response_to_switch_agents": "Arrête la réponse en cours pour changer d’agent",
-      "stop_the_current_response_to_switch_model": "Arrête la réponse en cours pour changer de modèle",
       "stopping": "Arrêt…",
       "stopping_2": "Arrêt",
       "switch_not_confirmed": "Changement non confirmé pour l'instant — il s'appliquera si la connexion est rétablie.",
@@ -6538,6 +6537,7 @@
       "compacting_context_stop_unavailable": "Compactage du contexte — l'arrêt est indisponible jusqu'à la fin",
       "click_again_to_force_stop_resets_session": "Cliquer à nouveau pour forcer l’arrêt (redémarre la session ; tes messages restent, l’agent garde un extrait récent)",
       "model_inherited_default": "Cette session utilise le modèle par défaut ({{name}}). Elle n’a pas de modèle propre, elle change donc si le défaut change. Cliquez pour en épingler un.",
+      "model_switch_applies_next_turn": "Ton prochain message utilisera le modèle que tu choisis. Cette réponse se termine avec le modèle avec lequel elle a commencé.",
       "terminal_attachments": "Retire les pièces jointes avant d’exécuter une commande de terminal.",
       "terminal_folder_attachments": "Retire les dossiers joints avant d’exécuter la commande. Retirer un dossier supprime aussi sa référence {{folderRef}} de la commande.",
       "terminal_default_directory": "Répertoire de démarrage du terminal",
@@ -19434,7 +19434,8 @@
   },
   "utils": {
     "agentSwitchFeedback": {
-      "turn_in_flight": "Un tour est en cours — réessayez quand il sera terminé."
+      "turn_in_flight": "Un tour est en cours — réessayez quand il sera terminé.",
+      "model_deferred": "{{model}} prend le relais à partir de ton prochain message. Cette réponse se termine avec le modèle avec lequel elle a commencé."
     },
     "channelOrigin": {
       "direct_message": "Message privé"

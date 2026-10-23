@@ -16,7 +16,7 @@ Writes: ``_app``, ``_auto_tagged``, ``_channel_runtime_origin``, ``_created_by``
 ``_mcp_report_session_id``, ``_memory_assignment_from_history``, ``_model_pick_gen``,
 ``_model_pick_lock``, ``_model_runtime_pick_gen``, ``_model_withheld``,
 ``_model_withheld_for``, ``_origin``, ``_pending_discard_conversation_key``,
-``_pending_discard_from_wake``, ``_pending_memory_mode``, ``_pending_model_pick``,
+``_deferred_model_switch_key``, ``_pending_discard_from_wake``, ``_pending_memory_mode``, ``_pending_model_pick``,
 ``_pending_reset_history_key``, ``_prefetch_ttl_task``, ``_reasoning_effort``,
 ``_recovery_chat_triggered``, ``_revived_by``, ``_session_requested_model``,
 ``_slack_channel``, ``_slack_linked``, ``_slack_thread_ts``, ``_summary_in_flight``,
@@ -342,6 +342,14 @@ def init_session_fields(self: _ChatSlot) -> None:
     # the caller's authorization and commits the model in one synchronous
     # step. Runtime only: a pick does not survive a gateway restart.
     self._pending_model_pick = None
+    # Set by api_chat_slot_model when the pick arrives while a turn is in
+    # flight: slot.model is already committed, and this names the session the
+    # live session was on, so the turn boundary knows which session still runs
+    # the old model. Consumed by session_control.apply_deferred_model_switch at
+    # the end of that turn (and at the next turn's start as the backstop), which
+    # moves the now-idle session live or arms the deferred reset. Runtime only:
+    # a restart cold-starts on the committed slot.model anyway.
+    self._deferred_model_switch_key = ""
     # Debounced speculative session-creation task (session.eager_spawn).
     # At most one per slot: scheduling a new one cancels the previous, so
     # rapid signals (create + project set) collapse into a single spawn.

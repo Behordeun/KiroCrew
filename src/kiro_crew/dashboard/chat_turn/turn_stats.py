@@ -637,6 +637,17 @@ async def _on_complete(turn: _ChatTurn, event) -> Literal[_Flow.BREAK] | None:
     # write anyway.
     _provider_name = capabilities_of(client).provider_seam
     _record_model = slot.model
+    # A model pick can land on the slot mid-turn: api_chat_slot_model's
+    # deferred branch writes slot.model and marks _deferred_model_switch_key
+    # for the turn boundary to apply. The live session is NOT switched then, so
+    # THIS turn still ran on what the client serves while slot.model already
+    # names the NEXT turn's model. Attribute the row to the served id, not the
+    # pending pin, and the backfill below additionally refuses to WRITE
+    # slot.model — which would overwrite the pending pick, replacing an Auto
+    # pick's "" with the served id and silently undoing it.
+    _deferred_model_pick = bool(slot._deferred_model_switch_key)
+    if _deferred_model_pick:
+        _record_model = _turn_model or provider_active_model(client)
     # Occupancy is read ABOVE the billing gate, beside the other locals
     # the turn closer needs. Two reasons, and either alone decides it:
     # the closer runs for EVERY completed turn, so a name bound only
@@ -741,6 +752,7 @@ async def _on_complete(turn: _ChatTurn, event) -> Literal[_Flow.BREAK] | None:
             not _record_model
             and not slot._active_fallback_model
             and not slot._refusal_fallback_primary
+            and not _deferred_model_pick
         ):
             _canonical = _backfill_canonical_model(client, _provider_name)
             if _canonical:

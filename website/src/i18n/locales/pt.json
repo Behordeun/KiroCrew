@@ -6493,7 +6493,6 @@
       "stop_generation": "Parar geração",
       "stop_recording": "Parar gravação",
       "stop_the_current_response_to_switch_agents": "Pare a resposta atual para trocar de agente",
-      "stop_the_current_response_to_switch_model": "Pare a resposta atual para trocar de modelo",
       "stopping": "Parando…",
       "stopping_2": "Parando",
       "switch_not_confirmed": "Troca ainda não confirmada — será aplicada se a conexão for restaurada.",
@@ -6538,6 +6537,7 @@
       "compacting_context_stop_unavailable": "Compactando o contexto — não é possível parar até terminar",
       "click_again_to_force_stop_resets_session": "Clique novamente para forçar a parada (reinicia a sessão; suas mensagens ficam, o agente mantém um trecho recente)",
       "model_inherited_default": "Esta sessão usa o modelo padrão ({{name}}). Não tem um modelo próprio, então muda se o padrão mudar. Clique para fixar um.",
+      "model_switch_applies_next_turn": "Sua próxima mensagem usará o modelo que você escolher. Esta resposta termina com o modelo com que começou.",
       "terminal_attachments": "Remova os anexos antes de executar um comando de terminal.",
       "terminal_folder_attachments": "Remova as pastas anexadas antes de executar o comando. Ao remover uma pasta, a referência {{folderRef}} dela também é removida do comando.",
       "terminal_default_directory": "Diretório inicial do terminal",
@@ -19434,7 +19434,8 @@
   },
   "utils": {
     "agentSwitchFeedback": {
-      "turn_in_flight": "Um turno está em andamento — tente novamente quando ele terminar."
+      "turn_in_flight": "Um turno está em andamento — tente novamente quando ele terminar.",
+      "model_deferred": "{{model}} assume a partir da sua próxima mensagem. Esta resposta termina com o modelo com que começou."
     },
     "channelOrigin": {
       "direct_message": "Mensagem direta"
