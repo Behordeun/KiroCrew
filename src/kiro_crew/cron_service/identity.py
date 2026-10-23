@@ -415,8 +415,9 @@ def _reconcile_legacy_cron_session(job: CronJob, execution: ExecutionContext) ->
     id, or the ``agent_id`` it kept. A record some earlier read already
     backfilled is rebound through :func:`bind_session_execution` with
     ``replace_existing`` and the decoded value as ``expected``, and only when it
-    differs from the capture in its template alone -- same member, store, mode
-    and app -- so the rewrite changes nothing else. Nothing here guesses a
+    differs from the capture in its selection alone -- same member, store, mode
+    and app (:func:`_differs_in_selection_only`) -- so the rewrite changes
+    nothing else. Nothing here guesses a
     member: the identity written is the one
     :func:`legacy_member_cron_execution` attributed, and a record that names
     anyone else, a restricted mode or an app is left as it is and logged, since
@@ -460,6 +461,36 @@ def _reconcile_legacy_cron_session(job: CronJob, execution: ExecutionContext) ->
     rebind_cron_session_template(session_key, execution, job.name)
 
 
+def _differs_in_selection_only(current: ExecutionContext, capture: ExecutionContext) -> bool:
+    """Whether *current* names *capture*'s identity, differing only in what it selects.
+
+    ``template_id`` and ``selection_revision`` (a publication guard, minted afresh
+    by every ``record_agent_selection``) never carry identity. ``selection_kind``
+    and ``selection_name`` do in one case: a member with no persisted
+    ``member_id`` is named by ``selection_kind == "member"`` and
+    ``selection_name`` alone (:meth:`ExecutionContext.with_template`). So those
+    two count as selection only when a ``member_id`` names the member, or when
+    both sides select a template. ``member_id``, ``store``, ``memory_mode`` and
+    ``app`` must always match.
+    """
+    from dataclasses import replace
+
+    aligned = replace(
+        current,
+        template_id=capture.template_id,
+        selection_revision=capture.selection_revision,
+    )
+    if current.member_id is not None or (
+        current.selection_kind == capture.selection_kind == "template"
+    ):
+        aligned = replace(
+            aligned,
+            selection_kind=capture.selection_kind,
+            selection_name=capture.selection_name,
+        )
+    return aligned == capture
+
+
 def rebind_cron_session_template(
     session_key: str, execution: ExecutionContext, job_name: str
 ) -> None:
@@ -467,16 +498,15 @@ def rebind_cron_session_template(
 
     Dispatch publishes the capture under the job's stable key with a plain
     ``bind_session_execution``, which refuses a record that differs. A record
-    that differs from the capture in its template alone -- same member, store,
-    mode, app and selection -- is this schedule's own, left by a run under the
-    template the capture named before (a startup upgrade, or an agent change
-    through ``cron update``). It is rewritten under a compare-and-set against
-    the value just read. Any other record is left as it is and logged, and
-    dispatch refuses it with its own reason. Not vouched: a cron key is never
-    the caller slot of an own-store admission.
+    that differs from the capture in its selection alone -- same member, store,
+    mode and app -- is this schedule's own (see :func:`_differs_in_selection_only`):
+    a run under the template the capture named before (a startup upgrade, or an
+    agent change through ``cron update``), or an agent switch on the schedule's
+    dashboard tab, which runs under this same key. It is rewritten under a
+    compare-and-set against the value just read. Any other record is left as it
+    is and logged, and dispatch refuses it with its own reason. Not vouched: a
+    cron key is never the caller slot of an own-store admission.
     """
-    from dataclasses import replace
-
     from kiro_crew.execution_context import bind_session_execution, read_session_execution
     from kiro_crew.memory_stores import MissingExecutionIdentity
 
@@ -491,7 +521,7 @@ def rebind_cron_session_template(
         return
     if current is None or current == execution:
         return
-    if replace(current, template_id=execution.template_id) != execution:
+    if not _differs_in_selection_only(current, execution):
         logger.warning(
             "Cron '%s': its session record belongs to another execution and was left as it "
             "is; archive that session or recreate the schedule",
