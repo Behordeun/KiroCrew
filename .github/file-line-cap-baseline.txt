@@ -15,4 +15,3 @@
 3161 src/kiro_crew/cron_script.py
 18473 src/kiro_crew/dashboard/chat_runner.py
 3181 src/kiro_crew/security_posture.py
-12647 test/test_security.py
