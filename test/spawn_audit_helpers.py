@@ -1081,6 +1081,8 @@ BENIGN_PACKAGE_SPAWNS: frozenset[str] = frozenset(
         # sandboxed_spawn_argv: codesign must read the system trust store and
         # evaluate the Apple certificate chain, which the OS sandbox denies.
         "transcribe_ffmpeg.py::_macos_developer_id_authentic",
+        # NOT a subprocess spawn: ``asyncio.run`` drives a coroutine; no process is spawned.
+        "speech_providers.py::_run",
         # `_pcm_via_ffmpeg` decodes a container the stdlib cannot read (a Slack
         # voice memo's ogg/Opus, an uploaded m4a) down to the 16 kHz mono PCM the
         # recogniser takes. Fixed argv, ffmpeg only; the sole variable part is a

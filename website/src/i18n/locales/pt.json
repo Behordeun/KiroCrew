@@ -10449,6 +10449,10 @@
       "stream_error_vocabulary_rejected": "O Amazon Transcribe não conseguiu usar seu vocabulário personalizado. Escolha outro, ou Nenhum, nas configurações de voz para texto e tente novamente.",
       "stream_error_sdk_outdated": "Idiomas misturados precisam do amazon-transcribe 0.6.3 ou mais recente no gateway. Atualize-o com o comando do log do gateway, ou limpe Idiomas misturados nas configurações de voz para texto, e tente novamente."
     },
+    "speechProviders": {
+      "unavailable_no_reason": "Este provedor não pode ser executado agora.",
+      "sign_in_hint": "Entre com sua {{account}} para usá-lo."
+    },
     "templateSource": {
       "built_in": "Integrado",
       "package": "Pacote",
@@ -17767,6 +17771,7 @@
         "unavailable_disabled": "A transcrição de voz está desativada. Ative-a acima.",
         "status_provider_off": "Não está ouvindo",
         "status_not_working": "não está funcionando",
+        "status_unavailable_provider": "indisponível",
         "unavailable_provider_off": "A voz está ativada, mas o provedor está definido como Desativado, então nada está ouvindo. Escolha outro provedor no menu Provedor abaixo.",
         "unavailable_extra_missing": "Os pacotes de voz não estão instalados no ambiente Python do gateway.",
         "unavailable_no_wheel": "Não existe um reconhecedor de voz pré-compilado para esta plataforma. Instale um compilador C++ e o CMake e reinstale os pacotes de voz.",

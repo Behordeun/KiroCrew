@@ -8324,6 +8324,7 @@
         "unavailable_disabled": "Speech-to-text is turned off. Switch it on above.",
         "status_provider_off": "Not listening",
         "status_not_working": "not working",
+        "status_unavailable_provider": "unavailable",
         "unavailable_provider_off": "Voice is on, but the provider is set to Off, so nothing is listening. Pick another provider from the Provider menu below.",
         "unavailable_extra_missing": "The voice packages are not installed in the gateway's Python environment.",
         "unavailable_no_wheel": "There is no prebuilt speech recogniser for this platform. Install a C++ compiler and CMake, then reinstall the voice packages.",
@@ -9308,6 +9309,10 @@
       "stream_error_session_failed": "The dictation session failed. Try recording again.",
       "stream_error_vocabulary_rejected": "Amazon Transcribe could not use your custom vocabulary. Choose another one, or None, in the speech-to-text settings, then try again.",
       "stream_error_sdk_outdated": "Mixed languages need amazon-transcribe 0.6.3 or newer in the gateway. Upgrade it with the command in the gateway log, or clear Mixed languages in the speech-to-text settings, then try again."
+    },
+    "speechProviders": {
+      "unavailable_no_reason": "This provider can't run right now.",
+      "sign_in_hint": "Sign in with your {{account}} to use it."
     },
     "templateSource": {
       "built_in": "Built-in",

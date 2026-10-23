@@ -10159,6 +10159,10 @@
       "stream_error_vocabulary_rejected": "Amazon Transcribe 无法使用你的自定义词汇表。在语音转文字设置中选择其他词汇表或“无”，然后重试。",
       "stream_error_sdk_outdated": "混合语言需要 gateway 中的 amazon-transcribe 为 0.6.3 或更高版本。请用 gateway 日志中的命令升级，或在语音转文字设置中清空混合语言，然后重试。"
     },
+    "speechProviders": {
+      "unavailable_no_reason": "此提供方目前无法运行。",
+      "sign_in_hint": "请使用你的 {{account}} 登录以使用它。"
+    },
     "templateSource": {
       "built_in": "内置",
       "package": "包",
@@ -17225,6 +17229,7 @@
         "unavailable_disabled": "语音转文字已关闭。请在上方将其打开。",
         "status_provider_off": "未在监听",
         "status_not_working": "无法工作",
+        "status_unavailable_provider": "不可用",
         "unavailable_provider_off": "语音已开启，但提供方已设为“关闭”，因此没有在监听。请在下方的“提供方”菜单中选择另一个提供方。",
         "unavailable_extra_missing": "语音相关软件包未安装在 gateway 的 Python 环境中。",
         "unavailable_no_wheel": "此平台没有预编译的语音识别组件。请先安装 C++ 编译器和 CMake，然后重新安装语音软件包。",

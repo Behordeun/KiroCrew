@@ -9,12 +9,17 @@ import AwsConsentGate from '../../components/AwsConsentGate'
 import { i18nT } from '../../i18n/t'
 import { Info } from 'lucide-react'
 import ErrorNotice from '../../components/ErrorNotice'
+import SpeechProviderNotice from '../../components/SpeechProviderNotice'
+import { parseSpeechProviders, speechProviderNotice, speechProviderOptions } from '../../lib/speechProviders'
 type VoiceConfig = {
   enabled: boolean; provider: string; voice: string; engine: string; rate: string
   autoSpeak: boolean; aws_profile: string; region: string
   system_voice: string
+  /** Served provider entries (see lib/speechProviders); absent on an older gateway. */
+  providers?: unknown
 }
 
+/** The options when the gateway serves no provider list. */
 const PROVIDER_OPTIONS = ['system', 'polly']
 
 // Consent-gate service key for Polly; shared so the gate and the cache
@@ -96,6 +101,10 @@ export function VoicePanel() {
   const voiceCfg = voiceQ.data ?? { enabled: false, provider: 'system', voice: VOICE_OPTIONS_FALLBACK[0].value, engine: 'generative', rate: '100%', autoSpeak: false, aws_profile: '', region: '', system_voice: '' }
   const isPolly = voiceCfg.provider === 'polly'
   const isSystem = voiceCfg.provider === 'system'
+  const servedProviders = parseSpeechProviders(voiceCfg.providers)
+  const providerChoices = speechProviderOptions(servedProviders, PROVIDER_OPTIONS, p =>
+    Object.prototype.hasOwnProperty.call(PROVIDER_LABEL_KEY, p) ? i18nT(PROVIDER_LABEL_KEY[p]) : p)
+  const providerNotice = speechProviderNotice(servedProviders, voiceCfg.provider)
   // A host with no built-in engine is a real state the user has to act on
   // (install one, or switch provider), so it is surfaced rather than left to a
   // failed synthesis. Only claimed once the probe has actually answered.
@@ -176,7 +185,10 @@ export function VoicePanel() {
           ) : (
             <>
               <SettingsToggle label={i18nT('pages.settings.voicePanel.auto_speak_responses')} hint={i18nT('pages.settings.voicePanel.speak_every_assistant_reply_automatically')} checked={voiceCfg.autoSpeak} onChange={v => setVoice({ autoSpeak: v, ...(v ? { enabled: true } : {}) })} disabled={voiceDisabled} />
-              <SettingsSelect settingId="voice.provider-2" label={i18nT('pages.settings.voicePanel.provider')} description={i18nT('pages.settings.voicePanel.the_built_in_engine_needs_no_setup_amazon_polly_uses')} value={voiceCfg.provider} options={PROVIDER_OPTIONS} optionLabels={PROVIDER_OPTIONS.map(p => i18nT(PROVIDER_LABEL_KEY[p]))} onChange={v => setVoice({ provider: v })} disabled={voiceDisabled} />
+              <SettingsSelect settingId="voice.provider-2" label={i18nT('pages.settings.voicePanel.provider')} description={i18nT('pages.settings.voicePanel.the_built_in_engine_needs_no_setup_amazon_polly_uses')} value={voiceCfg.provider} options={providerChoices.options} optionLabels={providerChoices.labels} onChange={v => setVoice({ provider: v })} disabled={voiceDisabled} />
+              {/* Hand-off on: with a registered provider selected, no Polly
+                  field is mounted, and every control left commits on change. */}
+              {providerNotice && <SpeechProviderNotice entry={providerNotice} testId="tts-provider-notice" askAgent />}
               {isSystem ? (
                 <>
                   {systemUnavailable && (

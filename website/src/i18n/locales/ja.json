@@ -10159,6 +10159,10 @@
       "stream_error_vocabulary_rejected": "Amazon Transcribe でカスタム語彙を使用できませんでした。音声入力の設定で別の語彙か「なし」を選んでから、もう一度お試しください。",
       "stream_error_sdk_outdated": "複数言語を使うには、ゲートウェイに amazon-transcribe 0.6.3 以降が必要です。ゲートウェイのログにあるコマンドで更新するか、音声入力の設定で複数言語を空にしてから、もう一度お試しください。"
     },
+    "speechProviders": {
+      "unavailable_no_reason": "このプロバイダーは現在実行できません。",
+      "sign_in_hint": "使用するには {{account}} でサインインしてください。"
+    },
     "templateSource": {
       "built_in": "組み込み",
       "package": "パッケージ",
@@ -17225,6 +17229,7 @@
         "unavailable_disabled": "音声入力はオフになっています。上でオンにしてください。",
         "status_provider_off": "聞き取っていません",
         "status_not_working": "動作していません",
+        "status_unavailable_provider": "利用不可",
         "unavailable_provider_off": "音声はオンですが、プロバイダーがオフに設定されているため、何も聞き取っていません。下のプロバイダーメニューから別のプロバイダーを選択してください。",
         "unavailable_extra_missing": "音声用パッケージがゲートウェイの Python 環境にインストールされていません。",
         "unavailable_no_wheel": "このプラットフォーム向けのビルド済み音声認識エンジンはありません。C++ コンパイラーと CMake をインストールし、音声用パッケージを再インストールしてください。",

@@ -105,6 +105,12 @@ export const UNAVAILABLE_CODE_KEY: Record<string, string> = {
  * Refusals where the recogniser IS installed but could not be, or would not be, loaded.
  * The Status badge shows "not working" for these, not "not installed".
  */
+/**
+ * A registered provider's own check said it cannot run now. Nothing is missing
+ * from the host, so the Status badge says "unavailable", not "not installed".
+ */
+export const CODE_PROVIDER_UNAVAILABLE = 'stt_provider_unavailable'
+
 export const INSTALLED_BUT_REFUSED_CODES: ReadonlySet<string> = new Set([
   'stt_import_failed',
   'stt_unsupported_cpu',

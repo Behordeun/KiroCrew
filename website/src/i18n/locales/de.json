@@ -10304,6 +10304,10 @@
       "stream_error_vocabulary_rejected": "Amazon Transcribe konnte dein benutzerdefiniertes Vokabular nicht verwenden. Wähle in den Spracherkennungseinstellungen ein anderes oder „Keines“ und versuche es dann noch einmal.",
       "stream_error_sdk_outdated": "Gemischte Sprachen brauchen amazon-transcribe 0.6.3 oder neuer im Gateway. Aktualisiere es mit dem Befehl im Gateway-Log oder leere „Gemischte Sprachen“ in den Spracherkennungseinstellungen und versuche es dann noch einmal."
     },
+    "speechProviders": {
+      "unavailable_no_reason": "Dieser Anbieter kann gerade nicht laufen.",
+      "sign_in_hint": "Melde dich mit deinem {{account}} an, um ihn zu nutzen."
+    },
     "templateSource": {
       "built_in": "Integriert",
       "package": "Paket",
@@ -17496,6 +17500,7 @@
         "unavailable_disabled": "Die Spracherkennung ist ausgeschaltet. Schalten Sie sie oben ein.",
         "status_provider_off": "Hört nicht zu",
         "status_not_working": "funktioniert nicht",
+        "status_unavailable_provider": "nicht verfügbar",
         "unavailable_provider_off": "Sprache ist an, aber der Anbieter steht auf „Aus“, daher hört nichts zu. Wähle unten im Menü „Anbieter“ einen anderen Anbieter aus.",
         "unavailable_extra_missing": "Die Sprachpakete sind nicht in der Python-Umgebung des Gateways installiert.",
         "unavailable_no_wheel": "Für diese Plattform gibt es keine vorgebaute Spracherkennung. Installieren Sie einen C++-Compiler und CMake und installieren Sie die Sprachpakete erneut.",

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kiro_crew.slack.handler import (
+        PROVIDER_POLLY,
         PROVIDER_SYSTEM,
         KiroCrewConfig,
         SlackClientOps,
@@ -171,6 +172,10 @@ async def _reply_by_voice(
                         "Install the host speech engine (`espeak-ng`) or pick "
                         "another provider in Voice settings."
                     )
+                elif _vc.provider != PROVIDER_POLLY:
+                    # An edition-registered provider: its own check() said no,
+                    # and the Voice settings row carries its reason.
+                    hint = "Check the voice provider in Voice settings."
                 else:
                     hint = "Run `ada credentials update` and ensure `aws` CLI " "is on PATH."
                 if voice_auto_reply:

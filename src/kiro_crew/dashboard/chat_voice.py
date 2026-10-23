@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from aiohttp import web
 
-from kiro_crew import aws_consent
+from kiro_crew import aws_consent, speech_providers
 from kiro_crew.config.loader import (
     ConfigReadError,
     ConfigWriteRefused,
@@ -37,19 +37,23 @@ from kiro_crew.security import redact_credentials, redact_exfiltration_urls
 from kiro_crew.slack.handler import _vc
 from kiro_crew.voice_reply import (
     PROVIDER_POLLY,
+    PROVIDER_SYSTEM,
     VALID_ENGINES,
-    VALID_PROVIDERS,
     SystemVoiceProbeError,
     VoiceSynthesisError,
     _validate_pitch,
     _validate_rate,
+    iter_registered_chunks,
+    join_audio,
     list_system_voices,
+    registered_voice_config,
     resolve_polly_cli,
     resolve_system_tts_async,
     stitch_mp3s,
     streaming_voice_reply,
     strip_markdown,
     synthesize_speech,
+    valid_providers,
     validated_config_bool,
     validated_config_string,
 )
@@ -217,6 +221,33 @@ def _sandbox_refusal_response(
     )
 
 
+#: The built-in TTS providers, in the order the picker lists them.
+_TTS_BUILTINS: tuple[str, ...] = (PROVIDER_SYSTEM, PROVIDER_POLLY)
+
+
+async def _voice_provider_rows() -> list[dict]:
+    """The voice ``providers`` capability list.
+
+    Built-ins are served as ``{name, builtin}`` with no probe: the dashboard reads
+    a row's status only for a registered provider and labels a built-in from its
+    own catalog. The edition's providers answer through their own ``check()``,
+    each bounded and fail-closed; ``error`` is true only for a check that timed
+    out or raised.
+    """
+    rows: list[dict] = [{"name": name, "builtin": True} for name in _TTS_BUILTINS]
+    rows += await speech_providers.registered_entries(
+        speech_providers.registered_tts_providers(),
+        lambda provider: registered_voice_config(
+            provider.name,
+            voice_id=_vc.default_voice,
+            rate=_vc.default_rate,
+            pitch=_vc.default_pitch,
+            system_voice=_vc.system_voice,
+        ),
+    )
+    return rows
+
+
 async def api_voice_config(request: web.Request) -> web.Response:
     """GET/PUT /api/voice/config — read or update voice settings."""
     if request.method == "GET":
@@ -232,6 +263,10 @@ async def api_voice_config(request: web.Request) -> web.Response:
                 "aws_profile": _vc.aws_profile,
                 "region": _vc.region,
                 "system_voice": _vc.system_voice,
+                # One row per selectable provider, built-ins first in today's
+                # order, then the edition's: ``{name, label, builtin, available,
+                # reason, action}``. ``action`` is a sign-in step or null.
+                "providers": await _voice_provider_rows(),
             }
         )
 
@@ -247,12 +282,13 @@ async def api_voice_config(request: web.Request) -> web.Response:
     # live provider can change on a request the API said it refused.
     pending: dict[str, object] = {}
 
-    # ``in VALID_PROVIDERS`` would raise TypeError on an unhashable JSON value
-    # (list/dict), 500ing the PUT — require a str first.
+    # ``in valid_providers()`` would raise TypeError on an unhashable JSON value
+    # (list/dict), 500ing the PUT — require a str first. The built-ins plus the
+    # edition's registered TTS providers; with the default registry, the built-ins.
     if (
         "provider" in body
         and isinstance(body["provider"], str)
-        and body["provider"] in VALID_PROVIDERS
+        and body["provider"] in valid_providers()
     ):
         pending["provider"] = body["provider"]
     if "voice" in body:
@@ -422,6 +458,13 @@ async def _synthesize_request(
     chunk_paths: list[str] = []
     final_path: str | None = None
     try:
+        # Tried only for a name that is not a built-in (``tts_provider`` answers
+        # None for every built-in), so the branches around it are unchanged.
+        registered = speech_providers.tts_provider(_vc.provider)
+        if registered is not None:
+            return await _synthesize_registered_stream(
+                state, registered, text, identity, voice_id, rate, pitch
+            )
         # Only explicitly selected Polly may reach the paid sentence stream.
         # The built-in engine retains its provider-aware single-WAV path.
         if _vc.provider != PROVIDER_POLLY:
@@ -512,6 +555,65 @@ async def _synthesize_request(
         for p in chunk_paths:
             with contextlib.suppress(OSError):
                 os.unlink(p)
+
+
+async def _synthesize_registered_stream(
+    state: DashboardState,
+    provider: object,
+    text: str,
+    identity: dict[str, str],
+    voice_id: str,
+    rate: str,
+    pitch: str,
+) -> web.Response:
+    """Play an edition provider's chunks as they arrive, then one replay clip.
+
+    Same frames, identity and errors as the Polly stream, so the
+    dashboard plays it with no new branch. The text is already redacted; the
+    markdown is stripped here, as for every local provider.
+    """
+    plain = strip_markdown(text).strip()
+    voice_config = registered_voice_config(
+        _vc.provider, voice_id=voice_id, rate=rate, pitch=pitch, system_voice=_vc.system_voice
+    )
+    chunks: list[tuple[bytes, str]] = []
+    if plain:
+        async for chunk in iter_registered_chunks(provider, plain, voice_config):
+            audio = bytes(chunk.audio)
+            chunks.append((audio, chunk.mime))
+            sentence = getattr(chunk, "sentence", "")
+            state.broadcast_ws(
+                "voice_chunk",
+                {
+                    **identity,
+                    "index": len(chunks) - 1,
+                    "sentence": sentence if isinstance(sentence, str) else "",
+                    "audio": base64.b64encode(audio).decode("ascii"),
+                    "audioMime": chunk.mime,
+                },
+            )
+    if not chunks:
+        raise VoiceSynthesisError(
+            "voice_unavailable", "The selected voice provider returned no audio."
+        )
+    joined = await asyncio.to_thread(join_audio, chunks)
+    if joined is None:
+        raise VoiceSynthesisError(
+            "voice_synthesis_failed", "The voice provider returned audio that cannot be joined."
+        )
+    audio, suffix = joined
+    state.broadcast_ws(
+        "voice_complete",
+        {
+            **identity,
+            "audio": base64.b64encode(audio).decode("ascii"),
+            "chunks": len(chunks),
+            "audioMime": "audio/mpeg" if suffix == ".mp3" else "audio/wav",
+        },
+    )
+    return web.json_response(
+        {"ok": True, "chunks": len(chunks), "request_id": identity["request_id"]}
+    )
 
 
 async def _synthesize_nonstreaming(

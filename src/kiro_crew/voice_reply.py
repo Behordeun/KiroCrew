@@ -29,7 +29,7 @@ import shutil
 import tempfile
 from typing import TYPE_CHECKING, Any
 
-from kiro_crew import aws_consent
+from kiro_crew import aws_consent, speech_providers
 from kiro_crew.constants import md_link_destination, strip_control_comments
 from kiro_crew.deploy.engine import resolve_aws_bin
 from kiro_crew.platform.context import redact_log_via_context
@@ -47,6 +47,12 @@ from kiro_crew.security import (
     redact_credentials,
     redact_exfiltration_urls,
     redact_with_findings,
+)
+from kiro_crew.voice_reply_registered import (  # noqa: F401 - re-exported
+    _synthesize_registered,
+    iter_registered_chunks,
+    join_audio,
+    registered_voice_config,
 )
 
 if TYPE_CHECKING:
@@ -86,6 +92,34 @@ REMOVED_PROVIDERS = frozenset({"piper"})
 # option, used only when explicitly selected.
 DEFAULT_PROVIDER = PROVIDER_SYSTEM
 
+
+def valid_providers() -> frozenset[str]:
+    """Every ``voice_reply.provider`` a config may select: built-ins plus the edition's.
+
+    :data:`VALID_PROVIDERS` stays the built-in set. An edition's registered TTS
+    names (``PlatformContext.speech``) join it; boot refuses one that collides
+    with a built-in. With the default registry this IS :data:`VALID_PROVIDERS`.
+    """
+    registered = speech_providers.registered_tts_names()
+    if not registered:
+        return VALID_PROVIDERS
+    return VALID_PROVIDERS | frozenset(registered)
+
+
+def default_provider() -> str:
+    """What an absent ``voice_reply.provider`` resolves to.
+
+    The edition's ``default_tts()`` when it names a selectable provider, else
+    :data:`DEFAULT_PROVIDER`. Used only for the ABSENT key: an invalid stored value
+    still falls back to :data:`DEFAULT_PROVIDER` (see
+    :func:`resolve_configured_provider`).
+    """
+    edition = speech_providers.edition_default_tts()
+    if edition is not None and edition in valid_providers():
+        return edition
+    return DEFAULT_PROVIDER
+
+
 # Built-in engine per platform. The value is what ``_synthesize_system``
 # switches on, so it names the engine rather than the OS: a host can lack the
 # engine its OS normally ships (a container without ``say``), and then there is
@@ -123,6 +157,11 @@ def is_available(provider: str = DEFAULT_PROVIDER) -> bool:
         return resolve_system_tts() is not None
     if provider == PROVIDER_POLLY:
         return resolve_polly_cli() is not None
+    registered = speech_providers.tts_provider(provider)
+    if registered is not None:
+        # An edition provider answers through its own check(). BLOCKING, like
+        # this whole function (its callers run it off the loop).
+        return speech_providers.check_status_sync(registered, {"provider": provider}).available
     logger.warning("is_available: unknown provider %r", provider)
     return False
 
@@ -858,6 +897,18 @@ async def synthesize_speech(
         if not plain:
             return None
         return await _synthesize_system(plain, voice=system_voice, rate=rate)
+    registered = speech_providers.tts_provider(provider)
+    if registered is not None:
+        plain = strip_markdown(text).strip()
+        if not plain:
+            return None
+        return await _synthesize_registered(
+            registered,
+            plain,
+            registered_voice_config(
+                provider, voice_id=voice_id, rate=rate, pitch=pitch, system_voice=system_voice
+            ),
+        )
     logger.error("synthesize_speech: unknown provider %r", provider)
     return None
 
@@ -1286,16 +1337,25 @@ def resolve_configured_provider(section: dict | None) -> str:
     was missing is not a decision an operator made, and a wrong local provider
     costs nothing and degrades to a "TTS isn't configured" notice.
 
-    A removed provider (:data:`REMOVED_PROVIDERS`), or an unnamed provider on a
-    config that still carries ``piper_model`` from before ``system`` became the
-    default, resolves to the default too, with one warning per process so the
-    operator can see why their voice changed.
+    An absent provider takes the edition's ``default_tts()`` when the composed
+    platform context sets one (:func:`default_provider`); a stored value always
+    wins over it.
+
+    A removed provider (:data:`REMOVED_PROVIDERS`) resolves to the built-in
+    default, and an unnamed provider on a config that still carries
+    ``piper_model`` from before ``system`` became the default resolves like any
+    absent one, each with one warning per process so the operator can see why
+    their voice changed.
     """
     section = section or {}
     provider = section.get("provider")
     if not provider:
         if validated_config_string(section.get("piper_model")):
             _warn_removed_provider("piper")
+        # Only an absent, null or empty provider takes the edition default. A
+        # malformed falsy value (``false``, ``0``, ``[]``) keeps the built-in one.
+        if provider is None or provider == "":
+            return default_provider()
         return DEFAULT_PROVIDER
     if isinstance(provider, str) and provider in REMOVED_PROVIDERS:
         _warn_removed_provider(provider)
@@ -1303,11 +1363,15 @@ def resolve_configured_provider(section: dict | None) -> str:
     # ``in VALID_PROVIDERS`` raises TypeError on an unhashable JSON value
     # (config.json can hold a list or dict where a string belongs), so the type
     # is checked before the membership test.
-    if not isinstance(provider, str) or provider not in VALID_PROVIDERS:
+    selectable = valid_providers()
+    if not isinstance(provider, str) or provider not in selectable:
+        # Deliberately the built-in DEFAULT_PROVIDER, not the edition default: a
+        # mistyped value must not land on a provider (possibly a hosted, billed
+        # one) that nobody chose.
         logger.warning(
             "voice_reply.provider %r not in %s, defaulting to %r",
             provider,
-            sorted(VALID_PROVIDERS),
+            sorted(selectable),
             DEFAULT_PROVIDER,
         )
         return DEFAULT_PROVIDER

@@ -119,11 +119,22 @@ Telegram and dashboard paths. Three rules:
   decision an operator made. The type is checked before the membership test,
   because `config.json` can hold a list or dict where a string belongs and
   `in VALID_PROVIDERS` would raise on those.
-- A removed provider (`voice_reply.REMOVED_PROVIDERS`, today `piper`), or an
-  unnamed provider on a section that still carries `piper_model`, resolves to
-  `DEFAULT_PROVIDER` with one warning per process naming the removal. The
+- A removed provider (`voice_reply.REMOVED_PROVIDERS`, today `piper`) resolves
+  to `DEFAULT_PROVIDER`, and an unnamed provider on a section that still carries
+  `piper_model` resolves like any absent provider (`default_provider()`, which
+  is `DEFAULT_PROVIDER` on a standalone install), each with one warning per
+  process naming the removal. The
   section's `piper_*` keys stay in `config.json` unread, so a downgrade still
   finds them, and no file on disk is touched.
+
+### Registered providers
+
+A composed edition can add TTS providers through the `speech` slot on `PlatformContext` (`SpeechProviderRegistry.tts_providers()`; see `platform-context.md`). The default registry adds none, so a standalone install has exactly `VALID_PROVIDERS`. `voice_reply.valid_providers()` is the built-ins plus the registered names.
+
+- **Collision rule.** A registered name may not be a built-in (`polly`, `system`) or a removed provider (`piper`), may not be blank and may not repeat. `speech_providers.validate_speech_registry` refuses any of these at boot with `PlatformCompositionError`, so an edition can add a provider but never replace one.
+- **Default precedence.** A stored provider always wins. Only an absent, null or empty value takes `voice_reply.default_provider()`: the edition's `default_tts()` when it names a selectable provider, else `DEFAULT_PROVIDER`. An invalid stored value still falls back to `DEFAULT_PROVIDER`, never to the edition default, for the same reason it never falls back to Polly.
+
+`GET /api/voice/config` serves the same `providers` list the STT config does (`stt-streaming.md` § "The capability `providers` list"): a built-in row is `{name, builtin: true}` with no probe, a registered row carries `name`, `label`, `builtin`, `available`, `reason`, `action`, `error`; built-ins first in `system`, `polly` order. The Settings picker (`VoicePanel`) renders its options from it and falls back to its own `PROVIDER_OPTIONS` when the list is absent. A registered provider shows none of the built-in field sets; when it cannot run, `SpeechProviderNotice` shows its `reason` under the picker: through `ErrorNotice`, with the agent hand-off, when `error` says its check timed out or raised, and otherwise as status text with any sign-in hint.
 
 ## Components
 

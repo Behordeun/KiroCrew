@@ -393,6 +393,7 @@ from kiro_crew.taskrunner import TaskRunner
 from kiro_crew.tool_gate_busy import hook_gate_busy
 from kiro_crew.voice_reply import (  # noqa: F401 - read by the owners
     DEFAULT_PROVIDER,
+    PROVIDER_POLLY,
     PROVIDER_SYSTEM,
 )
 from kiro_crew.voice_reply import is_available as _tts_available  # noqa: F401 - read by the owners

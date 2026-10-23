@@ -19,6 +19,7 @@ import {
   downloadRatio,
   FALLBACK_PROVIDERS,
   FALLBACK_STREAMING_PROVIDERS,
+  CODE_PROVIDER_UNAVAILABLE,
   INSTALLED_BUT_REFUSED_CODES,
   localeLanguage,
   nextTranscribeLanguages,
@@ -31,6 +32,8 @@ import { parseErrorCode, parseErrorField, reportForError, sendErrorToChat } from
 import { PttTestStrip } from '../../components/PttTestStrip'
 import AwsConsentGate from '../../components/AwsConsentGate'
 import SttRetentionNote from './SttRetentionNote'
+import SpeechProviderNotice from '../../components/SpeechProviderNotice'
+import { parseSpeechProviders, speechProviderNotice, speechProviderOptions } from '../../lib/speechProviders'
 import {
   BARE_CODE_LABEL_KEY,
   BARE_CODE_LABEL_KEY_OTHER,
@@ -90,7 +93,8 @@ interface SttConfig {
   language_code?: string
   /** Whether a fast model tidies the finished transcript. Off unless turned on. */
   polish?: boolean
-  providers?: string[]
+  /** Served provider entries (see lib/speechProviders). An older gateway sends bare names. */
+  providers?: unknown[]
   streaming_providers?: string[]
   language_codes?: string[]
   prereqs: string[]
@@ -1021,7 +1025,9 @@ export default function SttSettings({ cardIndex }: {
 
   const isTranscribe = stt.provider === PROVIDER_TRANSCRIBE
   const provider = stt.provider || PROVIDER_LOCAL
-  const providerOptions = stt.providers?.length ? stt.providers : FALLBACK_PROVIDERS
+  const servedProviders = parseSpeechProviders(stt.providers)
+  const providerChoices = speechProviderOptions(servedProviders, FALLBACK_PROVIDERS, providerLabel)
+  const providerNotice = speechProviderNotice(servedProviders, provider)
   // Gate the streaming controls on the CAPABILITY, not on a provider name. The
   // backend owns the list (`stt_stream._STREAMING_PROVIDERS`) and serves it, so
   // adding a streaming provider cannot silently hide its own toggle — which is
@@ -1203,6 +1209,11 @@ export default function SttSettings({ cardIndex }: {
                 // unknown stored value was degraded onto). Neutral, and the reason
                 // line below names the control.
                 ? <Badge variant="muted">{i18nT('pages.settings.sttSettings.status_provider_off')}</Badge>
+                : status?.code === CODE_PROVIDER_UNAVAILABLE || providerNotice
+                  // A registered provider that cannot run now: nothing is
+                  // missing from this host, so "not installed" would be wrong.
+                  // The provider notice under the picker says why.
+                  ? <Badge variant="warn">{i18nT('pages.settings.sttSettings.status_unavailable_provider')}</Badge>
                 : INSTALLED_BUT_REFUSED_CODES.has(status?.code ?? '')
                   // The recogniser IS installed in these states; it failed to
                   // load or was refused. "not installed" would contradict
@@ -1224,8 +1235,16 @@ export default function SttSettings({ cardIndex }: {
             so a bare "not installed" sends the user looking for the wrong thing.
             Rendered from the backend's machine-readable `code`; see
             `lib/sttProviders.unavailableMessage`. */}
-        {!available && unavailableText && (
-          <p className="text-[12px] text-muted -mt-1 mb-1">{unavailableText}</p>
+        {/* Not when a provider notice is shown: it carries the same reason, from
+            the same check, right under the picker. */}
+        {/* A recogniser that is installed but failed to load is a failure, so it
+            goes through ErrorNotice with the hand-off (off while an AWS draft is
+            unsaved, as for the other notices here). A missing prerequisite or a
+            disabled state is status text. */}
+        {!available && unavailableText && !providerNotice && (
+          INSTALLED_BUT_REFUSED_CODES.has(status?.code ?? '')
+            ? <ErrorNotice variant="inline" className="-mt-1 mb-1" message={unavailableText} askAgent={awsDraftsSaved} testId="stt-unavailable-error" />
+            : <p className="text-[12px] text-muted -mt-1 mb-1">{unavailableText}</p>
         )}
         {/* The probe itself failed: the badge above is then showing the config's
             plain boolean, not a verdict, and the model catalog is absent. Status
@@ -1265,7 +1284,9 @@ export default function SttSettings({ cardIndex }: {
           </button>
         )}
 
-        <SettingsSelect label={i18nT('pages.settings.sttSettings.provider')} hint={i18nT('pages.settings.sttSettings.provider_desc')} value={provider} options={providerOptions} optionLabels={providerOptions.map(providerLabel)} onChange={handleProvider} disabled={saving} configKey="stt.provider" />
+        <SettingsSelect label={i18nT('pages.settings.sttSettings.provider')} hint={i18nT('pages.settings.sttSettings.provider_desc')} value={provider} options={providerChoices.options} optionLabels={providerChoices.labels} onChange={handleProvider} disabled={saving} configKey="stt.provider" />
+        {/* No hand-off while the AWS profile/region drafts below are unsaved: see `awsDraftsSaved`. */}
+        {providerNotice && <SpeechProviderNotice entry={providerNotice} testId="stt-provider-notice" askAgent={awsDraftsSaved} />}
 
         <SttRetentionNote provider={provider} />
 

@@ -10304,6 +10304,10 @@
       "stream_error_vocabulary_rejected": "Amazon Transcribe तुम्हारी कस्टम शब्दावली का उपयोग नहीं कर सका। वाक्-से-पाठ सेटिंग में कोई दूसरी शब्दावली या \"कोई नहीं\" चुनो, फिर दोबारा कोशिश करो।",
       "stream_error_sdk_outdated": "मिश्रित भाषाओं के लिए gateway में amazon-transcribe 0.6.3 या नया चाहिए। gateway लॉग में दिए कमांड से इसे अपडेट करो, या वाक्-से-पाठ सेटिंग में मिश्रित भाषाएँ खाली करो, फिर दोबारा कोशिश करो।"
     },
+    "speechProviders": {
+      "unavailable_no_reason": "यह प्रदाता अभी नहीं चल सकता।",
+      "sign_in_hint": "इसका उपयोग करने के लिए अपने {{account}} से साइन इन करें।"
+    },
     "templateSource": {
       "built_in": "बिल्ट-इन",
       "package": "पैकेज",
@@ -17496,6 +17500,7 @@
         "unavailable_disabled": "वाक्-से-पाठ बंद है। इसे ऊपर चालू करें।",
         "status_provider_off": "सुन नहीं रहा",
         "status_not_working": "काम नहीं कर रहा",
+        "status_unavailable_provider": "उपलब्ध नहीं",
         "unavailable_provider_off": "आवाज़ चालू है, लेकिन प्रदाता बंद पर सेट है, इसलिए कुछ भी सुन नहीं रहा है। नीचे प्रदाता मेनू से कोई दूसरा प्रदाता चुनो।",
         "unavailable_extra_missing": "वॉयस पैकेज gateway के Python एनवायरनमेंट में इंस्टॉल नहीं हैं।",
         "unavailable_no_wheel": "इस प्लैटफ़ॉर्म के लिए पहले से बना वाक् पहचानकर्ता उपलब्ध नहीं है। C++ कंपाइलर और CMake इंस्टॉल करें, फिर वॉयस पैकेज दोबारा इंस्टॉल करें।",
