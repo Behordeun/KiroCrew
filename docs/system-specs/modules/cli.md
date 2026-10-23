@@ -1036,7 +1036,7 @@ dashboard is the safe direction.
 
 | Mode | stdin+stdout TTY | Behaviour |
 |---|---|---|
-| interactive REPL | yes | Prompt. Exactly `a` allows once; anything else denies. |
+| interactive REPL | yes | Prompt. Exactly `a` allows once; exactly `o` denies with a typed reply to the agent; anything else denies. |
 | interactive REPL | no | Deny automatically, notice on stderr, stdin untouched. |
 | `-m` single message | either | Deny automatically, notice on stderr, stdin untouched. |
 
@@ -1052,8 +1052,33 @@ A shell call shows the command it is asking about:
 ```
 Permission required: Run a helpful script
 Command: git status --short
-   [a] allow once  [d] deny (default):
+   [a] allow once  [d] deny (default)  [o] other (reply to the agent):
 ```
+
+**`o` answers with a typed reply instead of a bare approve or deny.** Exactly
+`o` (case-insensitive, surrounding whitespace ignored) asks a second question,
+`Your reply (the tool will not run; blank to just deny):`, and the call is then
+refused with the person's words attached ("use the staging bucket instead",
+"show me the diff first"). It never approves. The order is the deny path's:
+
+1. SEL audit as `denied` with `error="user_replied"` (a blank reply or EOF is an
+   ordinary `user_denied`). The reply text itself is not audited — it is the
+   person's message, not a decision.
+2. The reply is steered into the running turn while the request is still
+   unanswered, on the same channel as the host deny notice
+   (`kiro_crew.deny_notice`), gated on `supports_refusal_steer`. ACP's
+   permission response carries only an option id, so free text cannot ride on
+   the answer itself. The message opens with
+   `[Kiro Crew: the user replied to your permission request]`, not the
+   `[Kiro Crew host notice]` tag: this one *is* a user action. The tool title is
+   redacted; the reply is passed as typed.
+3. `reject_tool`. kiro-cli's "User denied tool execution" is true here, so no
+   host notice is owed.
+
+If the backend has no refusal-steer channel, or the steer fails or exceeds
+`STEER_NOTICE_BOUND_SECS`, the reply is not dropped: `_send_and_print` prints a
+one-line stderr notice and sends it as the next message once the turn ends.
+Only a real prompt can produce a reply, so `-m` and non-TTY runs are unchanged.
 
 `title` is LLM-authored prose, so approving on it alone is consent to a
 description rather than to what runs — the same reason the gate keys on
@@ -1070,7 +1095,7 @@ consent to a verb:
 Permission required: Tidy up the notes
 Tool: fs_write
 Path: /home/tester/thesis.md
-   [a] allow once  [d] deny (default):
+   [a] allow once  [d] deny (default)  [o] other (reply to the agent):
 ```
 
 The path is read from the request's own `raw_tool_params`, under the same

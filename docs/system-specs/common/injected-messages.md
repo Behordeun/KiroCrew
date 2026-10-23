@@ -364,6 +364,16 @@ steer still answers the wire: the reject is scheduled as a strongly referenced
 task whose outcome is read when it settles, and the cancellation re-raises at
 once — the cancellation is the caller's deadline, so nothing waits past it.
 
+**A user's typed reply rides the same channel.** `kirocrew chat`'s `o` answer
+refuses the call and steers the person's own words into the turn, tagged
+`[Kiro Crew: the user replied to your permission request]` — not the host-notice
+tag, because this refusal IS a user action. It goes through
+`deny_notice.steer_notice_into_refused_turn`, the probe-and-bounded-send half of
+`steer_refusal_notice`, so the capability gate (`supports_refusal_steer`) and
+the bound (`STEER_NOTICE_BOUND_SECS`) have one spelling. Audit first, then the
+steer, then the reject. When the steer is not delivered the CLI sends the reply
+as the next message instead (see `modules/cli.md`).
+
 **The messaging surfaces steer the same notice.** The native Slack handler
 (`slack/handler_runtime/permission_ladder.py`) and the channel-neutral
 `messaging.TurnDriver` each carry
