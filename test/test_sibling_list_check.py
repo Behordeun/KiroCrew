@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -567,6 +568,10 @@ def _ci_sees_tests(body: str, tmp_path: Path) -> bool:
     return "## Tests" not in annotation
 
 
+@pytest.mark.skipif(
+    os.name == "nt" or shutil.which("bash") is None,
+    reason="runs .github/scripts/pr-description-check.sh, which needs a POSIX bash",
+)
 @pytest.mark.parametrize("body", _CI_BODIES)
 def test_a_heading_is_found_exactly_when_the_template_check_finds_it(
     body: str, tmp_path: Path
