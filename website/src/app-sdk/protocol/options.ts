@@ -41,7 +41,8 @@ export function parseOptions(content: string): ParsedOptions {
 }
 
 export interface FollowUpDerivation {
-  followUpOptions: string[]
+  /** Read-only: every "no options" result shares one frozen array (see `NO_FOLLOW_UPS`). */
+  followUpOptions: readonly string[]
   /**
    * Identity of the row the options were derived from — `meta.mid` when
    * present, else the row's `ts`, else an index fallback. `null` when no
@@ -60,6 +61,12 @@ export interface FollowUpDerivation {
    */
   followUpMulti: boolean
 }
+
+/** The one "no options on offer" array. A fresh `[]` per derivation changes
+ *  identity on every streamed chunk and re-renders every memoized consumer of
+ *  `followUpOptions`, so every empty result returns this same frozen array. */
+const NO_FOLLOW_UPS: readonly string[] = Object.freeze([])
+const NONE: FollowUpDerivation = Object.freeze({ followUpOptions: NO_FOLLOW_UPS, followUpSourceKey: null, followUpMulti: true })
 
 /**
  * Identity of the transcript row *m* sits at index *i* of, stable across
@@ -143,7 +150,7 @@ export function deriveFollowUpOptions(
   isStreaming: boolean,
   questionPending = false,
 ): FollowUpDerivation {
-  if (isStreaming || questionPending) return { followUpOptions: [], followUpSourceKey: null, followUpMulti: true }
+  if (isStreaming || questionPending) return NONE
   // Errors were already transparent here (no branch matched them); the flag is
   // what makes that transparency mean something.
   let sawError = false
@@ -151,15 +158,15 @@ export function deriveFollowUpOptions(
     const m = messages[i]
     // A deliberate Stop ENDS the turn rather than interrupting it, so the choice is closed
     // by the user's own cancellation — the error licence below must not reach back past it.
-    if (isStopEvent(m)) return { followUpOptions: [], followUpSourceKey: null, followUpMulti: true }
+    if (isStopEvent(m)) return NONE
     // Only a TERMINAL error licenses a crossing. A retry notice means the recovery is
     // already queued, so re-offering the pill would run the same choice a second time.
     if (m.role === 'error') { if (!isRetryNotice(m)) sawError = true; continue }
     // `queued` is an UNCONDITIONAL stop: its queue entry OUTLIVES the error (only a hard
     // kill clears the queue), so re-offering the pill would run the choice a second time.
-    if (m.role === 'queued') return { followUpOptions: [], followUpSourceKey: null, followUpMulti: true }
+    if (m.role === 'queued') return NONE
     if (m.role === 'user') {
-      if (!sawError) return { followUpOptions: [], followUpSourceKey: null, followUpMulti: true }
+      if (!sawError) return NONE
       // Cross this failed turn and keep looking. Re-armed only by another error,
       // so a SUCCESSFUL turn further back still stops the scan.
       sawError = false
@@ -183,9 +190,9 @@ export function deriveFollowUpOptions(
       // error, and that option-less row shadowed the question exactly as the `user` row did.
       // Crossing does NOT consume the error licence: the `user` row below still needs it.
       if (!options.length && sawError) continue
-      const followUpSourceKey = options.length > 0 ? rowIdentity(m, i) : null
-      return { followUpOptions: options, followUpSourceKey, followUpMulti: options.length > 0 ? multi : true }
+      if (!options.length) return NONE
+      return { followUpOptions: options, followUpSourceKey: rowIdentity(m, i), followUpMulti: multi }
     }
   }
-  return { followUpOptions: [], followUpSourceKey: null, followUpMulti: true }
+  return NONE
 }

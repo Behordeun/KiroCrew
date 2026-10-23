@@ -10,7 +10,7 @@ import { useLanguageGeneration } from '../i18n/useLanguageGeneration'
 export type FollowUpLayout = 'multiline' | 'scroll'
 
 interface FollowUpBarProps {
-  options: string[]
+  options: readonly string[]
   picked: ReadonlySet<string>
   /**
    * Third argument is `sourceKey` AS IT WAS AT CLICK TIME (see `sourceKey`

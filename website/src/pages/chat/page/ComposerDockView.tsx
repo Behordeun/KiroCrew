@@ -169,7 +169,7 @@ interface ComposerDockViewProps {
   composerRootChange: (v: string) => void
   composerUserEdit: (v: string) => void
   followUpMulti: boolean
-  followUpOptions: string[]
+  followUpOptions: readonly string[]
   followUpPicked: Set<string>
   followUpPickedRef: MutableRefObject<Set<string>>
   followUpSourceKey: string | null

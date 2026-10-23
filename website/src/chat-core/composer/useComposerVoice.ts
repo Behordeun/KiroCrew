@@ -1175,11 +1175,15 @@ export function useComposerVoice(host: ComposerVoiceHost) {
     }
   }, [])
 
-  /** Clears both halves, so one dismissal means what the user thinks it means. */
+  /** Clears both halves, so one dismissal means what the user thinks it means.
+   *  Depends on the stable `voice.clearError`, not on `voice`: useVoiceInput
+   *  returns a fresh object every render, and this callback is the composer's
+   *  only inputProps key that would otherwise change on every stream tick. */
+  const voiceClearError = voice.clearError
   const clearVoiceError = useCallback(() => {
     setPolishError(null)
-    voice.clearError()
-  }, [voice])
+    voiceClearError()
+  }, [voiceClearError])
 
   return {
     voice,

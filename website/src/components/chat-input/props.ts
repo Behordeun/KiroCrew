@@ -396,7 +396,7 @@ export interface ChatInputProps {
    *  Composer preference; pass it only to override that (e.g. mobile). */
   sendOnEnter?: SendMode
   /** Follow-up options from assistant message */
-  followUpOptions?: string[]
+  followUpOptions?: readonly string[]
   /** Options the user has picked (visual highlight in FollowUpBar) */
   followUpPicked?: Set<string>
   /** Select a follow-up option — handler toggles text in input (see ChatPage wiring).

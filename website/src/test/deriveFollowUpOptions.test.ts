@@ -612,3 +612,22 @@ describe('deriveFollowUpOptions select mode', () => {
     expect(deriveFollowUpOptions([assistant('Plan ready [OPTION: Go | Cancel]')], true).followUpMulti).toBe(true)
   })
 })
+
+describe('deriveFollowUpOptions empty-result identity', () => {
+  // Consumers memoize on `followUpOptions`; a fresh [] per streamed chunk
+  // re-renders the composer even though nothing is on offer.
+  it('returns the same empty array for every option-less derivation', () => {
+    const streaming = deriveFollowUpOptions([user('hi'), assistant('partial')], true).followUpOptions
+    expect(deriveFollowUpOptions([user('hi'), assistant('partial more')], true).followUpOptions).toBe(streaming)
+    expect(deriveFollowUpOptions([user('hi')], false).followUpOptions).toBe(streaming)
+    expect(deriveFollowUpOptions([user('hi'), assistant('no markers here')], false).followUpOptions).toBe(streaming)
+    expect(deriveFollowUpOptions([], false).followUpOptions).toBe(streaming)
+    expect(streaming).toEqual([])
+  })
+
+  it('still returns a fresh array when options are on offer', () => {
+    const a = deriveFollowUpOptions([assistant('Pick [OPTIONS: A | B]')], false)
+    expect(a.followUpOptions).toEqual(['A', 'B'])
+    expect(a.followUpSourceKey).not.toBeNull()
+  })
+})
