@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useGuardedLeave } from '../NavigationLeaveGuard'
 import { useAppSelector, useAppDispatch } from '../../store'
 import { deleteNotification, ackNotification, unackNotification } from '../../store/notificationsSlice'
-import { switchSlot, resumeFromHistory } from '../../store/chatSlice'
+import { switchSlot, resumeFromHistory, openCreatedSlot } from '../../store/chatSlice'
 import { Badge } from '../ui'
 import MarkdownRenderer from '../MarkdownRenderer'
 import MessageErrorBoundary from '../MessageErrorBoundary'
@@ -176,9 +176,9 @@ export default function NotificationDetailPanel({ n, onClose }: { n: Notificatio
               sentence invites a retry, and `/to-chat` is not idempotent -- it
               mints a fresh task-review slot and spawns another agent told to edit
               the run's work_dir directly. So the notice may only appear where the
-              hand-off did NOT succeed; a slot fetch that fails after it did stays
-              with the plain-site convention, explained at /chat. */}
-          <button className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-[13px] font-medium cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(async () => { setHandoffError(null); try { const res = await api.cronToChat(n.job_id!); if (res.error || !res.slot) { logError('cronToChat failed', res.error); setHandoffError(n.ts); return } dispatch(switchSlot(res.slot)); navigate('/chat') } catch (e) { logError('cronToChat failed', e); setHandoffError(n.ts) } })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.view_last_result')}</button>
+              hand-off did NOT succeed; a slot fetch that fails after it did is
+              left to /chat, which explains it. */}
+          <button className="px-3 py-1.5 rounded-md bg-accent text-accent-fg text-[13px] font-medium cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(async () => { setHandoffError(null); try { const res = await api.cronToChat(n.job_id!); if (res.error || !res.slot) { logError('cronToChat failed', res.error); setHandoffError(n.ts); return } openCreatedSlot(dispatch, res.slot); navigate('/chat') } catch (e) { logError('cronToChat failed', e); setHandoffError(n.ts) } })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.view_last_result')}</button>
           {/* `inline`, not `block`: this row is a flex line of buttons, and a
               bordered banner dropped into one breaks the row. */}
           {handoffNotice}
@@ -253,7 +253,7 @@ export default function NotificationDetailPanel({ n, onClose }: { n: Notificatio
         )}
         {n.kind === 'taskrunner' && n.task_id && (
           <div className="flex flex-wrap items-center gap-3 mt-4">
-            <button className="px-4 py-2 rounded-lg bg-accent text-accent-fg text-[13px] font-semibold cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(async () => { setHandoffError(null); try { const res = await api.taskRunToChat(n.task_id!); if (res.error || !res.slot) { logError('Task nav failed', res.error); setHandoffError(n.ts); return } dispatch(switchSlot(res.slot)); navigate('/chat') } catch (e) { logError('Task nav failed', e); setHandoffError(n.ts) } })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.continue_in_chat')}</button>
+            <button className="px-4 py-2 rounded-lg bg-accent text-accent-fg text-[13px] font-semibold cursor-pointer border-none hover:brightness-110 transition-all" onClick={() => leave(async () => { setHandoffError(null); try { const res = await api.taskRunToChat(n.task_id!); if (res.error || !res.slot) { logError('Task nav failed', res.error); setHandoffError(n.ts); return } openCreatedSlot(dispatch, res.slot); navigate('/chat') } catch (e) { logError('Task nav failed', e); setHandoffError(n.ts) } })}><MessageSquare className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.continue_in_chat')}</button>
             <button className="px-3 py-1.5 rounded-md border border-border text-[13px] font-medium cursor-pointer bg-transparent text-muted hover:text-text hover:border-border-strong transition-all font-body" onClick={() => leave(() => navigate('/projects'))}><ClipboardList className="lucide-inline" /> {i18nT('components.notifications.notificationDetailPanel.view_project')}</button>
             {handoffNotice}
           </div>

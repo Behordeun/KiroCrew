@@ -205,7 +205,8 @@ export const resumeFromHistory = createAsyncThunk(
 
 /** The action that lists a successful fork in the sidebar. Every fork path
  *  dispatches this before activating the fork: the chat page clears an active
- *  session its slot list lacks. memory_mode is the parent's, echoed by the
+ *  session its slot list lacks. `openCreatedSlot` uses it the same way for a
+ *  session another server route created. memory_mode is the parent's, echoed by the
  *  server; without it the new tab would read as persistent until the next
  *  slots refresh. */
 export function listForkedSlot(d: Pick<ChatSlot, 'key'> & Partial<Pick<ChatSlot, 'title' | 'messages' | 'folder_id' | 'memory_mode' | 'pinned'>>) {

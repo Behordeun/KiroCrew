@@ -24,6 +24,7 @@ import * as composerCards from './chat/composerCards'
 import * as lifecycle from './chat/lifecycle'
 import * as mcpApps from './chat/mcpApps'
 import * as messages from './chat/messages'
+import * as openCreatedSlot from './chat/openCreatedSlot'
 import * as paging from './chat/paging'
 import * as queue from './chat/queue'
 import * as runState from './chat/runState'
@@ -181,6 +182,7 @@ const REEXPORTS: Array<[string, Record<string, unknown>, string[]]> = [
   ['runState', runState, ['wireTurnIdentity']],
   ['windowWalk', windowWalk, ['WINDOW_WALK_MAX_PAGES']],
   ['lifecycle', lifecycle, ['captureForkOrigin', 'clearHistorySessions', 'createSlot', 'deleteHistorySession', 'fetchHistory', 'forkMayOpen', 'forkSlot', 'listForkedSlot', 'resumeFromHistory']],
+  ['openCreatedSlot', openCreatedSlot, ['openCreatedSlot']],
 ]
 
 /** Names the facade itself defines rather than re-exports. */
