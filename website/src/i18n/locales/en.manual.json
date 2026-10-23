@@ -1743,14 +1743,25 @@
       "reject_all": "Reject all — refuse the rest without asking",
       "reject_once": "Reject once — keep asking about the rest"
     },
+    "meetYourMatesIntro": {
+      "sample_line_1": "I found a flaky test overnight and fixed it.",
+      "sample_line_2": "The PR is ready. Want me to merge it?",
+      "sample_merge": "Merge it",
+      "sample_show_first": "Show me first"
+    },
     "startupVideoModal": {
       "close": "Close",
+      "crewmates_description": "They find the work, do it, and ask only when they need you.",
+      "crewmates_title": "Meet your Mates.",
       "got_it": "Got it",
       "media_failed": "Feature video could not be loaded",
+      "new_tag": "New",
+      "not_now": "Not now",
       "share": "Share",
       "share_description": "Turn this feature video into a share card you can post anywhere.",
       "share_include_title": "Include the video title",
-      "streaming": "Plays online"
+      "streaming": "Plays online",
+      "try_now": "Try now"
     },
     "tailnetMobile": {
       "automatic_https": "After HTTPS is enabled for this tailnet, Tailscale creates and renews the private certificate automatically.",

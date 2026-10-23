@@ -8525,14 +8525,25 @@
       "drag_to_select_the_screen_region_to_capture": "ドラッグしてキャプチャする画面領域を選択してください",
       "screen_capture_drag_the_area_you_want_it_attache": "スクリーンキャプチャ — ドラッグして希望の領域を選択してください; 放すと自動的に添付されます"
     },
+    "meetYourMatesIntro": {
+      "sample_line_1": "夜間に不安定なテストを見つけて修正しました。",
+      "sample_line_2": "PR の準備ができました。マージしますか？",
+      "sample_merge": "マージする",
+      "sample_show_first": "先に見せて"
+    },
     "startupVideoModal": {
       "close": "閉じる",
+      "crewmates_description": "仕事を見つけて片付け、あなたが必要なときだけ尋ねます。",
+      "crewmates_title": "クルーメイトをご紹介します。",
       "got_it": "了解しました",
       "media_failed": "機能紹介動画を読み込めませんでした",
+      "new_tag": "新着",
+      "not_now": "今はしない",
       "share": "共有",
       "share_description": "この機能紹介動画を、どこにでも投稿できる共有カードにします。",
       "share_include_title": "動画のタイトルを含める",
-      "streaming": "オンライン再生"
+      "streaming": "オンライン再生",
+      "try_now": "今すぐ試す"
     },
     "tagManagerList": {
       "adopt_tag": "エージェント権限を設定",

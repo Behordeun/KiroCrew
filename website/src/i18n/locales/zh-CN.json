@@ -8525,14 +8525,25 @@
       "drag_to_select_the_screen_region_to_capture": "拖动以选择要截取的屏幕区域",
       "screen_capture_drag_the_area_you_want_it_attache": "屏幕截图 — 拖出你想要的区域；松开后自动附加"
     },
+    "meetYourMatesIntro": {
+      "sample_line_1": "我昨晚发现了一个不稳定的测试，并修好了。",
+      "sample_line_2": "PR 已经准备好了。要我合并吗？",
+      "sample_merge": "合并",
+      "sample_show_first": "先给我看看"
+    },
     "startupVideoModal": {
       "close": "关闭",
+      "crewmates_description": "它们会自己找到要做的事、动手完成，只在需要你时才来问你。",
+      "crewmates_title": "认识你的队友。",
       "got_it": "知道了",
       "media_failed": "无法加载功能视频",
+      "new_tag": "新",
+      "not_now": "暂不",
       "share": "共享",
       "share_description": "把这个功能视频变成可以发布到任何地方的分享卡片。",
       "share_include_title": "包含视频标题",
-      "streaming": "在线播放"
+      "streaming": "在线播放",
+      "try_now": "立即试试"
     },
     "tagManagerList": {
       "adopt_tag": "设置代理权限",

@@ -828,6 +828,15 @@
     "app.focus_mode_on_announce": "Spoken by a screen reader when focus mode turns on and the chrome becomes unreachable. {{chord}} is the user's live key chord in ARIA spelling (e.g. Alt+Shift+M); keep it verbatim.",
     "pages.schedulePage.type_crewmate": "Line 1 of the Type cell in the Schedule list for a job that is a mate's own schedule (runs in that mate's chat). Singular noun, same word as the Mates page.",
     "pages.schedulePage.filter_by_crewmate": "Accessible name of the dropdown next to the Schedule list's search box that narrows the list to one mate's schedules.",
-    "pages.schedulePage.all_crewmates": "First row of that dropdown, which shows every job (no mate filter)."
+    "pages.schedulePage.all_crewmates": "First row of that dropdown, which shows every job (no mate filter).",
+    "components.startupVideoModal.crewmates_title": "Headline of the 'Meet your Mates.' launch dialog, in large poster type. 'Mates' is the product's name for a person's crewmates (AI teammates); keep the word as the Mates page names them, plural. Ends with a full stop, as a tagline.",
+    "components.startupVideoModal.crewmates_description": "The one line under crewmates_title. 'They' are the Mates: they find work to do on their own, do it, and only come to the user when they need a decision. Keep it to one sentence.",
+    "components.startupVideoModal.new_tag": "Small badge pill on a sidebar navigation item, marking a feature the user has not opened yet. An ADJECTIVE meaning 'recently added', not the verb 'create'. Very tight space: keep it to one short word.",
+    "components.startupVideoModal.not_now": "Secondary button of the launch dialog: close it for now; the page it introduces gets a 'New' tag instead. Short.",
+    "components.startupVideoModal.try_now": "Primary button of the launch dialog: open the Mates page right away. Imperative, two short words if the language allows.",
+    "components.meetYourMatesIntro.sample_line_1": "First bubble of a SAMPLE chat message from a Mate inside the launch dialog, showing what a Mate says after working unattended overnight: it found an unreliable ('flaky') test and fixed it. First person, past tense, casual.",
+    "components.meetYourMatesIntro.sample_line_2": "Second bubble of the same sample message: the pull request is ready, and the Mate asks whether to merge it. 'PR' stays as the abbreviation developers use.",
+    "components.meetYourMatesIntro.sample_merge": "Primary pill under the sample message, the answer that tells the Mate to merge the pull request. Imperative, one or two words. Decorative in the dialog, not a real button.",
+    "components.meetYourMatesIntro.sample_show_first": "Secondary pill under the sample message, the answer that asks to see the change before merging. Imperative, short. Decorative in the dialog, not a real button."
   }
 }
