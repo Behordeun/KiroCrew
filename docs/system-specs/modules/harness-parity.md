@@ -187,12 +187,28 @@ Crew's sealed gate extension registers each entry with pi's built-in MCP support
 `mcp.json`, user-level or a trusted project's, outranks that registration, so the
 extension refuses its tools (`acp/harness/pi.py`, `test_pi_gate_extension_mcp.py`).
 
-Two card lines stay unavailable on pi, each on a driven observation:
+pi takes a mid-turn steer without the adapter. pi-acp 0.0.34 serves no steer verb,
+and a `session/prompt` sent during a turn is queued and runs as the next turn; pi's
+own RPC can steer, but pi-acp owns pi's stdin. So `AcpClient` writes the steer as a
+file for the gate extension already running inside pi (`acp/harness/pi_steer.py`,
+`acp/pi_steer_turn.py`): one file per steer in the owner-only pi gate directory the
+sandbox mounts read-only for pi children, sealed AES-256-GCM under a per-launch key
+carried only in that launch's environment, bound to the gate nonce, the pi session id
+and a strictly increasing sequence number. At each `turn_end` that did not abort or
+fail the extension puts the oldest undelivered steer on pi's steering queue with
+`pi.sendMessage(message, {deliverAs: "steer"})` (synchronous while pi streams, and
+handed to the model as a user message), read before the next model call of the same
+run, and notifies an envelope when pi starts it; that
+echo (an `agent_message_chunk` carrying `_meta.piAcp.notify`) is the only thing
+reported consumed. The client writes only while its prompt turn is open and removes
+every steer file at the turn's terminal under the same lock; the extension retires
+every steer still on disk when a run settles. A steer no turn read is the composer's
+to queue, so pi joins `ACP_BACKENDS_STEERING_REQUEST` and `steer_needs_loss_recovery`
+like goose (`steering-live.jsonl`, `test_pi_steer.py`,
+`test_pi_gate_extension_steer.py`).
 
-- **Mid-turn steer.** pi-acp 0.0.34 serves no steer verb. A `session/prompt` sent
-  during a turn is queued and runs as the next turn; the running turn's follow-up
-  model request does not contain it. pi's own RPC can steer, but pi-acp owns pi's
-  stdin, so Crew cannot reach it.
+One card line stays unavailable on pi, on a driven observation:
+
 - **Side Chat tools.** The READ_ONLY gate would have to trust the tool NAME in the
   gate envelope, and on pi a name proves nothing: an extension that registers a tool
   called `read` replaces the built-in one (driven: the gate saw `read` and the call

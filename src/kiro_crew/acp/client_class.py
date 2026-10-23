@@ -76,6 +76,7 @@ from kiro_crew.config.paths import config_dir
 from kiro_crew.mcp_gateway.claim import mint_stub_session_token
 
 if TYPE_CHECKING:
+    from kiro_crew.acp.harness.pi_steer import PiSteerChannel
     from kiro_crew.acp.skill_projection import NativeSkillProjection
 
 #: The client's own logger: this code logged under that name before the split.
@@ -296,6 +297,13 @@ class AcpClient:
         # be republished before each request that starts a pi process and removed
         # once the session is established (``acp.harness.pi``).
         self._pi_mcp_handoff: tuple[str, bytes] = ("", b"")
+        # The pi launch's steer channel (``acp.harness.pi_steer``), or None, and the
+        # client's state for it (``acp.pi_steer_turn``): the open prompt turn, the
+        # steers written into it by sequence number, and the write/close lock.
+        self._pi_steer_channel: PiSteerChannel | None = None
+        self._pi_steer_turn: int | None = None
+        self._pi_steers_pending: dict[int, str] = {}
+        self._pi_steer_lock = asyncio.Lock()
         # Every server name that handoff carried (the member mounts AND the pooled
         # stubs), which is what a pi MCP tool title is spelled after.
         self._pi_mcp_server_names: tuple[str, ...] = ()
