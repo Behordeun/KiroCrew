@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         _switch_target_busy,
         _sync_dashboard_slots,
         _unblock_pending_waits,
+        body_int,
         deny_app_slot_access,
         effective_session_key,
         logger,
@@ -1030,7 +1031,10 @@ async def api_chat_slots_cleanup(request: web.Request) -> web.Response:
     assert body is not None  # read_bounded_json returns (dict, None) on success
     max_days = 3
     try:
-        max_days = max(1, int(body.get("max_inactive_days", 3)))
+        # Capped at 100 years: any cap past the epoch archives nothing, the same
+        # answer a larger value gives, and a JSON integer too large for a float
+        # would otherwise raise OverflowError in the cutoff arithmetic below.
+        max_days = max(1, min(body_int(body.get("max_inactive_days", 3)), 36500))
     except (ValueError, TypeError):
         pass
     active_slot = body.get("active_slot", "")

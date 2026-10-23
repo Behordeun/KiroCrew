@@ -18,6 +18,7 @@ from aiohttp import web
 
 from kiro_crew import session_directive
 from kiro_crew.dashboard import directive_queue
+from kiro_crew.dashboard.body_numbers import body_int
 from kiro_crew.dashboard.handlers._shared import guard_owner_surface_routes, internal_memory_scope
 from kiro_crew.dashboard.handlers.sessions_parts.app_scope import (
     _STATE_APPROVALS_NOT_APP_VISIBLE,
@@ -536,8 +537,8 @@ def _service_wait_ping(
         # killed MCP process, a hard stop). Safe to hand the slot to this one.
     if not prev or prev.get("wait_id") != wait_id:
         try:
-            remaining = max(0, min(1800, int(body.get("remaining") or 0)))
-            total = max(0, min(1800, int(body.get("seconds") or 0)))
+            remaining = max(0, min(1800, body_int(body.get("remaining") or 0)))
+            total = max(0, min(1800, body_int(body.get("seconds") or 0)))
         except (TypeError, ValueError):
             remaining, total = 0, 0
         slot._wait_state = {
