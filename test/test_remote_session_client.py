@@ -21,6 +21,27 @@ from kiro_crew.testing.wait import async_wait_until, wait_until
 
 pytestmark = pytest.mark.skipif(not hasattr(os, "getuid"), reason="POSIX guest paths")
 
+
+@pytest.fixture(autouse=True)
+def _drain_asyncio_transports():
+    """Collect asyncio transport cycles before the next test can be blamed for them.
+
+    Tests in this module run asyncio subprocesses via asyncio.run().  When the
+    loop closes, any BaseSubprocessTransport whose subprocess has not yet been
+    awaited forms a reference cycle with its protocol.  CPython's cyclic
+    collector defers that cycle until the next GC pass, which may land inside a
+    completely unrelated test — attributing an "Event loop is closed" unraisable
+    to the innocent victim.  Collecting here, after each test in this module
+    finishes, pays the GC cost at the right place and keeps the unraisable (if
+    any) attached to the test that leaked the transport.
+    """
+    import gc
+
+    yield
+    gc.collect()
+    gc.collect()
+
+
 SID = "sess-1"
 _ENDED = (link_mod.REFUSED, link_mod.LOST, link_mod.FINISHED)
 ECHO = [
@@ -97,9 +118,21 @@ def test_link_through_a_worker_attach_dial_delivers_and_finishes():
     attach = [sys.executable, "-m", "kiro_crew.remote_session.worker", "attach"]
 
     async def run(port: int) -> tuple[bytes, str]:
-        link = link_mod.RemoteLink(
-            SID, secret, client_mod.command_dial(attach + ["--port", str(port)])
-        )
+        # Wrap the dial so we can capture the attach subprocess and await its
+        # exit before asyncio.run() closes the loop.  Without this, the
+        # _UnixSubprocessTransport for the attach child remains unclosed when
+        # the loop shuts down, so its __del__ fires with "Event loop is closed"
+        # during the GC pass of a later test — blaming an innocent victim.
+        attach_proc: list[asyncio.subprocess.Process] = []
+        base_dial = client_mod.command_dial(attach + ["--port", str(port)])
+
+        async def tracked_dial():
+            reader, writer = await base_dial()
+            if hasattr(writer, "_process"):
+                attach_proc.append(writer._process)
+            return reader, writer
+
+        link = link_mod.RemoteLink(SID, secret, tracked_dial)
         link.start()
         try:
             await link.write(b"one\ntwo\n")
@@ -107,6 +140,12 @@ def test_link_through_a_worker_attach_dial_delivers_and_finishes():
             return await asyncio.wait_for(link.stdout.read(), 30), link.state
         finally:
             await link.aclose()
+            # Wait for the attach subprocess to exit so its asyncio transport
+            # is properly closed before the event loop shuts down.
+            for proc in attach_proc:
+                if proc.returncode is None:
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(proc.wait(), 30.0)
 
     with _worker(secret) as (port, box):
         got, state = asyncio.run(run(port))

@@ -273,7 +273,18 @@ class TestDanglingDefaultAgentReset(unittest.TestCase):
     not evidence of a removal."""
 
     def setUp(self):
+        import gc
+
         import kiro_crew.config.loader as loader
+
+        # Drain any cyclic garbage created by the previous test before this one
+        # starts.  The workspace-aware tests below (_workspace_declares path)
+        # can leave a reference cycle involving a PosixPath; if the cycle is
+        # only collected during *this* test's body the unraisable exception is
+        # blamed on the innocent victim here rather than on the actual leaker.
+        # Two passes cover chains of cycles.
+        gc.collect()
+        gc.collect()
 
         loader._MATERIALIZED_AGENTS = frozenset()
         loader._MATERIALIZED_STEMS = {}
