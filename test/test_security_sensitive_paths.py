@@ -245,6 +245,9 @@ class TestHomeDirTargetsCache:
         from kiro_crew import security
 
         security._home_targets_cache.clear()
+        # Clear any recorded stall so a PathResolutionStalled from one test
+        # does not poison the next test in this class.
+        security._path_resolve_degraded.clear()
 
     def test_cached_result_matches_uncached(self, monkeypatch, tmp_path) -> None:
         """Caching must not change WHAT is considered sensitive."""
@@ -436,6 +439,19 @@ class TestHomeDirTargetsCache:
 
         monkeypatch.setenv("HOME", str(tmp_path))
         self._clear()
+
+        # Stub the expensive uncached rebuild: 200 real rebuilds (~130 realpath
+        # calls each) race the mc-pathres budget on a loaded Windows runner
+        # (8 xdist workers + Defender), causing PathResolutionStalled to be
+        # raised and -- because the stall is recorded with a cooldown against
+        # roots.home -- every subsequent iteration in the loop refuses too.
+        # The test's intent is only "the cache dict stays bounded"; it does not
+        # need real filesystem rebuilds to verify that.
+        def _cheap_uncached(home_dirs, roots=None):
+            home = roots.home if roots is not None else ""
+            return {home}
+
+        monkeypatch.setattr(security, "_home_dir_targets_uncached", _cheap_uncached)
         for i in range(200):
             monkeypatch.setenv("KIROCREW_HOME", str(tmp_path / f"h{i}"))
             security._home_dir_targets(security._SENSITIVE_HOME_DIRS)
