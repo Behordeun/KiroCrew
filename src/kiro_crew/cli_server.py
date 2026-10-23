@@ -153,33 +153,26 @@ def _file_delivery_approve() -> None:
     if secret:
         headers["X-Internal-Secret"] = secret
     req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
-    try:
-        from kiro_crew.dashboard.urls import (  # noqa: F811 - header import serves owners
-            dashboard_socket_path,
-        )
+    # Read from the owner at call time, so a patch through this facade reaches it.
+    from kiro_crew.cli_server_peer import (  # noqa: F811 - header import serves owners
+        _GatewayPeerRefused,
+        _owner_verified_secret_urlopen,
+    )
 
-        socket_path: str | None = str(dashboard_socket_path(port))
-    except Exception:
-        socket_path = None
     try:
-        # NOT `loopback_urlopen`: this request carries the single-use nonce AND
-        # the local secret, and that opener's own contract says a caller whose
-        # request carries a credential another process could capture on the port
-        # wants `unix_socket_urlopen` instead. Its TCP fallback fires on a STALE
-        # socket -- exactly the dead-gateway case in which a foreign process may
-        # hold the loopback port -- so falling back would hand both credentials
-        # to whatever answers. A gateway that is gone is reported as not running
-        # rather than retried on a port nothing trustworthy is holding.
-        #
-        # TCP stays the transport only where there is no unix socket to prefer
-        # (native Windows has no `AF_UNIX`): there the port IS the only local
-        # transport, so no fallback decision exists to get wrong.
-        if socket_path is not None and hasattr(socket, "AF_UNIX"):
-            approve_resp = unix_socket_urlopen(req, 15, socket_path=socket_path)
-        else:
-            approve_resp = loopback_urlopen(req, timeout=15)
-        with approve_resp as resp:
+        # Through the connection-bound peer proof, on both transports: this
+        # request carries the single-use nonce AND the local secret, so neither
+        # may reach a process that is not this install's recorded gateway. The
+        # helper sends over the owner-only unix socket when one exists and over
+        # loopback TCP otherwise, and on either it proves the connected peer
+        # before the first byte; an unproven peer is refused, never retried.
+        with _owner_verified_secret_urlopen(
+            req, port, 15, operation="file_delivery_approve"
+        ) as resp:
             body = json.loads(resp.read())
+    except _GatewayPeerRefused as e:
+        print(f"❌ Gateway ownership not verified: {e}")
+        sys.exit(1)
     except urllib.error.HTTPError as e:
         try:
             detail = json.loads(e.read()).get("error", "")
@@ -855,6 +848,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _audit_peer_allowed,
         _audit_peer_denied,
         _connected_peer_verdict,
+        _connected_tcp_peer_pid,
         _connected_unix_peer_is_recorded_gateway,
         _ConnectedPeerVerdict,
         _existing_dashboard_socket,

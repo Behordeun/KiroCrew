@@ -59,7 +59,7 @@ class TestSpawnRunBody:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
             patch(
-                "kiro_crew.cli_commands.loopback_urlopen",
+                "kiro_crew.cli_commands._gateway_send",
                 return_value=_FakeResponse({"id": "ag1", "task": "t"}),
             ) as uo,
         ):
@@ -85,7 +85,7 @@ class TestSpawnRunBody:
     ) -> None:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
-            patch("kiro_crew.cli_commands.loopback_urlopen") as uo,
+            patch("kiro_crew.cli_commands._gateway_send") as uo,
             pytest.raises(SystemExit) as exc,
         ):
             cc._spawn(
@@ -122,7 +122,7 @@ class TestSpawnRunRefusals:
         err = _http_error(status, json.dumps(payload).encode())
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
-            patch("kiro_crew.cli_commands.loopback_urlopen", side_effect=err) as uo,
+            patch("kiro_crew.cli_commands._gateway_send", side_effect=err) as uo,
             pytest.raises(SystemExit) as exc,
         ):
             cc._spawn(_ns(spawn_action="run", port=1, task="t", fire_and_forget=False, **kw))
@@ -152,7 +152,7 @@ class TestCliBodyThroughTheGateway:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value="s"),
             patch(
-                "kiro_crew.cli_commands.loopback_urlopen",
+                "kiro_crew.cli_commands._gateway_send",
                 return_value=_FakeResponse({"id": "ag1", "task": "t"}),
             ) as uo,
         ):

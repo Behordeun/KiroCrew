@@ -54,8 +54,8 @@ OWNERS = tuple(
 )
 
 #: Names the test trees are known to patch through the facade, one or more per kind of
-#: seam: an import only owners read (``sel``, ``CronService``, ``loopback_urlopen``), an
-#: owner helper another owner function calls (``_internal_secret``,
+#: seam: an import only owners read (``sel``, ``CronService``), an
+#: owner helper another owner function calls (``_internal_secret``, ``_gateway_send``,
 #: ``_locked_config_write``, ``_markdown_memory_store``), an owner constant, a module or
 #: class rebound on the module (``importlib``, ``Path``), and names only the facade's own
 #: handlers read (``beacon``, ``_marker_port``). The scan below must find all of them, so
@@ -65,7 +65,7 @@ _KNOWN_SEAMS = frozenset(
         "sel",
         "CronService",
         "config_dir",
-        "loopback_urlopen",
+        "_gateway_send",
         "_internal_secret",
         "_locked_config_write",
         "_markdown_memory_store",

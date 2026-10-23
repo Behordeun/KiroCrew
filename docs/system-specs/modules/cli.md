@@ -1685,11 +1685,31 @@ address. Until it restarts, a new CLI gets `HTTP 403` from `logout`, the `stop`
 API fallback reports its no-target diagnostic, and the badge poke prints its
 fallback line. This fails closed and ends at the next gateway restart.
 
-**Out of scope.** The same value is also the gateway's `X-Internal-Secret`.
-Other senders of it do not yet use this proof: `cli_commands_gateway_api.py` spawn,
-spawn-run and spawn poll, `_artifact`, the no-socket arm of
-`_file_delivery_approve`, `pod/runtime_client.py`'s Windows mint and
-`app_lifecycle_client.py`. Those are tracked as follow-ups.
+**Internal-secret senders.** The same value is also the gateway's
+`X-Internal-Secret`. The CLI senders below prove their peer before the first
+byte:
+
+| Sender | Transport and proof | On refusal |
+|---|---|---|
+| `kirocrew spawn list` / `spawn run`, `kirocrew artifact` (`cli_commands_gateway_api._gateway_send`) | `_owner_verified_secret_urlopen`, both arms | `Error: gateway ownership not verified: …`, exit 1 (`artifact` prints it on stderr) |
+| `spawn run`'s result poll (`_gateway_send`, operation `cli_spawn_poll`) | `_owner_verified_secret_urlopen`, both arms; every poll is audited | the same message on stderr, exit 1 |
+| `kirocrew file-delivery approve` (`_file_delivery_approve`) | `_owner_verified_secret_urlopen`, both arms | ownership message, exit 1 |
+| `kirocrew doctor` adaptive-controller read (`doctor_checks.workload._gateway_adaptive_state`) | `_owner_verified_secret_urlopen`, both arms | one `not read` line naming the unproven peer |
+| `app_lifecycle_client` (mint and action) | owner-only unix socket only; `verify_peer` requires `_connected_unix_peer_is_recorded_gateway` | `AppGatewayError` (not an `OSError`), so the CLI never drops to its file-only path |
+| `memory_forget_client` (mint and delete) | owner-only unix socket only; `_gateway_peer_verifier` wraps `_connected_unix_peer_is_recorded_gateway` and refuses up front when `_recorded_gateway_pid` has no pid | `ForgetRefused` |
+| `pod/runtime_client.mint_token` on Windows | `tcp_verified_urlopen`; `_attested_gateway_tcp_verifier` requires `_connected_tcp_peer_pid` (the 4-tuple resolver `_connected_peer_verdict` also uses) to equal the pod's attested gateway pid | `PodError` |
+
+The pod check reads the pod's own pid record, not this home's, which is why it
+shares the resolver rather than `_recorded_gateway_pid`. The app-lifecycle,
+memory-forget and pod hooks emit the same SEL `allowed` / `denied` events
+(`_audit_peer_allowed`, `_audit_peer_denied`) as the proof above, under the
+operations `app_lifecycle`, `memory_forget` and `pod_token_mint`.
+
+**Not yet covered.** `cron_trigger.trigger_cron_job` sends the value over plain
+`loopback_urlopen`. It serves both `kirocrew cron trigger` and the agent-side
+`mcp_cron` tool, which runs inside the sandbox, so it shares the open design
+question for the agent-side senders: whether the pid proof can run there. That
+is tracked in #23270.
 
 ## Gateway PID Command
 

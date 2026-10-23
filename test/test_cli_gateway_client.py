@@ -714,11 +714,11 @@ class TestSpawnCliAuth:
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
 
-        def fake_urlopen(req: urllib.request.Request, timeout: int = 0) -> MagicMock:
+        def fake_urlopen(req: urllib.request.Request, *_args: object) -> MagicMock:
             captured.append(req)
             return mock_resp
 
-        monkeypatch.setattr("kiro_crew.cli_commands.loopback_urlopen", fake_urlopen)
+        monkeypatch.setattr("kiro_crew.cli_commands._gateway_send", fake_urlopen)
 
         from kiro_crew.cli_commands import _spawn
 
@@ -742,11 +742,11 @@ class TestSpawnCliAuth:
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
 
-        def fake_urlopen(req: urllib.request.Request, timeout: int = 0) -> MagicMock:
+        def fake_urlopen(req: urllib.request.Request, *_args: object) -> MagicMock:
             captured.append(req)
             return mock_resp
 
-        monkeypatch.setattr("kiro_crew.cli_commands.loopback_urlopen", fake_urlopen)
+        monkeypatch.setattr("kiro_crew.cli_commands._gateway_send", fake_urlopen)
 
         from kiro_crew.cli_commands import _spawn_run
 
@@ -774,7 +774,7 @@ class TestSpawnCliAuth:
                 fp=None,
             )
 
-        monkeypatch.setattr("kiro_crew.cli_commands.loopback_urlopen", fake_urlopen)
+        monkeypatch.setattr("kiro_crew.cli_commands._gateway_send", fake_urlopen)
 
         from kiro_crew.cli_commands import _spawn
 
@@ -790,7 +790,7 @@ class TestSpawnCliAuth:
         """A read timeout on spawn list reads as busy, not 'not running'."""
         monkeypatch.setattr("kiro_crew.cli_commands.read_local_secret", lambda _port, **_kw: "s")
         monkeypatch.setattr(
-            "kiro_crew.cli_commands.loopback_urlopen",
+            "kiro_crew.cli_commands._gateway_send",
             lambda *_a, **_k: (_ for _ in ()).throw(TimeoutError("timed out")),
         )
 
@@ -807,7 +807,7 @@ class TestSpawnCliAuth:
         """A spawn-run timeout reports busy and points at `spawn list`, not a blind re-run."""
         monkeypatch.setattr("kiro_crew.cli_commands.read_local_secret", lambda _port, **_kw: "s")
         monkeypatch.setattr(
-            "kiro_crew.cli_commands.loopback_urlopen",
+            "kiro_crew.cli_commands._gateway_send",
             lambda *_a, **_k: (_ for _ in ()).throw(
                 urllib.error.URLError(TimeoutError("timed out"))
             ),
@@ -831,9 +831,7 @@ class TestSpawnCliAuth:
         mock_resp.read.return_value = json.dumps(payload).encode()
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
-        monkeypatch.setattr(
-            "kiro_crew.cli_commands.loopback_urlopen", lambda _req, timeout=0: mock_resp
-        )
+        monkeypatch.setattr("kiro_crew.cli_commands._gateway_send", lambda _req, *_a: mock_resp)
 
         from kiro_crew.cli_commands import _spawn
 
@@ -928,7 +926,7 @@ class TestArtifactCli:
         # Surface any HTTP call as a fatal so we can prove the function exited
         # at the security check, not at the network layer.
         monkeypatch.setattr(
-            "kiro_crew.cli_commands.loopback_urlopen",
+            "kiro_crew.cli_commands._gateway_send",
             lambda *_a, **_kw: pytest.fail("_artifact must refuse before opening any HTTP request"),
         )
 
@@ -954,7 +952,7 @@ class TestArtifactCli:
 
         monkeypatch.setattr("kiro_crew.cli_commands.is_sensitive_path", lambda _p: True)
         monkeypatch.setattr(
-            "kiro_crew.cli_commands.loopback_urlopen",
+            "kiro_crew.cli_commands._gateway_send",
             lambda *_a, **_kw: pytest.fail("_artifact must refuse before opening any HTTP request"),
         )
 

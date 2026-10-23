@@ -4,7 +4,7 @@ The knowledge-store subcommands (``learn``, ``memory``, ``artifact``), pod
 dispatch, the telemetry beacon switches and the ``kirocrew eval`` runner. Same
 conventions as ``test_cli_commands_coverage.py``: handlers are called directly
 with an ``argparse.Namespace``, HTTP goes through a patched
-``kiro_crew.cli_commands.loopback_urlopen``, and every write lands in ``tmp_path``.
+``kiro_crew.cli_commands._gateway_send``, and every write lands in ``tmp_path``.
 """
 
 from __future__ import annotations
@@ -464,7 +464,7 @@ class _ArtifactHarness:
             patch.object(KiroCrewConfig, "load", return_value=KiroCrewConfig()),
             patch("kiro_crew.cli_commands.parse_dashboard_url", return_value=("localhost", 5476)),
             patch("kiro_crew.cli_commands._internal_secret", return_value="s"),
-            patch("kiro_crew.cli_commands.loopback_urlopen", side_effect=self._responses),
+            patch("kiro_crew.cli_commands._gateway_send", side_effect=self._responses),
         ]
         started = [p.start() for p in self._patches]
         self.urlopen = started[-1]

@@ -68,7 +68,9 @@ class TestCliUninstallDelegatesToTheGateway:
     def _drive(self, *, purge_data: bool) -> tuple[list[Any], MagicMock]:
         requests: list[Any] = []
 
-        def _open(request: Any, *, timeout: int, socket_path: Any) -> _FakeResponse:
+        def _open(
+            request: Any, *, timeout: int, socket_path: Any, verify_peer: Any
+        ) -> _FakeResponse:
             requests.append(request)
             if request.full_url.endswith("/api/token/local?ttl=2m"):
                 return _FakeResponse({"token": "dashboard-credential"})

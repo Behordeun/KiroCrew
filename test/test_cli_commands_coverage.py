@@ -5,7 +5,7 @@ these tests call the handlers DIRECTLY (never through a subprocess) and assert
 on the routed side effects: which collaborator was called, what was printed, and
 which exit code was raised. Everything that would touch the network, the real
 data home, or a live gateway is mocked -- the module's HTTP paths are exercised
-by patching ``kiro_crew.cli_commands.loopback_urlopen``, and every filesystem write lands in
+by patching ``kiro_crew.cli_commands._gateway_send``, and every filesystem write lands in
 ``tmp_path``.
 
 Follows the style already established by ``test_cli.py`` (``argparse.Namespace``
@@ -143,7 +143,7 @@ class TestSpawnCli:
         }
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value="s"),
-            patch("kiro_crew.cli_commands.loopback_urlopen", return_value=_FakeResponse(payload)),
+            patch("kiro_crew.cli_commands._gateway_send", return_value=_FakeResponse(payload)),
         ):
             cc._spawn(_ns(spawn_action="list", port=1234))
         out = capsys.readouterr().out
@@ -153,7 +153,7 @@ class TestSpawnCli:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
             patch(
-                "kiro_crew.cli_commands.loopback_urlopen",
+                "kiro_crew.cli_commands._gateway_send",
                 return_value=_FakeResponse({"agents": []}),
             ),
         ):
@@ -166,7 +166,7 @@ class TestSpawnCli:
         err = _http_error(400, json.dumps({"error": "bad spawn"}).encode())
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
-            patch("kiro_crew.cli_commands.loopback_urlopen", side_effect=err),
+            patch("kiro_crew.cli_commands._gateway_send", side_effect=err),
             pytest.raises(SystemExit) as exc,
         ):
             cc._spawn(_ns(spawn_action="list", port=1234))
@@ -178,9 +178,7 @@ class TestSpawnCli:
     ) -> None:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
-            patch(
-                "kiro_crew.cli_commands.loopback_urlopen", side_effect=_http_error(503, b"<html>")
-            ),
+            patch("kiro_crew.cli_commands._gateway_send", side_effect=_http_error(503, b"<html>")),
             pytest.raises(SystemExit),
         ):
             cc._spawn(_ns(spawn_action="list", port=1234))
@@ -192,7 +190,7 @@ class TestSpawnCli:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
             patch(
-                "kiro_crew.cli_commands.loopback_urlopen",
+                "kiro_crew.cli_commands._gateway_send",
                 side_effect=urllib.error.URLError("refused"),
             ),
             pytest.raises(SystemExit) as exc,
@@ -211,7 +209,7 @@ class TestSpawnCli:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
             patch(
-                "kiro_crew.cli_commands.loopback_urlopen",
+                "kiro_crew.cli_commands._gateway_send",
                 return_value=_FakeResponse({"id": "ag1", "task": "t"}),
             ) as uo,
         ):
@@ -227,7 +225,7 @@ class TestSpawnCli:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
             patch(
-                "kiro_crew.cli_commands.loopback_urlopen",
+                "kiro_crew.cli_commands._gateway_send",
                 return_value=_FakeResponse(
                     {
                         "id": "ag1",
@@ -256,7 +254,7 @@ class TestSpawnCli:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
             patch.object(cc._time, "sleep") as slept,
-            patch("kiro_crew.cli_commands.loopback_urlopen", side_effect=responses),
+            patch("kiro_crew.cli_commands._gateway_send", side_effect=responses),
         ):
             cc._spawn(_ns(spawn_action="run", port=1, task="t", fire_and_forget=False))
         assert "final answer" in capsys.readouterr().out
@@ -272,7 +270,7 @@ class TestSpawnCli:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
             patch.object(cc._time, "sleep"),
-            patch("kiro_crew.cli_commands.loopback_urlopen", side_effect=responses),
+            patch("kiro_crew.cli_commands._gateway_send", side_effect=responses),
             pytest.raises(SystemExit) as exc,
         ):
             cc._spawn(_ns(spawn_action="run", port=1, task="t", fire_and_forget=False))
@@ -286,7 +284,7 @@ class TestSpawnCli:
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
             patch.object(cc._time, "sleep"),
             patch(
-                "kiro_crew.cli_commands.loopback_urlopen",
+                "kiro_crew.cli_commands._gateway_send",
                 side_effect=[_FakeResponse({"id": "ag4", "task": "t"}), OSError("gone")],
             ),
             pytest.raises(SystemExit),
@@ -298,7 +296,7 @@ class TestSpawnCli:
         err = _http_error(422, json.dumps({"error": "task too long"}).encode())
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
-            patch("kiro_crew.cli_commands.loopback_urlopen", side_effect=err),
+            patch("kiro_crew.cli_commands._gateway_send", side_effect=err),
             pytest.raises(SystemExit),
         ):
             cc._spawn(_ns(spawn_action="run", port=1, task="t", fire_and_forget=True))
@@ -307,7 +305,7 @@ class TestSpawnCli:
     def test_run_unreachable_gateway_exits_1(self, capsys: pytest.CaptureFixture[str]) -> None:
         with (
             patch("kiro_crew.cli_commands._internal_secret", return_value=""),
-            patch("kiro_crew.cli_commands.loopback_urlopen", side_effect=OSError("no route")),
+            patch("kiro_crew.cli_commands._gateway_send", side_effect=OSError("no route")),
             pytest.raises(SystemExit),
         ):
             cc._spawn(_ns(spawn_action="run", port=9, task="t", fire_and_forget=True))
@@ -384,7 +382,7 @@ class TestAppCli:
         requests: list[urllib.request.Request] = []
 
         def _open(
-            request: urllib.request.Request, *, timeout: int, socket_path: Path
+            request: urllib.request.Request, *, timeout: int, socket_path: Path, verify_peer: object
         ) -> _FakeResponse:
             assert socket_path.name == "dashboard-8123.sock"
             requests.append(request)
@@ -514,7 +512,7 @@ class TestAppCli:
         timeouts: list[int] = []
 
         def _open(
-            request: urllib.request.Request, *, timeout: int, socket_path: Path
+            request: urllib.request.Request, *, timeout: int, socket_path: Path, verify_peer: object
         ) -> _FakeResponse:
             assert socket_path.name == "dashboard-8123.sock"
             timeouts.append(timeout)
@@ -575,7 +573,7 @@ class TestAppCli:
         requests: list[urllib.request.Request] = []
 
         def _open(
-            request: urllib.request.Request, *, timeout: int, socket_path: Path
+            request: urllib.request.Request, *, timeout: int, socket_path: Path, verify_peer: object
         ) -> _FakeResponse:
             assert socket_path.name == "dashboard-8123.sock"
             requests.append(request)
@@ -714,7 +712,7 @@ class TestAppCli:
         requests: list[urllib.request.Request] = []
 
         def _open(
-            request: urllib.request.Request, *, timeout: int, socket_path: Path
+            request: urllib.request.Request, *, timeout: int, socket_path: Path, verify_peer: object
         ) -> _FakeResponse:
             assert socket_path.name == "dashboard-8123.sock"
             requests.append(request)

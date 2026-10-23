@@ -1361,22 +1361,17 @@ class TestApproveBusyVsDown:
 
     def test_file_delivery_approve_timeout_reports_busy(self, monkeypatch, capsys) -> None:
         from kiro_crew import file_delivery_consent
-        from kiro_crew.dashboard import urls as dashboard_urls
 
         pending = types.SimpleNamespace(destination_class="owner", expires_in=60, nonce="n" * 64)
         monkeypatch.setattr(file_delivery_consent, "read_pending_grant", lambda: pending)
         monkeypatch.setattr(cli_server, "resolve_client_port", lambda _p: 7777)
         monkeypatch.setattr(cli_server, "read_local_secret", lambda _p, **_kw: "")
-        # No usable unix socket path -> the TCP loopback transport is used, which
-        # is the seam this stub raises a timeout at.
-        monkeypatch.setattr(
-            dashboard_urls, "dashboard_socket_path", lambda _p: (_ for _ in ()).throw(OSError())
-        )
 
         def _timeout(*a, **k):
             raise TimeoutError("timed out")
 
-        monkeypatch.setattr(cli_server, "loopback_urlopen", _timeout)
+        # The proven send is the one transport seam, socket or TCP alike.
+        monkeypatch.setattr(cli_server, "_owner_verified_secret_urlopen", _timeout)
         with pytest.raises(SystemExit) as exc:
             cli_server._file_delivery_approve()
         assert exc.value.code == 1

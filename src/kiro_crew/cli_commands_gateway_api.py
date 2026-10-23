@@ -1,7 +1,9 @@
 """``kirocrew spawn`` and ``kirocrew artifact``: commands served by the running gateway.
 
-Both call the dashboard's internal HTTP API on the IPv4 loopback, authenticated with
-the per-session secret ``_internal_secret`` reads. ``_spawn`` lists subagents or
+Both call the dashboard's internal HTTP API, authenticated with the per-session
+secret ``_internal_secret`` reads. Every request goes through
+``_owner_verified_secret_urlopen``, so the secret is written only after the peer on
+that very connection is proven to be this install's recorded gateway. ``_spawn`` lists subagents or
 starts one (``_spawn_run``, which waits for the result unless told not to);
 ``_artifact`` lists, saves, shows, updates and deletes artifacts and lists an
 artifact's versions.
@@ -24,7 +26,6 @@ from pathlib import Path
 
 from kiro_crew.config.loader import KiroCrewConfig, read_local_secret
 from kiro_crew.dashboard.origin import parse_dashboard_url
-from kiro_crew.loopback_http import loopback_urlopen
 from kiro_crew.security import is_sensitive_path
 from kiro_crew.subagent_wait_reasons import queued_wait_text
 from kiro_crew.terminal_safe import safe_terminal_line
@@ -52,6 +53,30 @@ def _internal_secret(port: int) -> str:
     return read_local_secret(port, dial_host="127.0.0.1")
 
 
+def _gateway_send(req: urllib.request.Request, port: int, timeout: float, operation: str):
+    """Open *req* to the gateway on *port* through the connection-bound peer proof.
+
+    Every request here carries ``X-Internal-Secret``, so it goes through
+    ``cli_server_peer._owner_verified_secret_urlopen``: the secret is written only
+    after the peer on that very connection is proven to be this install's recorded
+    gateway, on the owner-only unix socket when one exists and on loopback TCP
+    otherwise. An unproven peer raises ``_GatewayPeerRefused`` (not an ``OSError``),
+    the type :func:`_peer_refusal` returns. Imported in-function: a module-scope
+    import would surface on this split module's star-import facade (cli_commands),
+    and the call-time read lets a patch through ``kiro_crew.cli_server`` reach it.
+    """
+    from kiro_crew.cli_server_peer import _owner_verified_secret_urlopen
+
+    return _owner_verified_secret_urlopen(req, port, timeout, operation=operation)
+
+
+def _peer_refusal() -> type[Exception]:
+    """The peer proof's refusal type, for an ``except`` clause (imported at call time)."""
+    from kiro_crew.cli_server_peer import _GatewayPeerRefused
+
+    return _GatewayPeerRefused
+
+
 def _spawn_row_text(row: dict[str, object]) -> str:
     """A ``spawn list`` row's id and task, as one terminal line.
 
@@ -74,8 +99,11 @@ def _spawn(args: argparse.Namespace) -> None:
             headers={"X-Internal-Secret": _internal_secret(args.port)},
         )
         try:
-            with loopback_urlopen(req, timeout=5) as resp:
+            with _gateway_send(req, args.port, 5, "cli_spawn_list") as resp:
                 data = json.loads(resp.read())
+        except _peer_refusal() as e:
+            print(f"Error: gateway ownership not verified: {e}")
+            sys.exit(1)
         except urllib.error.HTTPError as e:
             try:
                 body = json.loads(e.read())
@@ -159,8 +187,11 @@ def _spawn_run(args: argparse.Namespace, base: str) -> None:
         },
     )
     try:
-        with loopback_urlopen(req, timeout=5) as resp:
+        with _gateway_send(req, args.port, 5, "cli_spawn_run") as resp:
             result = json.loads(resp.read())
+    except _peer_refusal() as e:
+        print(f"Error: gateway ownership not verified: {e}")
+        sys.exit(1)
     except urllib.error.HTTPError as e:
         try:
             body = json.loads(e.read())
@@ -221,8 +252,11 @@ def _spawn_run(args: argparse.Namespace, base: str) -> None:
         _time.sleep(2)
         poll_req = urllib.request.Request(poll_url, headers={"X-Internal-Secret": secret})
         try:
-            with loopback_urlopen(poll_req, timeout=5) as resp:
+            with _gateway_send(poll_req, args.port, 5, "cli_spawn_poll") as resp:
                 status = json.loads(resp.read())
+        except _peer_refusal() as e:
+            print(f"Error: gateway ownership not verified: {e}", file=sys.stderr)
+            sys.exit(1)
         except Exception:
             print("Error: lost connection to gateway", file=sys.stderr)
             sys.exit(1)
@@ -263,9 +297,11 @@ def _artifact(args: argparse.Namespace) -> None:
             h["Content-Type"] = "application/json"
         req = urllib.request.Request(f"{base}{path}", data=data, headers=h, method=method)
         try:
-            with loopback_urlopen(req, timeout=30) as resp:
+            with _gateway_send(req, port, 30, "cli_artifact") as resp:
                 raw = resp.read()
                 return json.loads(raw) if raw else {}
+        except _peer_refusal() as exc:
+            return {"error": f"gateway ownership not verified: {exc}"}
         except urllib.error.HTTPError as exc:
             try:
                 return {"error": json.loads(exc.read()).get("error", str(exc))}
