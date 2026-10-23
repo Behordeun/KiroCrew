@@ -438,6 +438,15 @@ export function addLifecycleCases(builder: ActionReducerMapBuilder<ChatState>): 
       state.slotStopping = false
       state.slotState = 'idle'
       setPagingCursor(state, false, 0)
+      // A switch still loading the chat being left, such as a close landing
+      // made while this create was pending, no longer owns the pane. Retire
+      // it: its answer is now superseded (`supersededSwitch`) and cannot
+      // write this chat's view, and the new chat has nothing to load.
+      state.slotLoading = false
+      state.slotSwitchRequestId = null
+      state.slotSwitchTarget = null
+      state.slotSwitchOrigin = null
+      state.slotSwitchLatestRequestId = action.meta.requestId
     })
     .addCase(resumeFromHistory.pending, (state, action) => {
       // A new attempt supersedes whatever the previous one narrated, and its

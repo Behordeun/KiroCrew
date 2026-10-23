@@ -645,9 +645,22 @@ export const deleteSlot = createAsyncThunk<
       const prev = (landing !== key ? landing : null)
         || root.chat.slotHistory.filter(k => k !== key && sameSurface.has(k)).pop()
         || root.dashboard.slots.filter(s => s.key !== key && sameSurface.has(s.key)).map(s => s.key)[0]
-      dispatch({ type: 'chat/setActiveSlot', payload: null })
+      // Closing a chat is not choosing the landing: the page picks it. Both
+      // moves count as automatic, so a create or fork still pending from
+      // before the close opens its new session when it resolves, while a
+      // session the user opened during that request still wins (`forkMayOpen`).
+      dispatch({ type: 'chat/dropActiveSlot' })
       if (prev) {
-        navigation = dispatch(switchSlot(prev)).unwrap().catch(() => dispatch({ type: 'chat/clearSlotState' }))
+        // A pending create or fork can open its chat before this landing's
+        // fetch settles. A failure then belongs to a view the user has left,
+        // so it clears the pane only while this landing still owns it.
+        const landingSwitch = dispatch(switchSlot({ key: prev, automatic: true }))
+        navigation = landingSwitch.unwrap().catch(() => {
+          const chat = (getState() as RootState).chat
+          if (chat.activeSlot === prev && chat.slotSwitchLatestRequestId === landingSwitch.requestId) {
+            dispatch({ type: 'chat/clearSlotState' })
+          }
+        })
       } else {
         dispatch({ type: 'chat/clearSlotState' })
       }
