@@ -254,7 +254,7 @@ async def api_session_directive(request: web.Request) -> web.Response:
     # Lazy on purpose: mcp_core is the MCP server module and imports every tool
     # handler; no dashboard module loads it at import time, and this route is
     # the only one that needs it.
-    from kiro_crew import mcp_core
+    from kiro_crew import mcp_core, session_environment
 
     tool = str(body.get("tool") or "").strip()
     raw_args = body.get("raw_args")
@@ -284,7 +284,14 @@ async def api_session_directive(request: web.Request) -> web.Response:
             },
             status=400,
         )
-    derived = mcp_core.derive_directive(tool, raw_args, session_key)
+    if tool in session_environment.LOCAL_ONLY_CORE_TOOLS:
+        # The replay's remote-workspace guard would read the choices store on this
+        # loop; look it up in a thread and hand the replay the answer.
+        remote = await asyncio.to_thread(session_environment.session_runs_remotely, session_key)
+        with session_environment.known_placement(session_key, remote):
+            derived = mcp_core.derive_directive(tool, raw_args, session_key)
+    else:
+        derived = mcp_core.derive_directive(tool, raw_args, session_key)
     if derived is None:
         logger.warning(
             "session-directive REFUSED (not_derivable) for session_key=%r tool=%r: "
