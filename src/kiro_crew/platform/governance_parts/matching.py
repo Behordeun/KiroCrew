@@ -16,6 +16,8 @@ import fnmatch
 import os
 from typing import Callable, Dict, Tuple
 
+from kiro_crew.platform.guest_paths import GuestPath, guest_norm
+
 # ──────────────────────────────────────────────────────────────────────────
 # Enforcer-owned registries (NEVER sourced from a policy/profile document)
 # ──────────────────────────────────────────────────────────────────────────
@@ -91,7 +93,20 @@ def _match_path(item: str, pattern: str) -> bool:
     trust-root / credential dirs, and an operator must not rely on an allow-mode
     prefix to confine writes in a directory that contains untrusted symlinks.
     See ``docs/system-specs/modules/governance.md`` → "Path matcher".
+
+    A REMOTE-WORKSPACE target (:class:`~kiro_crew.platform.guest_paths.GuestPath`,
+    which only ``classify_tool_args`` mints, from arguments the permission-event
+    builder tagged) names a file on the Linux guest, so it is normalized with
+    ``posixpath`` instead (:func:`~kiro_crew.platform.guest_paths.guest_norm`):
+    anchored at the guest workdir, ``..`` and a leading ``//`` collapsed, no
+    ``~``/``$VAR`` expansion with this gateway's values. Chosen per item, so a local
+    call on a Windows gateway is matched exactly as before. One with no anchor
+    matches no pattern; ``classify_tool_args`` pairs it with the never-permittable
+    unverifiable item, which an allow-mode set refuses.
     """
+    if isinstance(item, GuestPath):
+        norm = guest_norm(item)
+        return norm is not None and fnmatch.fnmatchcase(norm, _expand(pattern))
     return fnmatch.fnmatchcase(_norm_item(item), _expand(pattern))
 
 

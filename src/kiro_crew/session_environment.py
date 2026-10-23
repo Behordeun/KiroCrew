@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import posixpath
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
@@ -133,22 +131,6 @@ REMOTE_AGENT_RESTRICTED = (
     "this agent's own rules limit shell commands or file paths, and a remote "
     "workspace cannot enforce them yet; remove those rules or run on This machine"
 )
-REMOTE_NEEDS_POSIX_GATEWAY = (
-    "remote session environments need a macOS or Linux gateway: file rules are "
-    "matched as this gateway's own paths, and on Windows they would miss the "
-    "workspace's paths; run on This machine"
-)
-
-
-def gateway_matches_posix_paths() -> bool:
-    """Whether this gateway's file rules can match a guest's POSIX paths.
-
-    Governance normalizes every queried path with this process's ``os.path``. On a
-    Windows gateway that turns a guest's ``/workspace/app/x`` into
-    ``C:\\workspace\\app\\x``, so a deny written for ``/workspace/app/**`` would never
-    match a workspace tool's target. A remote workspace is refused there instead.
-    """
-    return os.path is posixpath
 
 
 def choices_path() -> Path:

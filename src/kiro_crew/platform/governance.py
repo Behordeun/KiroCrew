@@ -60,6 +60,13 @@ from kiro_crew.platform.admission import (  # noqa: F401 - re-export
 )
 from kiro_crew.platform.context import PlatformCompositionError
 from kiro_crew.platform.governance_health import mark_governance_incident  # noqa: F401 - re-export
+from kiro_crew.platform.guest_paths import (  # noqa: F401 - re-export
+    GuestPath,
+    guest_also_local,
+    guest_norm,
+    guest_root,
+    guest_unverifiable,
+)
 from kiro_crew.platform.tool_paths import (  # noqa: F401 - re-export
     TARGET_PATH_KEYS,
     edit_target_candidates,
@@ -1216,6 +1223,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _CU_ACTION_TOOL_PREFIX,
         _CU_TITLE_PREFIX,
         _CU_UNKNOWN_ACTION_CLASSES,
+        _GUEST_UNVERIFIABLE_ITEM,
         _KIND_EDIT,
         _KIND_FETCH,
         _KIND_READ,
@@ -1232,6 +1240,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         CU_CLASS_TEXT_ENTRY,
         CU_MCP_SERVER,
         _cu_action_key,
+        _governed_targets,
         _tool_arg_paths,
         classify_tool_args,
         classify_tool_title,

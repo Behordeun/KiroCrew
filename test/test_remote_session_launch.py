@@ -21,7 +21,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from kiro_crew import session_environment
 from kiro_crew.acp import runtime as runtime_mod
 from kiro_crew.acp.kas_permissions import KAS_TOOL_IDS_BY_KIRO_TOOL
 from kiro_crew.acp.runtime import AcpRuntime, AcpRuntimeError
@@ -431,24 +430,10 @@ def test_workspace_server_is_added_once():
     assert servers[-1]["command"] == "bridge"
 
 
-def test_remote_workspace_needs_the_kas_backend(monkeypatch):
-    monkeypatch.setattr(session_environment, "gateway_matches_posix_paths", lambda: True)
+def test_remote_workspace_needs_the_kas_backend():
     with pytest.raises(AcpRuntimeError, match="KAS"):
         AcpRuntime.check_remote_workspace_supported(_runtime(backend="kiro"))
     AcpRuntime.check_remote_workspace_supported(_runtime())
-
-
-def test_remote_workspace_needs_a_gateway_whose_path_rules_match_posix(monkeypatch):
-    # GPT 6.1 on ef057210c6: governance normalizes with the gateway's os.path, so on
-    # Windows a deny on /workspace/app/private/** never meets a guest target. Refuse.
-    monkeypatch.setattr(session_environment, "gateway_matches_posix_paths", lambda: False)
-    with pytest.raises(AcpRuntimeError, match="macOS or Linux gateway"):
-        AcpRuntime.check_remote_workspace_supported(_runtime())
-
-
-def test_the_posix_path_predicate_is_false_exactly_on_windows():
-    # The predicate reads the same os.path governance's _norm_item normalizes with.
-    assert session_environment.gateway_matches_posix_paths() is (os.name != "nt")
 
 
 @sync

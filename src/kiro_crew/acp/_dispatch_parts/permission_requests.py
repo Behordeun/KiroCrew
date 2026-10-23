@@ -49,6 +49,7 @@ from kiro_crew.acp_backends import (
     ACP_BACKEND_PI,
 )
 from kiro_crew.mcp_gateway.tool_surface import mcp_identity_name, mcp_identity_unreadable
+from kiro_crew.platform.guest_paths import GuestPathParams
 from kiro_crew.session_environment import WORKSPACE_DENY_ALIASES, WORKSPACE_TOOL_KINDS
 
 # Logs under the facade's name, which operators and tests filter on.
@@ -920,11 +921,35 @@ def build_permission_event(
         # An envelope for another call: refused before any consumer judges it.
         _mcp_identity_unreadable = _mcp_identity_unreadable or not _readable
         _resolved_raw_params = _anchored_in_workspace(_resolved_raw_params, remote_workspace_root)
-        _command = (_resolved_raw_params or {}).get("command")
+        # Tagged by TYPE, which no model input can forge: governance then matches
+        # these targets as the guest's POSIX paths, not as this gateway's. A call
+        # with no arguments is tagged too, so a diff block's path is still a guest's.
+        if _resolved_raw_params is None or isinstance(_resolved_raw_params, dict):
+            _resolved_raw_params = GuestPathParams(_resolved_raw_params, root=remote_workspace_root)
+        _command = _resolved_raw_params.get("command") if _resolved_raw_params else None
         _runs_shell = tool_kind == "execute"
         is_shell = is_shell or _runs_shell
         if _runs_shell and isinstance(_command, str) and _command:
             title = _redact(_command)
+    elif (
+        remote_workspace_server
+        and posixpath.isabs(remote_workspace_root)
+        and (not _mcp_identity_trusted or _mcp_server_name == remote_workspace_server)
+        and (_resolved_raw_params is None or isinstance(_resolved_raw_params, dict))
+    ):
+        # A remote session's call the branch above could not place: an identity
+        # this client did not establish, or a workspace-server tool it does not
+        # know. Its targets may be the guest's or this gateway's, so they are judged
+        # under both readings and must pass every rule under each.
+        _resolved_raw_params = GuestPathParams(
+            _resolved_raw_params, root=remote_workspace_root, also_local=True
+        )
+    elif isinstance(_resolved_raw_params, GuestPathParams):
+        # Only the branch above may tag a call: it is reached from the runtime's own
+        # remote-workspace binding, never from anything the model or guest sent. A
+        # tagged object arriving any other way is stripped, so a local call is
+        # always matched as this gateway's paths.
+        _resolved_raw_params = dict(_resolved_raw_params)
 
     # dsh's permission frame names only the toolCallId, so which dsh tool a
     # request is for comes only from the name its preceding tool_call frame

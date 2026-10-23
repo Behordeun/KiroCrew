@@ -25,7 +25,12 @@ from kiro_crew.platform.governance_parts.archetypes import (
     _dedup,
 )
 from kiro_crew.platform.governance_parts.carriers import GovernanceCeiling, Profile
-from kiro_crew.platform.governance_parts.tool_calls import classify_tool_args, classify_tool_title
+from kiro_crew.platform.governance_parts.tool_calls import (
+    _governed_targets,
+    classify_tool_args,
+    classify_tool_title,
+)
+from kiro_crew.platform.guest_paths import guest_also_local, guest_root
 
 # ──────────────────────────────────────────────────────────────────────────
 # Evaluator (Phase 4) — pure functions, no I/O
@@ -206,6 +211,21 @@ def gate_decision(
     for extra in extra_titles:
         if extra:
             pairs.extend(classify_tool_title(extra))
+    # A remote-workspace call's title-derived path (``Reading <path>``) names the
+    # same guest file its arguments do, so it is read the way they are; a plain
+    # twin judged as this gateway's path would refuse a permitted guest read.
+    root = guest_root(raw_params)
+    if root is not None:
+        also_local = guest_also_local(raw_params)
+        pairs = [
+            (scope, target)
+            for scope, item in pairs
+            for target in (
+                _governed_targets((item,), root, also_local)
+                if scope.startswith("filesystem.")
+                else (item,)
+            )
+        ]
     pairs.extend(classify_tool_args(tool_kind, raw_params, diff_path))
     if mcp_ref:
         pairs.append(("mcp", mcp_ref))

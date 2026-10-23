@@ -169,15 +169,10 @@ def set_remote_workspace(self: AcpRuntime, workspace: Any) -> None:
 
 def check_remote_workspace_supported(self: AcpRuntime) -> None:
     """Raise before any guest compute is touched when this runtime cannot fence it."""
-    from kiro_crew import session_environment
     from kiro_crew.session_environment import REMOTE_NEEDS_KAS
 
     if self._process is not None:
         raise AcpRuntimeError("a remote workspace must be set before the runtime spawns")
-    # Fail closed: on a Windows gateway a filesystem deny could not bind the
-    # workspace tools' POSIX targets, so no workspace is attached at all.
-    if not session_environment.gateway_matches_posix_paths():
-        raise AcpRuntimeError(session_environment.REMOTE_NEEDS_POSIX_GATEWAY)
     if self.acp_backend == ACP_BACKEND_KAS:
         return
     raise AcpRuntimeError(REMOTE_NEEDS_KAS)

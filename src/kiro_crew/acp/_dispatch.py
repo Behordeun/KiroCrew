@@ -81,6 +81,7 @@ from kiro_crew.metrics.tool_calls import (  # noqa: F401
     note_tool_call_started,
     record_tool_call_finished,
 )
+from kiro_crew.platform.guest_paths import GuestPathParams  # noqa: F401
 from kiro_crew.platform.tool_paths import WRITE_PLANE_KINDS  # noqa: F401
 from kiro_crew.security import redact_credentials, redact_exfiltration_urls
 from kiro_crew.security.credential_sources import tool_output_fingerprints  # noqa: F401
