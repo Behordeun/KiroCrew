@@ -1197,7 +1197,9 @@ Run Now whose gate verdict succeeds before its delivery fails) clears the stamp,
 so that run's failure counts and its merge applies its own pause state and count.
 
 `stream_and_collect`'s `on_tool_gate` callback reports each tool permission
-decision as `(tool_title, approved, security_blocked)`. Both cron agent paths
+decision as `(tool_title, approved, security_blocked, reason)`, where `reason`
+is the refusal text the audit row recorded (for a deny pattern, the rule that
+matched). Both cron agent paths
 (single-agent and the sequential `agent_sequence` loop) tally those decisions
 per run and route the outcome through one shared verdict with three arms:
 
@@ -1216,7 +1218,10 @@ nothing from the failure budget; the lost call means it did not succeed, so it
 does not read as `ok` and does not reset a failure streak or the failure-alert
 dedup the way a success does. `_GateTally.refusal_summary()` is the one
 spelling of the reason, shared by `last_error` and the result banner, so the
-cron row and the notification cannot name different calls.
+cron row and the notification cannot name different calls. Each named call
+carries the first line of its refusal in parentheses (`spawn_run (Blocked by
+security policy: <pattern>)`), so the reader sees which rule fired rather than
+a bare refusal.
 
 The tally does not separate the gate's tiers: a title-tier refusal (`rm -rf /`
 as a command) and an input-tier one (a document body the scanner read as a

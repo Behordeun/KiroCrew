@@ -110,8 +110,14 @@ def _error(rows: list[dict]) -> str:
 
 
 class TestTheListIsExplicit:
-    def test_only_the_core_knowledge_document_body_is_listed(self) -> None:
-        assert dict(MCP_DOCUMENT_BODY_FIELDS) == {(_CORE, _TOOL): frozenset({"content"})}
+    def test_only_the_core_knowledge_document_body_and_spawn_briefs_are_listed(self) -> None:
+        assert dict(MCP_DOCUMENT_BODY_FIELDS) == {
+            (_CORE, _TOOL): frozenset({"content"}),
+            (_CORE, "spawn_run"): frozenset({"task", "tasks[]", "tasks[].task"}),
+            (_CORE, "spawn_continue"): frozenset({"task"}),
+            (_CORE, "spawn_steer"): frozenset({"message"}),
+            (_CORE, "spawn_sub_agents"): frozenset({"agents[].prompt"}),
+        }
 
     @pytest.mark.parametrize(
         "tool_name",

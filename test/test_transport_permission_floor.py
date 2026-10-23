@@ -786,7 +786,7 @@ async def test_resolve_permission_counts_transport_rejection_as_refused(monkeypa
         ToolApprovalPolicy.AUTO_APPROVE,
         hooks=None,
         session_key="test-session",
-        on_decision=lambda outcome, mech: decisions.append((outcome, mech)),
+        on_decision=lambda outcome, mech, _why: decisions.append((outcome, mech)),
     )
 
     assert approved is False

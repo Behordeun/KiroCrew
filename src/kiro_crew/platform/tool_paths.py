@@ -22,6 +22,7 @@ import os
 import re
 from collections.abc import Mapping
 from types import MappingProxyType, ModuleType
+from typing import cast
 
 #: EVERY argument name a tool may carry its target file path under. Public because
 #: it is shared with the consent prompt in ``cli_chat``: a prompt that disclosed a
@@ -498,14 +499,32 @@ def is_document_writing_tool(tool_name: str | None, mcp_server_name: str | None)
 #: :data:`DOCUMENT_WRITING_TOOLS`, which no MCP tool may join: a server-side
 #: tool can execute whatever it calls ``content``, so a row is admitted only
 #: for a tool of Kiro Crew's own core server whose handler is known to keep
-#: the field as non-executable document text. ``knowledge_add_document``
-#: ingests ``content`` into the knowledge library as the document body.
-#: Additive only.
+#: the field as non-executable text. ``knowledge_add_document`` ingests
+#: ``content`` into the knowledge library as the document body. The spawn tools
+#: hand their brief to a sub-agent MODEL as its prompt: ``spawn_run``'s
+#: ``task`` and each ``tasks`` entry (a prompt string, or an object's
+#: ``task``), ``spawn_continue``'s ``task``, ``spawn_steer``'s ``message`` and
+#: each ``spawn_sub_agents`` ``agents`` entry's ``prompt``. The host runs none
+#: of that text; whatever the sub-agent then runs is its own tool call and
+#: goes through its own deny gate.
+#:
+#: A field is a dotted path from the top of the params: a plain name is a
+#: top-level key, and ``name[]`` steps into each item of the list under
+#: ``name`` (``tasks[]`` is each string item, ``tasks[].task`` the ``task`` of
+#: each object item). Only a STRING at the end of a path is a body; any other
+#: shape there stays in the scanned half. Additive only.
 MCP_DOCUMENT_BODY_FIELDS: Mapping[tuple[str, str], frozenset[str]] = MappingProxyType(
     {
         ("kirocrew-core", "knowledge_add_document"): frozenset({"content"}),
+        ("kirocrew-core", "spawn_run"): frozenset({"task", "tasks[]", "tasks[].task"}),
+        ("kirocrew-core", "spawn_continue"): frozenset({"task"}),
+        ("kirocrew-core", "spawn_steer"): frozenset({"message"}),
+        ("kirocrew-core", "spawn_sub_agents"): frozenset({"agents[].prompt"}),
     }
 )
+
+#: The path step that means "each item of the list under the previous key".
+_EACH_ITEM = "[]"
 
 #: The separator transports put between a server name and a tool name in a
 #: qualified tool id: kiro-cli spells ``<server>___<tool>``, the canonical MCP
@@ -537,19 +556,61 @@ def mcp_document_body_keys(tool_name: str | None, mcp_server_name: str | None) -
 def split_document_bodies(raw_params: Mapping, body_keys: frozenset[str]) -> tuple[dict, list[str]]:
     """Split *raw_params* into the non-body arguments and the body strings.
 
-    Only a TOP-LEVEL string under one of *body_keys* is a body; a mapping or a
-    list there, and every other argument, stays in the first half for the full
-    scan.
+    Each of *body_keys* is a field path in the :data:`MCP_DOCUMENT_BODY_FIELDS`
+    form. Only a STRING at the end of a path is a body; a mapping or a list
+    there, a path step that meets the wrong shape, and every other argument
+    stay in the first half for the full scan. *raw_params* is not modified.
     """
-    rest: dict = {}
+    rest: dict = dict(raw_params)
     bodies: list[str] = []
-    for key, value in raw_params.items():
-        if key in body_keys and isinstance(value, str):
-            if value:
-                bodies.append(value)
-        else:
-            rest[key] = value
+    for spec in sorted(body_keys):
+        # A path starts with a key name, so a mapping comes back a mapping.
+        rest = cast("dict", _strip_body_field(rest, _body_field_steps(spec), bodies))
     return rest, bodies
+
+
+def _body_field_steps(spec: str) -> tuple[str, ...]:
+    """``"tasks[].task"`` -> ``("tasks", "[]", "task")``."""
+    steps: list[str] = []
+    for part in spec.split("."):
+        if part.endswith(_EACH_ITEM):
+            steps.extend((part[: -len(_EACH_ITEM)], _EACH_ITEM))
+        else:
+            steps.append(part)
+    return tuple(steps)
+
+
+def _strip_body_field(node: object, steps: tuple[str, ...], bodies: list[str]) -> object:
+    """*node* with the body strings at *steps* moved into *bodies*.
+
+    Copy-on-write: a container on the path is rebuilt, never edited, so the
+    caller's params stay intact. A step that meets the wrong shape leaves the
+    node as it is, which keeps it in the scanned half.
+    """
+    head, tail = steps[0], steps[1:]
+    if head == _EACH_ITEM:
+        if not isinstance(node, list):
+            return node
+        kept: list[object] = []
+        for item in node:
+            if not tail and isinstance(item, str):
+                if item:
+                    bodies.append(item)
+                continue
+            kept.append(_strip_body_field(item, tail, bodies) if tail else item)
+        return kept
+    if not isinstance(node, Mapping) or head not in node:
+        return node
+    value = node[head]
+    if not tail:
+        if not isinstance(value, str):
+            return node
+        if value:
+            bodies.append(value)
+        return {k: v for k, v in node.items() if k != head}
+    rebuilt = dict(node)
+    rebuilt[head] = _strip_body_field(value, tail, bodies)
+    return rebuilt
 
 
 class ScanStrings(list):
