@@ -746,7 +746,10 @@ async def _run_side_turn(
             )
             return
 
-        if not chunks:
+        if not response_text:
+            # The returned text, not the streamed chunks: a prompt-busy retry starts
+            # its text over, so chunks from an earlier attempt can stand beside an
+            # empty answer.
             # Same vocabulary as the composer footer
             # (``pages.chat.sideChat.context_only_tools_unavailable`` on a
             # read-only harness, ``…_backend`` elsewhere): the strings describe one
