@@ -4056,7 +4056,9 @@ preventing a terminal campaign from re-arming after restart.
 **Crew model pins**: POST `/api/agents` and PUT `/api/agents/{name}` validate a
 supplied `model` before persisting it. The shared role-model validator rejects a
 pin the active session's advertised model set proves unusable; an empty or
-unknown set still fails open because entitlement is unknowable. The registry
+unknown set still fails open because entitlement is unknowable, except that on
+an `acp`-namespace backend a registered model with no kiro id
+(`model_registry.lacks_acp_id`) is refused with no catalog. The registry
 adds the offline, positive case: a spelling it recognizes from another provider
 but that kiro-cli does not serve is rejected with `code: "invalid_model"` and a
 non-prescriptive mapping hint. Empty/`auto`, valid ACP ids, and unregistered ids

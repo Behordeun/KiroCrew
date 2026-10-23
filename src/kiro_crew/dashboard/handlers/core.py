@@ -628,6 +628,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _active_provider_and_pin_backend,
         _active_provider_name,
         _advertised_evidence_provider,
+        _no_kiro_id_reason,
         _provider_backend,
         _revalidate_role_pin_evidence,
         _validate_role_model,

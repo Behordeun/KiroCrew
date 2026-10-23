@@ -833,6 +833,31 @@ class TestAgentModel:
         assert repr(served) in capsys.readouterr().err
         assert cfg_path.read_text(encoding="utf-8") == before
 
+    def test_a_pin_kiro_cli_has_no_id_for_is_refused_and_names_the_spelling(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cfg_path = _write_config(tmp_path, _labelled_config())
+        before = cfg_path.read_text(encoding="utf-8")
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_agent_cli(cfg_path, "update", "research", "--model", "claude-fable-5-1")
+
+        assert exc_info.value.code == 1
+        assert "'claude-fable-5-1' is not a model kiro-cli serves" in capsys.readouterr().err
+        assert cfg_path.read_text(encoding="utf-8") == before
+
+    def test_a_pin_kiro_cli_has_no_id_for_is_stored_on_the_claude_backend(
+        self, tmp_path: Path
+    ) -> None:
+        config = _labelled_config()
+        config["agent"] = {"acp_backend": "claude", "member_acp_backend": "claude"}
+        cfg_path = _write_config(tmp_path, config)
+
+        _run_agent_cli(cfg_path, "update", "research", "--model", "claude-fable-5-1")
+
+        saved = json.loads(cfg_path.read_text(encoding="utf-8"))
+        assert saved["agents"]["research"]["model"] == "claude-fable-5-1"
+
     def test_a_display_only_canonical_key_is_refused(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch
     ) -> None:

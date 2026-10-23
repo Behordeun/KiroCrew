@@ -118,11 +118,14 @@ field survives. The value is judged on shape (`validation._MODEL_NAME_RE`, as
 the cron job `--model` flag is), then, unless the provider is `claude_code`, refused
 when `model_registry.acp_id_correction` maps it to another served id or when
 `_model_rejected_reason` finds it display-only for the harness
-`_pin_entitlement_backend` picks. These are the two checks the crew editor's
-`_model_pin_rejected` runs before entitlement, so a canonical key the harness
-translates is accepted here as it is there. Entitlement needs a live
-session's advertised list, which the offline CLI does not have, so an unknown
-id is accepted, as `_validate_role_model` accepts with no evidence.
+`_pin_entitlement_backend` picks, or, when that harness shares kiro-cli's `acp`
+namespace, when `model_registry.lacks_acp_id` finds a registered model with no
+kiro id. These are the three checks the crew editor's `_model_pin_rejected`
+runs: the first two before entitlement, the third in its place when it has no
+live catalog, so a canonical key the harness translates is accepted here as it
+is there. Entitlement
+needs a live session's advertised list, which the offline CLI does not have, so an
+unknown id is accepted, as `_validate_role_model` accepts with no evidence.
 `agent list` prints a `MODEL` column: the pin, or `(inherit)`.
 
 `kirocrew doctor` reports the configured member, store and integrity failures

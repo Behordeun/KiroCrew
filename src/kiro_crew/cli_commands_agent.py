@@ -85,14 +85,16 @@ def _agent_model_or_exit(raw: str, cfg: KiroCrewConfig) -> str:
 
     ``""`` and ``auto`` both mean "no pin", stored as ``""`` the way the crew
     editor stores them. A CLI call is judged on shape (the same pattern
-    ``cron add --model`` checks), then by the two gates the crew editor runs
+    ``cron add --model`` checks), then by the gates the crew editor runs
     before it reaches entitlement: a wrong-flavour id kiro-cli does not serve
-    (``model_registry.acp_id_correction``), and the backend-aware display-only
+    (``model_registry.acp_id_correction``), the backend-aware display-only
     check (``_model_rejected_reason``, judged against the same harness the crew
-    editor picks with ``_pin_entitlement_backend``). Entitlement itself needs a
-    live session's advertised list, which this offline command does not have,
-    so an unknown id is accepted, as the crew editor accepts it with no live
-    session.
+    editor picks with ``_pin_entitlement_backend``), and, on an
+    ``acp``-namespace harness, a registered model kiro-cli has no id for
+    (``_no_kiro_id_reason``, which the crew editor runs only with no live
+    catalog). Entitlement itself needs a live session's advertised list, which
+    this offline command does not have, so an unknown id is accepted, as the
+    crew editor accepts it with no live session.
     """
     model = normalize_agent_model(raw)
     if not model:
@@ -114,8 +116,10 @@ def _agent_model_or_exit(raw: str, cfg: KiroCrewConfig) -> str:
     # dashboard modules load only when a --model value is actually judged.
     from kiro_crew.dashboard.chat_handlers import _model_rejected_reason
     from kiro_crew.dashboard.handlers.agents import _pin_entitlement_backend
+    from kiro_crew.dashboard.handlers.core import _no_kiro_id_reason
 
-    reason = _model_rejected_reason(model, _pin_entitlement_backend(cfg))
+    backend = _pin_entitlement_backend(cfg)
+    reason = _model_rejected_reason(model, backend) or _no_kiro_id_reason(model, backend)
     if reason:
         print(f"Error: {reason}", file=sys.stderr)
         sys.exit(1)

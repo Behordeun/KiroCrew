@@ -30,7 +30,8 @@ normalization, concrete-value ordering, and empty-value opt-out. The dashboard
 PATCH schema in `dashboard/handlers/core_config_schema.py` applies the model-id grammar and
 `_validate_role_model`; that validator allows the automatic and empty values,
 rejects a known unusable concrete value, and permits a concrete value when no
-advertised-model set is available.
+advertised-model set is available, except that on an `acp`-namespace backend it
+refuses a registered model with no kiro id (`model_registry.lacks_acp_id`).
 
 ## Trigger and candidate walk
 

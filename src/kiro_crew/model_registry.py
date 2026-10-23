@@ -82,6 +82,18 @@ _FALLBACK_PROVIDER_IDS: dict[str, str] = {
     "claude-opus-4.7": "global.anthropic.claude-opus-4-7[1m]",
     "claude-opus-4.7-1m": "global.anthropic.claude-opus-4-7[1m]",
     "claude-opus-4-7[1m]": "global.anthropic.claude-opus-4-7[1m]",
+    "opus-5.5-1m": "global.anthropic.claude-opus-5-5[1m]",
+    "claude-opus-5.5": "global.anthropic.claude-opus-5-5[1m]",
+    "claude-opus-5-5": "global.anthropic.claude-opus-5-5[1m]",
+    "claude-opus-5-5[1m]": "global.anthropic.claude-opus-5-5[1m]",
+    "sonnet-5.5-1m": "global.anthropic.claude-sonnet-5-5[1m]",
+    "claude-sonnet-5.5": "global.anthropic.claude-sonnet-5-5[1m]",
+    "claude-sonnet-5-5": "global.anthropic.claude-sonnet-5-5[1m]",
+    "claude-sonnet-5-5[1m]": "global.anthropic.claude-sonnet-5-5[1m]",
+    "fable-5.1-1m": "global.anthropic.claude-fable-5-1[1m]",
+    "claude-fable-5.1": "global.anthropic.claude-fable-5-1[1m]",
+    "claude-fable-5-1": "global.anthropic.claude-fable-5-1[1m]",
+    "claude-fable-5-1[1m]": "global.anthropic.claude-fable-5-1[1m]",
     "sonnet-4.6-1m": "global.anthropic.claude-sonnet-4-6[1m]",
     "sonnet": "global.anthropic.claude-sonnet-4-6[1m]",
     "claude-sonnet-4.6": "global.anthropic.claude-sonnet-4-6[1m]",
@@ -862,6 +874,12 @@ def registered_model_key(model_id: str) -> str | None:
         if key is not None:
             return key
     return None
+
+
+def lacks_acp_id(model_id: str) -> bool:
+    """True when *model_id* names a registered row other than ``auto`` with no kiro-cli id."""
+    key = registered_model_key(model_id)
+    return key is not None and key != "auto" and not _REGISTRY[key].get("providers", {}).get("acp")
 
 
 def same_registered_model(a: str, b: str) -> bool:

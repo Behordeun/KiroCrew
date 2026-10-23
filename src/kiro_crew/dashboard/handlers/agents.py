@@ -1800,7 +1800,8 @@ def _model_pin_rejected(
     per-role validator so the crew form, the role pins and the session-init
     withhold apply one predicate. ``""``/``"auto"`` mean inherit and always
     pass; an unknown advertised set means entitlement is unknowable, and the
-    validator accepts rather than accusing on no evidence.
+    validator accepts, except a pin on an ``acp``-namespace backend that
+    ``lacks_acp_id`` flags.
     """
     # The retained claude_code seam accepts canonical and registered Bedrock
     # wire ids that the ACP correction and advertised-id comparison below
@@ -1824,7 +1825,7 @@ def _model_pin_rejected(
         # plausible-intent user into a quieter capability change than the one
         # they asked for. Report the mapping, show what is actually served, and
         # let them choose.
-        served = ", ".join(model_registry.available_models("acp")[:8]) or "auto"
+        served = ", ".join(model_registry.available_models("acp")) or "auto"
         return (
             f"{model!r} is not a model kiro-cli serves. The registry maps that "
             f"spelling to {correction!r} — confirm that is the model you want, or "

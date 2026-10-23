@@ -633,7 +633,12 @@ comes only from live providers sharing that scoped backend's namespace: `kiro`
 (including the empty default backend) and `kas` share `acp`. Providers with
 unknown identity or another namespace supply no evidence, so a pin the scoped
 backend has no live catalog for is treated as unknown (allowed), never rejected
-by an unrelated harness's advertised ids.
+by an unrelated harness's advertised ids. The one exception: when the scoped
+backend shares the `acp` namespace and `model_registry.lacks_acp_id` says the
+registry knows the model but gives it no kiro id, the pin is refused with no
+catalog, because nothing offline can confirm kiro-cli serves it (the registry has
+no kiro id to check against). A live catalog is still asked first and accepts the
+pin if it advertises it.
 
 ## The one allowed concrete fallback
 

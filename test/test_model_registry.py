@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 from kiro_crew import model_registry as mr
 
 
@@ -438,12 +440,14 @@ class TestCorruptRegistryFallback:
         # to the SAME provider id in the hardcoded fallback table, so the
         # corrupt-registry path (empty index) rescues any persisted cc_model to a
         # valid provider id instead of leaking a bare canonical key to Bedrock.
+        index = mr._CANONICAL_INDEX["claude_code"]
         for canonical, entry in mr._REGISTRY.items():
-            pid = entry.get("providers", {}).get("claude_code")
-            if pid is None:
+            if entry.get("providers", {}).get("claude_code") is None:
                 continue
             keys = [canonical, *entry.get("aliases", [])]
             for k in keys:
+                # An alias two rows list (bare "opus") resolves to the first row.
+                pid = mr._REGISTRY[index[k]]["providers"]["claude_code"]
                 assert k in mr._FALLBACK_PROVIDER_IDS, (
                     f"{k!r} missing from _FALLBACK_PROVIDER_IDS (corrupt-registry "
                     f"rescue would leak the bare key to Bedrock)"
@@ -859,3 +863,76 @@ class TestImportDoesNotCreateTheDataHome:
         assert mr._advertised_models_cache_path() == data.resolve() / "provider_models.json"
         assert not data.exists(), "resolving a sidecar path must not create the home"
         assert mr._kiro_windows_cache_path().parent == paths.config_dir()
+
+
+_CLAUDE_5X_ROWS = [
+    # (key, its other spellings, claude_code id, acp id ('' where kiro-cli serves none), what
+    # claude-agent-acp 0.94.0 advertises)
+    (
+        "opus-5.5-1m",
+        ("claude-opus-5.5", "claude-opus-5-5", "claude-opus-5-5[1m]"),
+        "global.anthropic.claude-opus-5-5[1m]",
+        "claude-opus-5.5",
+        "opus",
+    ),
+    (
+        "sonnet-5.5-1m",
+        ("claude-sonnet-5.5", "claude-sonnet-5-5", "claude-sonnet-5-5[1m]"),
+        "global.anthropic.claude-sonnet-5-5[1m]",
+        "claude-sonnet-5.5",
+        "sonnet",
+    ),
+    (
+        "fable-5.1-1m",
+        ("claude-fable-5.1", "claude-fable-5-1", "claude-fable-5-1[1m]"),
+        "global.anthropic.claude-fable-5-1[1m]",
+        "",
+        "claude-fable-5-1[1m]",
+    ),
+]
+_CLAUDE_5X_IDS = [row[0] for row in _CLAUDE_5X_ROWS]
+
+
+class TestClaude55Rows:
+    @pytest.mark.parametrize("key, aliases, pid, acp_id, wire", _CLAUDE_5X_ROWS, ids=_CLAUDE_5X_IDS)
+    def test_every_spelling_resolves_to_its_own_1m_row(self, key, aliases, pid, acp_id, wire):
+        for pin in (key, *aliases):
+            assert mr.to_provider_id(pin, "claude_code") == pid, pin
+            assert mr.registered_model_key(pin) == key, pin
+            assert mr.supports_effort(pin) is True, pin
+            assert mr.model_window(pin) == 1_000_000, pin
+
+    @pytest.mark.parametrize("key, aliases, pid, acp_id, wire", _CLAUDE_5X_ROWS, ids=_CLAUDE_5X_IDS)
+    def test_every_spelling_sends_what_claude_agent_acp_0_94_advertises(
+        self, monkeypatch, key, aliases, pid, acp_id, wire
+    ):
+        advertised = ["default", "opus", "claude-fable-5-1[1m]", "sonnet", "haiku"]
+        monkeypatch.setattr(mr, "_ADVERTISED_MODELS", {"claude_code": advertised})
+        for pin in (key, *aliases):
+            stored = mr.to_provider_id(pin, "claude_code")
+            assert mr.resolve_wire_model_id(stored, "claude_code") == wire, pin
+
+    def test_advertised_fable_5_1_folds_onto_its_row(self):
+        assert mr.from_provider_id("claude-fable-5-1[1m]", "claude_code") == "fable-5.1-1m"
+
+    @pytest.mark.parametrize("key, aliases, pid, acp_id, wire", _CLAUDE_5X_ROWS, ids=_CLAUDE_5X_IDS)
+    def test_to_acp_id_gives_the_kiro_dotted_id_or_none(self, key, aliases, pid, acp_id, wire):
+        assert mr.to_acp_id(key) == acp_id
+
+    @pytest.mark.parametrize(
+        "pin",
+        [
+            "claude-fable-5.1",
+            "claude-fable-5-1",
+            "claude-fable-5-1[1m]",
+            "global.anthropic.claude-fable-5-1[1m]",
+        ],
+    )
+    def test_every_fable_5_1_spelling_lacks_an_acp_id(self, pin):
+        assert mr.lacks_acp_id(pin) is True
+
+    @pytest.mark.parametrize(
+        "pin", ["claude-opus-4.8", "claude-opus-5-5", "auto", "", "not-a-registered-model"]
+    )
+    def test_a_kiro_served_row_auto_or_an_unknown_id_does_not_lack_one(self, pin):
+        assert mr.lacks_acp_id(pin) is False

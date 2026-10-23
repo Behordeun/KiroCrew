@@ -776,10 +776,13 @@ An agent spec's model is consumed by kiro-cli before Kiro Crew reaches
 wire spelling at spawn time. Agent create/update validate a pin before
 persisting it: they reuse the role-model validator for advertised ids and
 `model_registry.acp_id_correction` for the offline positive case where the
-registry recognizes a non-ACP spelling and can name its ACP id. Unknown ids are
-allowed because they may be valid regional or newly released ids; empty and
-`auto` continue to defer. Doctor applies the same correction audit to every
-discoverable user- and project-scoped spec.
+registry recognizes a non-ACP spelling and can name its ACP id. With no live
+catalog on a backend in kiro-cli's `acp` namespace, they also refuse a pin
+`model_registry.lacks_acp_id` flags: a registered model with no ACP id. Ids the
+registry does not know are allowed with no live catalog because they may be
+valid regional or newly released ids; empty and `auto` continue to defer. Doctor
+applies the same correction audit to every discoverable user- and project-scoped
+spec.
 
 ## MCP Server Registration
 
