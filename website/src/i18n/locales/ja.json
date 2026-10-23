@@ -12006,7 +12006,8 @@
       },
       "messageContextMenu": {
         "copy_link_text": "リンクのテキストをコピー",
-        "copy_link_address": "リンクのアドレスをコピー"
+        "copy_link_address": "リンクのアドレスをコピー",
+        "open_link_new_tab": "リンクを新しいタブで開く"
       },
       "dashboardPreviewPanel": {
         "tab_title": "{{name}}（プレビュー）",
