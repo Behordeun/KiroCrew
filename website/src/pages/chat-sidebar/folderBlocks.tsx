@@ -25,6 +25,7 @@ import { PrivateChatRow } from './PrivateChatRow'
 import { ParentFolderDropTarget, SortableSubfolderBlock } from './dnd/targets'
 import type { Slot } from './types'
 import { detectFolderConductor } from './folderConductor'
+import { sessionRowIdentity } from './rowIdentity'
 import { DisclosureChevron, FOLDER_BODY_CLS, FOLDER_BODY_OPEN_PADDING, FOLDER_ROW_STICKY_Z, PinnedSessionDivider, createTabModeForClick } from './chrome'
 import type { LaneRows } from './laneRows'
 import type { SidebarScope } from './scope'
@@ -881,7 +882,10 @@ export function createFolderBlocks(shell: SidebarScope & LaneRows) {
       const showDivider = i < freshChildSlots.length - 1 && !isActive && !nextIsActive
         && !startsAutomaticSection(freshChildSlots, i + 1)
       if (startsAutomaticSection(freshChildSlots, i)) {
-        childNodes.push(<PinnedSessionDivider key={`pinned-divider-${folder.id}`} />)
+        // Keyed by the row it precedes, as the Fragment lanes key theirs. A
+        // frame with two pinned-to-unpinned boundaries then gives each divider
+        // its own key, and React removes the one that goes away.
+        childNodes.push(<PinnedSessionDivider key={`pinned-divider-${sessionRowIdentity(s)}`} />)
       }
       childNodes.push(renderSessionRow(s, depth + 1, showDivider, treeChildScope, treeChildScope, treeChildContainer))
     })

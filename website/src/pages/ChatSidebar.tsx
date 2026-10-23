@@ -473,7 +473,9 @@ function ChatSidebar({
     .finally(() => { void queryClient.invalidateQueries({ queryKey: ['instances'] }) }), [dispatch, queryClient])
   const crewEnable = useCrewEnable(enableCrew, id => instancesList.find(i => i.id === id)?.name || id)
 
-  const { hoverPinRef, heldDisplacedRef, releaseHoverPin, heldLane, onRootPointerOver } = useHoverHold()
+  const { hoverPinRef, heldDisplacedRef, releaseHoverPin, heldLane, onRootPointerOver } = useHoverHold({
+    isPinned: searchRanked ? null : sidebarRows.isPinned,
+  })
 
   /**
    * Is the conductor PIN on? Settings > Developer > Feature Previews, default
