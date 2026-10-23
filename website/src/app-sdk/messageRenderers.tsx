@@ -39,6 +39,7 @@ import { ErrorCard } from '../pages/chat/ErrorCard'
 import { decisionStripFieldOf } from '../pages/chat/decisionRecord'
 import { resolveTransientNotice } from '../pages/chat/transientNotice'
 import StopEventCard from '../pages/chat/StopEventCard'
+import { warmBriefBodyOf } from '../components/chat/WarmBriefCard'
 import { ToolDetails } from '../pages/chat/ToolDetails'
 import { isSubagentCompletionMessage } from '../pages/chat/subagentCompletion'
 import { REASONING_ROLES, stripAppEnvelope } from '../pages/chat/groupDisplayItems'
@@ -584,6 +585,9 @@ export function renderAssistantBubble(
       bubbleClassName={bubbleClassName}
       onReplyInThread={isStreaming ? undefined : replyInThreadFor(m, ctx)}
       onQuoteMessage={quoteMessageFor(m, ctx, 'assistant')}
+      // A structured warm brief draws as a fixed card in place of the markdown,
+      // inside this same bubble, so it keeps the timestamp and row actions.
+      body={warmBriefBodyOf(m)}
     />
   )
   // The column's child is the bubble itself unless this message has a thread
