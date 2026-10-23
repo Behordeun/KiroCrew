@@ -458,11 +458,25 @@ async def _deliver_script_result(
                 from kiro_crew.dashboard import session_deliver
 
                 # The session decides idle (a cron row and a turn) vs running
-                # (a queued card); the cron names only itself.
-                await session_deliver.deliver(
-                    self.dashboard_state, slot, wrapped, session_deliver.cron(label)
+                # (a queued card); the cron names only itself. On a full live
+                # queue the oldest entry gives way, as for a cron's
+                # send_message: a script that fires faster than its
+                # notification turns run would otherwise grow the queue
+                # without bound.
+                delivery = await session_deliver.deliver(
+                    self.dashboard_state,
+                    slot,
+                    wrapped,
+                    session_deliver.cron(label),
+                    evict_oldest=True,
                 )
                 self.dashboard_state.push_slots_update()
+                if delivery == session_deliver.QUEUE_FULL:
+                    # Nothing in the full queue could give way: the result goes
+                    # out as a notification, as it does when the session is gone.
+                    self.dashboard_state.notify(
+                        "cron", f"⚡ {label}", message, meta={"job_id": job.id}
+                    )
             else:
                 self.dashboard_state.notify("cron", f"⚡ {label}", message, meta={"job_id": job.id})
         elif message and not job.silent and self.dashboard_state:
