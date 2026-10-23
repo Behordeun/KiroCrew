@@ -1245,7 +1245,10 @@ def _resolve_install_entry(name: str) -> tuple[dict[str, Any] | None, str]:
     pinned_url = str(meta.get("sourceUrl", "") or "")
     if not pinned_url:
         try:
-            return get_registry_app(name), ""
+            # The install itself: one bad store-listing response must not
+            # refuse this click from memory without a real fetch attempt.
+            with official_catalog.install_attempt():
+                return get_registry_app(name), ""
         except official_catalog.CatalogUnavailable as exc:
             # A refusal, not an absence: report the cause so the user is not sent
             # looking for a missing app during a catalog outage.
