@@ -1049,8 +1049,15 @@ written **flavour-explicitly** rather than via the running host's `os.path`
 
 ### 5.2 App skills are linked with a junction on Windows, not a symlink
 
-`_register_skills` links each declared skill directory into the skills tree twice
-(namespaced `skills/<app>/<skill>` plus a flat `skills/<skill>`). The link is a
+`_register_skills` links each declared skill directory at the namespaced
+`skills/<app>/<skill>`, which always exists, and usually also at a flat
+`skills/<skill>`. The flat link is skipped when the skill has the same name as
+its app (the flat path is the namespaced directory itself), when the name is
+reserved (`_RESERVED_SKILL_DIRS`, i.e. `auto`), and when a real directory of that
+name already exists; an existing flat link is repointed, so when two apps ship a
+same-named skill it resolves to the one registered last. A `skill://` mapping of
+an app skill therefore names the namespaced path, as
+`src/kiro_crew/docs/agent-spec-fields.md` (Resources) documents. Each link is a
 symlink on POSIX and a **directory junction** on Windows, via
 `platform_compat.symlink_or_junction`.
 
