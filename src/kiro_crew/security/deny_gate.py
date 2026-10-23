@@ -776,9 +776,11 @@ def is_denied(
         try:
             rm_targets = _rm._rm_wipe_targets(tool_name)
         except Exception as exc:  # incl. RecursionError and the depth cap
-            # Fail closed: a command the floor cannot read may hide a wipe.
-            logger.warning("rm floor could not read the command, refusing: %r", exc)
-            rm_targets, note = set(rm_enabled), _rm._RM_FLOOR_UNREAD_NOTE
+            # Fail closed for a command naming rm as a word; letters inside
+            # another word (``--format``) are not a command the floor reads.
+            logger.warning("rm floor could not read the command: %r", exc)
+            rm_targets = set(rm_enabled) if _rm._names_rm_word(tool_name) else set()
+            note = _rm._RM_FLOOR_UNREAD_NOTE
         for kind in sorted(rm_targets & rm_enabled.keys()):
             rule_id, pattern = rm_enabled[kind]
             # The raw input, not ``lower``: see the audit note below.

@@ -512,6 +512,33 @@ class TestRecursiveForceRmFloor:
             "# don't keep old files\nRM -fr ~",
             'echo "$(RM -fr ~)"',
             "echo $(RM -fr /)",
+            'echo "`RM -fr ~`"',
+            'echo "done: `RM -fr /`"',
+            "RM -fr />/dev/null",
+            "RM -fr ~>/dev/null",
+            "RM -fr / 2>/dev/null",
+            "RM -fr ~</dev/null",
+            # A redirection (and any assignment) before the program runs first; a
+            # leading redirection must be stepped over whole -- an fd number
+            # (``2>``), a ``{fd}``, a two-character operator (``>>``), an fd-dup
+            # (``2>&1``) and a spaced target all included -- so the real program
+            # word is still RM and the wipe is not hidden behind the redirection.
+            "2>/dev/null RM -r -f /",
+            "X=1 2>x RM -r -f ~",
+            ">> x RM -r -f /",
+            "2>&1 RM -r -f ~",
+            "2>/dev/null RM --recursive --force ~",
+            "{fd}>x RM -rf /",
+            # A redirection (and any assignment) before the program runs first; the
+            # program word is still RM, so a leading redirect must not hide the wipe.
+            "X=1>/dev/null RM -fr /",
+            "X=1>/dev/null RM -fr ~",
+            "A=1<x RM -fr ~",
+            ">/dev/null RM -fr /",
+            "2>&1 RM -rf ~",
+            "> /dev/null RM -fr /",
+            "X=1 Y=2 >log RM -rf /",
+            "&>/dev/null RM -fr /",
         ],
     )
     def test_a_recursive_force_wipe_of_root_or_home_is_denied(self, command):
@@ -539,6 +566,20 @@ class TestRecursiveForceRmFloor:
             'gh pr create --body "Built from $(git rev-parse HEAD)\nRM -fr ~ and RM -r -f /"',
             'printf "%s\\n" "$(printf example:) RM -fr ~"',
             'RM -fr "~/"',
+            # A backtick body in double quotes is read, and the quote resumes after it.
+            'echo "built at `date +%F`; RM -fr ~ is refused"',
+            "echo 'single `RM -fr ~` quoted'",
+            # A redirection target is its own word, never an rm operand.
+            "RM -fr ./build>/",
+            "RM -fr /tmp/x>/dev/null",
+            # A leading redirect/assignment before a non-root/home wipe stays allowed.
+            "X=1>/dev/null RM -rf ./build",
+            "2>&1 RM -fr /tmp/x",
+            "> /dev/null RM -rf $HOME/.cache",
+            # A digit in a PATH is not an fd prefix, so the redirection target is
+            # still a descendant, not the root operand.
+            "RM -fr /tmp/2>/dev/null",
+            ">> log RM -rf ./build",
         ],
     )
     def test_descendants_and_partial_flags_stay_allowed(self, command):
@@ -562,5 +603,28 @@ class TestRecursiveForceRmFloor:
 
         monkeypatch.setattr(rm_floor, "_rm_wipe_targets", _boom)
         assert "could not read" in is_denied("rm -fr /")
+        assert "could not read" in is_denied("/bin/rm -fr /")
+        assert "could not read" in is_denied("${X:-rm} -fr /")
+        assert "could not read" in is_denied('"${X-rm}" -fr ~')
         assert is_denied("git status") is None
         assert is_denied("echo $PATH") is None
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git log --format=$x",
+            "git log --format=%H -n 1",
+            "make format",
+            "docker run --rm alpine true",
+            "python3 -m pip install --platform any $PKG",
+        ],
+    )
+    def test_a_floor_error_lets_a_command_without_an_rm_word_pass(self, monkeypatch, command):
+        """The letters r..m inside another word do not make a command one the floor reads."""
+        from kiro_crew.security import rm_floor
+
+        def _boom(_text):
+            raise RuntimeError("walk failed")
+
+        monkeypatch.setattr(rm_floor, "_rm_wipe_targets", _boom)
+        assert is_denied(command) is None

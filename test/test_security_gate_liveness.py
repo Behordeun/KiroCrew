@@ -487,7 +487,19 @@ def _url_payload_command(n: int) -> str:
 #: ``paths_lists``: the Meetings app's per-meeting user notes tree, write-denied to
 #: the agent file tools and read-allowed so the dashboard can serve pasted images.
 #: Data, not rule logic: the matcher and every other entry are unchanged.
-_PACKAGE_LINE_BUDGET = 32_447
+#:
+#: Raised again for the ``rm_floor`` reads of a backtick body inside
+#: double quotes and of a redirection glued to an operand, and for the floor-error
+#: path naming ``rm`` as a word (``_names_rm_word``, on the raw text and with
+#: ``${X:-…}`` defaults resolved). One helper pair, two branches in the existing
+#: segment walk and one regex; no floor widened beyond ``rm`` itself. A live
+#: redirection is kept as ONE segment word -- its fd prefix (``2>``), a ``{fd}``,
+#: a two-character operator (``>>``) and an fd-dup (``2>&1``) all stay together --
+#: so the program-word scan can step over a leading redirection (and its separate
+#: target) the way it steps over a ``VAR=val`` assignment, using the shared
+#: ``shell_normalizer._push_token_redirection`` recognizer. A redirect before
+#: ``rm`` cannot hide the program word.
+_PACKAGE_LINE_BUDGET = 32_518
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
