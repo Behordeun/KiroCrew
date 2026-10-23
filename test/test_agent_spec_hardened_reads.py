@@ -1026,6 +1026,9 @@ _EXPECTED_CALL_SITE_LABELS: dict[str, list[tuple[str, str]]] = {
     "kiro_crew/acp/skill_projection_parts/preparation.py": [
         ("native_skill_projection", "acp"),
     ],
+    # The zero-tool confirmation reads the published alias file the harness loaded
+    # after start; a link or an oversized file at the alias reads as unconfirmed.
+    "kiro_crew/acp/client_mcp_array.py": [("zero_tool_confirmation", "acp")],
     # Three reads, deliberately labelled apart: the session-MCP translation resolves
     # the PROJECT checkout first (kiro-cli resolves --agent there before the user
     # level) and falls back to the user-level spec, so a refusal names which of the
@@ -1393,6 +1396,9 @@ _EXPECTED_STRICT_CALL_SITE_LABELS: dict[str, list[tuple[str, str]]] = {
     "kiro_crew/agent_materialization/conductor_agents.py": [
         ("conductor_spec_regeneration", "unknown"),
     ],
+    # The knowledge pool's pre-spawn repair compares Crew's own spec against its
+    # template; a link at the name is screened before it is followed.
+    "kiro_crew/agent_materialization/service_agents.py": [("knowledge_spec_repair", "unknown")],
     "kiro_crew/crewmate_prune_migration.py": [("crewmate_prune", "dashboard")],
     "kiro_crew/dashboard/handlers/sessions_parts/tool_policy.py": [
         ("session_tool_policy", "dashboard"),

@@ -366,6 +366,18 @@ def _select_effort_level(requested: str, supported: list[str]) -> Optional[str]:
     return eligible[-1] if eligible else None
 
 
+def _repair_agent_spec() -> bool:
+    """Rewrite the installed :data:`AGENT_NAME` spec from its template if it drifted.
+
+    True when the file was rewritten. ``kiro_crew.agent`` is imported here, not at
+    the top, because nothing else in this module needs it. Blocking: callers run it
+    with ``asyncio.to_thread``.
+    """
+    from kiro_crew import agent as agent_mod
+
+    return agent_mod.repair_knowledge_agent_spec()
+
+
 class Worker(ABC):
     """Abstract base for a long-lived LLM worker."""
 
@@ -492,14 +504,15 @@ class AcpWorker(Worker):
         # harness resolves --agent against <cwd>/.kiro/agents before the global
         # directory, and this pool's cwd is a workspace under the data home, so a
         # project-level spec of the same name that carries tools would shadow the
-        # installed one and auto-approve them for untrusted document text. The
-        # projected view the harness consumed through --agent is the authority
-        # when one exists: it is prepared before the spawn and never re-read, so a
-        # later spec edit cannot change the answer. Without one (the rollback
-        # switch, or an alias that could not be taken) the harness loads the named
-        # spec itself, so the authored spec is read before the spawn and again
-        # after start, and both reads must declare an empty list. A worker that
-        # cannot confirm the ban does not start: Kiro is the last fallback.
+        # installed one and auto-approve them for untrusted document text. With a
+        # prepared projection the harness is launched as the view's published
+        # alias, so the view and the alias file kiro-cli loads, read after start,
+        # must both declare an empty list; the authored spec is not read there.
+        # Without one (the rollback switch, or an alias that could not be taken)
+        # the harness loads the named spec itself, so the authored spec is read
+        # before the spawn and again after start, and both reads must declare an
+        # empty list. A worker that cannot confirm the ban does not start: Kiro is
+        # the last fallback.
         if routing_for(acp_backend) is Routing.AGENT_SPEC and not (
             await asyncio.to_thread(
                 self._client.effective_spec_declares_zero_tools,
@@ -520,8 +533,8 @@ class AcpWorker(Worker):
             raise RuntimeError(
                 f"knowledge agent {AGENT_NAME!r} could not be confirmed to declare a "
                 "zero-tool spec (a project-level spec may shadow the installed one, "
-                "or the spec could not be read); refusing to run the knowledge pool "
-                "without a confirmed tool ban"
+                "or the installed one could not be read or restored); refusing to run "
+                "the knowledge pool without a confirmed tool ban"
             )
         await self._apply_effort()
         # Shield the live worker PID from the periodic orphan sweep for as long
@@ -541,6 +554,12 @@ class AcpWorker(Worker):
     async def _spawn_client(self, acp_backend: str, sandbox_mode: str) -> tuple[AcpClient, bool]:
         """Build the client for *acp_backend*, bring it up, and return it with the pre-spawn read.
 
+        The installed spec is repaired from its template first
+        (:func:`_repair_agent_spec`), on every backend, because every one of them
+        resolves the agent by name from the shared agents directory, where another
+        tool may have rewritten it since the boot rebuild. The confirmation in
+        :meth:`start` still decides whether the worker runs.
+
         The client is stored as ``self._client`` before ``ensure_ready`` so a failed
         start still leaves it reachable. For a backend routed through
         ``Routing.AGENT_SPEC`` the authored spec is read BEFORE this client's
@@ -556,6 +575,7 @@ class AcpWorker(Worker):
         startup model application scopes it to this backend (a model another
         harness serves falls back to the backend default rather than being sent).
         """
+        await asyncio.to_thread(_repair_agent_spec)
         if routing_for(acp_backend) is Routing.AGENT_SPEC:
             client = AcpClient(
                 agent=AGENT_NAME,

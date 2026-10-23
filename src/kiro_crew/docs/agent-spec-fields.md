@@ -183,17 +183,19 @@ native ban alone. On kiro-cli, `--agent` resolves against the project checkout
 before the user directory, so a project-level spec of the same name that carries
 tools shadows the installed zero-tool one. At worker start the pool confirms the
 ban (`AcpClient.effective_spec_declares_zero_tools`) and refuses to run when it
-cannot. With a prepared projection the judged spec is the projected view the harness
-consumed through `--agent`; the session prepares the view before the spawn and never
-re-reads it, so a spec edit after the harness consumed it cannot change the answer.
-The view is the one judged because the skill projection appends the skill-search tool
-to a spec that carries `skill://` resources. With no prepared projection (the
-`KIROCREW_NATIVE_SKILL_PROJECTION=0` rollback, or an alias that could not be taken)
-the harness loads the named spec itself, so the authored spec, resolved project
-checkout first (`AcpClient.authored_spec_declares_zero_tools`), is read before the
-spawn and again after start, and both reads must declare `tools: []`. That bracket
-narrows a change to the authored file but cannot close one made and restored inside
-the spawn window, which is why a prepared view is preferred.
+cannot. With a prepared projection the harness is launched through `--agent` as the
+alias the projection published under the user-level agents directory, so two things
+must declare `tools: []`: the projected view the session prepared before the spawn,
+and the published alias file, read after start because it is the file kiro-cli loads.
+The view is judged because the skill projection appends the skill-search tool to a
+spec that carries `skill://` resources. The authored spec is not read on this branch,
+so an edit to it after the view was prepared cannot change the answer. With no
+prepared projection (the `KIROCREW_NATIVE_SKILL_PROJECTION=0` rollback, or an alias
+that could not be taken) the harness loads the named spec itself, so the authored
+spec, resolved project checkout first (`AcpClient.authored_spec_declares_zero_tools`),
+is read before the spawn and again after start, and both reads must declare
+`tools: []`. On either branch the read after start narrows a change to the file the
+harness loads but cannot close one made and restored inside the spawn window.
 
 1. Delivered ONLY when Crew governs the session's permission surface
    (`_permission_surface_governed` in `acp/client_class.py`): Crew authored
@@ -707,7 +709,7 @@ not resurrected on the next boot.
 | `kirocrew-ledger-conductor.json` | generated; your `allowedTools` entries are carried forward | every gateway start |
 | `kirocrew-pipeline-conductor.json` | generated; your `allowedTools` entries are carried forward | every gateway start |
 | `kirocrew-security-conductor.json` | generated; your `allowedTools` entries are carried forward | every gateway start |
-| `kirocrew-knowledge.json` | generated | every gateway start |
+| `kirocrew-knowledge.json` | generated | every gateway start, and before every knowledge worker spawn when the file is not the template (any other content is rewritten) |
 | `kirocrew-research.json` | generated from the template and `agent.json`; NOT derived from `kirocrew.json`, so servers, app registrations and the model added there stay off it | every gateway start |
 | `kirocrew-dashboard-manager.json` | generated | every gateway start (the subagent a mate hands page work to) |
 | `kirocrew-heartbeat.json` | DERIVED from `kirocrew.json` (its `kirocrew-core` entry, `autoApprove` included) | every gateway start, and re-checked before every heartbeat session |
