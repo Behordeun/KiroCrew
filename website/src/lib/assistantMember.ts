@@ -14,6 +14,18 @@ export function isAssistantMember(m: { name?: string } | null | undefined): bool
   return !!m && m.name === ASSISTANT_MEMBER_NAME
 }
 
+/** The reserved main agent. On every roster, and not a mate. */
+const DEFAULT_AGENT_NAME = 'default'
+
+/** True when the roster holds a mate the person made themselves: anything that
+ *  is neither Mate nor the reserved `default` agent. The same split the server's
+ *  welcome kickoff makes (`mate_welcome._member_entry` leaves `default` out), so
+ *  "your first Mate" is said on a fresh install and the name alone once a
+ *  second mate exists. */
+export function hasOtherMates(rows: readonly { name?: string }[]): boolean {
+  return rows.some(r => !isAssistantMember(r) && r.name !== DEFAULT_AGENT_NAME)
+}
+
 type RosterHistory = { name?: string; has_dm_message?: boolean; last_message?: string }
 
 /** Mate's roster row while no message has been exchanged with it (the
