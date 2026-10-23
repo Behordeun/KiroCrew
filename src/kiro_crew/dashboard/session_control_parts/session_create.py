@@ -1293,6 +1293,16 @@ async def create_session(
                     exc_info=True,
                 )
         state.push_slots_update()
+    # Start the child's session now, the way a new sidebar chat does, so the
+    # handshake overlaps the caller's create -> send gap instead of being paid
+    # on the first send. Armed only after the slot is fully configured and
+    # persisted, so the spawn bakes in the agent, model and effort set above.
+    # BACKGROUND: an agent asked for it, no person is waiting on this start.
+    # Through chat_runner, lazily, like the other session-control parts: its
+    # import is what binds the eager-spawn module's names (``chat_turn.compose``).
+    from kiro_crew.dashboard.chat_runner import schedule_eager_spawn
+
+    schedule_eager_spawn(state, slot)
     lineage_recorded = await _record_spawn(caller_key, slot)
     _audit(
         caller_session_key=caller_key,
