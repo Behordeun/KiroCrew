@@ -11,7 +11,9 @@ import base64
 import hashlib
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 from oauth_url_corpus import OPERATOR_EXTENSION_OAUTH_URLS
@@ -88,7 +90,7 @@ class TestOAuthAuthorizationUrlRedaction:
         assert diagnostic.parameter is None
         assert diagnostic.shape.length == len(self.BARE_AWS_SECRET_ALNUM)
 
-    @pytest.mark.parametrize("parameter", ["state", "code_challenge"])
+    @pytest.mark.parametrize("parameter", ["state", "code_challenge", "client_id"])
     def test_recognized_oauth_entropy_does_not_hit_bare_secret_lottery(
         self, parameter: str
     ) -> None:
@@ -98,7 +100,8 @@ class TestOAuthAuthorizationUrlRedaction:
             url = self.NOTION_URL.replace(self.STATE, entropy, 1)
         else:
             entropy = base64.urlsafe_b64encode(digest).decode().rstrip("=")
-            url = self.NOTION_URL.replace(self.CHALLENGE, entropy, 1)
+            target = self.CHALLENGE if parameter == "code_challenge" else "client123"
+            url = self.NOTION_URL.replace(target, entropy, 1)
 
         # The fixed digest is deliberately one whose shape reaches the generic
         # bare-secret heuristic. OAuth entropy at an approved endpoint must not
@@ -114,6 +117,34 @@ class TestOAuthAuthorizationUrlRedaction:
 
         assert len(secret) == 40
         assert security._text_contains_bare_secret(secret)
+        assert oauth_url_contains_credential(url) is True
+
+    @pytest.mark.parametrize(
+        ("label", "mutate"),
+        [
+            ("42-chars", lambda value: value[:42]),
+            ("44-chars", lambda value: value + "Q"),
+            ("standard-alphabet", lambda value: value[:41] + "+/"),
+            ("percent-encoded-slash", lambda value: value[:40] + "%2F" + value[40:42]),
+        ],
+    )
+    def test_client_id_exemption_only_covers_exact_base64url_shape(
+        self, label: str, mutate: Callable[[str], str]
+    ) -> None:
+        digest = hashlib.sha256(b"synthetic-oauth-entropy-regression").digest()
+        value = mutate(base64.urlsafe_b64encode(digest).decode().rstrip("="))
+        url = self.NOTION_URL.replace("client123", value, 1)
+
+        assert security._text_contains_bare_secret(unquote(value)), label
+        assert oauth_url_contains_credential(url) is True
+
+    def test_client_id_exemption_needs_an_approved_endpoint(self) -> None:
+        digest = hashlib.sha256(b"synthetic-oauth-entropy-regression").digest()
+        value = base64.urlsafe_b64encode(digest).decode().rstrip("=")
+        url = self.NOTION_URL.replace("client123", value, 1).replace(
+            "api.notion.com", "auth.attacker.example", 1
+        )
+
         assert oauth_url_contains_credential(url) is True
 
     def test_entropy_exemption_does_not_cover_adversarial_url_shapes(self) -> None:
