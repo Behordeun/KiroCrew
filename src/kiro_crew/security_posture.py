@@ -2662,6 +2662,9 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         # through metrics/schema.py's redactor.
         "apps/install_receipt.py",
         "cron_script.py",
+        "cron_script_context.py",
+        "cron_script_mcp.py",
+        "cron_script_redaction.py",
         "eval/runner.py",
         # The owners composed into kiro_prerequisite.py that call a redactor, in the
         # same class as that facade.
