@@ -10172,6 +10172,9 @@
       "approval_wait_expired": "审批等待已超时，因此该请求已被拒绝。",
       "approval_rejected": "审批已被拒绝，因此该请求未获批准。",
       "unknown": "未知"
+    },
+    "frameLinkBridge": {
+      "openHost": "打开 {{host}}"
     }
   },
   "lib": {

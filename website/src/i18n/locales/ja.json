@@ -10172,6 +10172,9 @@
       "approval_wait_expired": "承認の待機時間が期限切れになったため、リクエストは拒否されました。",
       "approval_rejected": "承認が却下されたため、リクエストは拒否されました。",
       "unknown": "不明"
+    },
+    "frameLinkBridge": {
+      "openHost": "{{host}} を開く"
     }
   },
   "lib": {

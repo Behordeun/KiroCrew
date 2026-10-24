@@ -10462,6 +10462,9 @@
       "approval_wait_expired": "L'attesa dell'approvazione è scaduta, quindi la richiesta è stata rifiutata.",
       "approval_rejected": "L'approvazione è stata respinta, quindi la richiesta è stata rifiutata.",
       "unknown": "Sconosciuto"
+    },
+    "frameLinkBridge": {
+      "openHost": "Apri {{host}}"
     }
   },
   "lib": {

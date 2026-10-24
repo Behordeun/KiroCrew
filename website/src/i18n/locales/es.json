@@ -10462,6 +10462,9 @@
       "approval_wait_expired": "La espera de aprobación venció, así que la solicitud se denegó.",
       "approval_rejected": "La aprobación fue rechazada, así que la solicitud se denegó.",
       "unknown": "Desconocido"
+    },
+    "frameLinkBridge": {
+      "openHost": "Abrir {{host}}"
     }
   },
   "lib": {

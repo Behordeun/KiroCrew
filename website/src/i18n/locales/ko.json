@@ -10172,6 +10172,9 @@
       "approval_wait_expired": "승인 대기 시간이 만료되어 요청이 거부되었습니다.",
       "approval_rejected": "승인이 거절되어 요청이 거부되었습니다.",
       "unknown": "알 수 없음"
+    },
+    "frameLinkBridge": {
+      "openHost": "{{host}} 열기"
     }
   },
   "lib": {

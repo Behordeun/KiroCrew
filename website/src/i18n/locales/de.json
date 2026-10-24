@@ -10317,6 +10317,9 @@
       "approval_wait_expired": "Die Wartezeit auf die Genehmigung ist abgelaufen, deshalb wurde die Anfrage abgelehnt.",
       "approval_rejected": "Die Genehmigung wurde verweigert, deshalb wurde die Anfrage abgelehnt.",
       "unknown": "Unbekannt"
+    },
+    "frameLinkBridge": {
+      "openHost": "{{host}} öffnen"
     }
   },
   "lib": {
