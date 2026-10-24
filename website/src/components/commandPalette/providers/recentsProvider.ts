@@ -7,7 +7,8 @@ import i18next from 'i18next'
 import { api } from '../../../api/client'
 import { useSimplifiedToolNames } from '../../../hooks/useSimplifiedToolNames'
 import { useAppDispatch, useAppSelector, useAppStore } from '../../../store'
-import { createSlot, resumeFromHistory, switchSlot } from '../../../store/chatSlice'
+import { resumeFromHistory, switchSlot } from '../../../store/chatSlice'
+import { createChatForView, showCreatedChat } from '../../../lib/createdChatView'
 import { focusComposerForOpenedSession, focusComposerForResumedSession } from '../../../pages/chat/composerFocus'
 import type { ChatSlot, ChatFolder, CronJob } from '../../../types'
 import type { Result, ResourceProvider } from '../types'
@@ -348,11 +349,11 @@ export function useRecentsProvider(): ResourceProvider {
             onActivate: () => {
               // Await the create BEFORE navigating: landing on /chat with no
               // active slot triggers ChatPage's auto-create, which would race
-              // this thunk into a duplicate session.
-              void dispatch(createSlot({ defaultFolder: true }))
-                .unwrap()
+              // this thunk into a duplicate session. A failed create, or one
+              // the user moved away from, leaves the user where they are.
+              void createChatForView(dispatch, store.getState, { defaultFolder: true })
+                .then((view) => { showCreatedChat(view, navigate) })
                 .catch(() => {})
-                .finally(() => navigate('/chat'))
             },
           })
         }

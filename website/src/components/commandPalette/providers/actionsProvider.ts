@@ -5,8 +5,8 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { Command, MessageSquarePlus, SunMoon, Keyboard, Pin } from 'lucide-react'
 
-import { useAppDispatch, useAppSelector } from '../../../store'
-import { createSlot } from '../../../store/chatSlice'
+import { useAppDispatch, useAppSelector, useAppStore } from '../../../store'
+import { createChatForView, showCreatedChat } from '../../../lib/createdChatView'
 import { useSessionActions } from '../../../hooks/useSessionActions'
 import { useTheme } from '../../../hooks/useTheme'
 import { fuzzyMatch, makeScoreThenNameComparator } from '../../../utils/fuzzyMatch'
@@ -176,6 +176,7 @@ export function createActionsProvider(deps: ActionsProviderDeps): ResourceProvid
  */
 export function useActionsProvider(opts: { openShortcuts: () => void }): ResourceProvider {
   const dispatch = useAppDispatch()
+  const store = useAppStore()
   const navigate = useNavigate()
   const { cycle } = useTheme()
   const { openShortcuts } = opts
@@ -188,11 +189,11 @@ export function useActionsProvider(opts: { openShortcuts: () => void }): Resourc
 
   // "New session" is a write (createSlot); route it through useMutation for
   // error/loading state and consistency with paletteActions.ts's createSlot
-  // mutation (`use-react-query` lint rule). onSuccess navigates to /chat so the
-  // user lands in the new session rather than staying on the current page.
+  // mutation (`use-react-query` lint rule). onSuccess brings the user to the
+  // new session, unless they moved to another session or page meanwhile.
   const { mutate: doNewSession } = useMutation({
-    mutationFn: () => dispatch(createSlot({ defaultFolder: true })).unwrap(),
-    onSuccess: () => navigate('/chat'),
+    mutationFn: () => createChatForView(dispatch, store.getState, { defaultFolder: true }),
+    onSuccess: (view) => { showCreatedChat(view, navigate) },
   })
 
   return useMemo(

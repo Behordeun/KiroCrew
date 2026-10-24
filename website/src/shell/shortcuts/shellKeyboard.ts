@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useAppSelector, useAppDispatch, store } from '../../store'
+import { useAppSelector, useAppDispatch, useAppStore, store } from '../../store'
 import { changeApprovalMode, updateSlot } from '../../store/dashboardSlice'
-import { createSlot, setAgentSwitchNotice } from '../../store/chatSlice'
+import { setAgentSwitchNotice } from '../../store/chatSlice'
+import { createChatForView, showCreatedChat } from '../../lib/createdChatView'
 import { pendingSlotSwitch, pendingSlotSwitchTarget, performSlotSwitch } from '../../lib/slotSwitch'
 import { performAgentSlotSwitch } from '../../lib/agentSwitch'
 import { focusComposerElement, queryComposerOrExpand } from '../../pages/chat/composerFocus'
@@ -42,6 +43,9 @@ export function useShellKeyboard({ toggleFocusMode, toggleNav, terminalEnabled, 
 }) {
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
+  // The Provider's store, so the create is judged against the store it was
+  // dispatched to; the module singleton would bypass a test-injected store.
+  const appStore = useAppStore()
   const queryClient = useQueryClient()
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const toggleShortcutsModal = useCallback(() => setShortcutsOpen(p => !p), [])
@@ -49,9 +53,11 @@ export function useShellKeyboard({ toggleFocusMode, toggleNav, terminalEnabled, 
   // trigger + open state. Mounted once at the app shell (`shell/appShell.tsx`).
   const commandPalette = useCommandPalette()
   const newChatMutation = useMutation({
-    mutationFn: () => dispatch(createSlot({ defaultFolder: true })).unwrap(),
-    onSuccess: () => {
-      navigate('/chat')
+    mutationFn: () => createChatForView(dispatch, appStore.getState, { defaultFolder: true }),
+    onSuccess: (view) => {
+      // A create the user moved away from (another session, another page)
+      // leaves the user there: no navigate and no composer focus.
+      if (!showCreatedChat(view, navigate)) return
       // Unguarded on purpose: this mutation only fires from the new-chat
       // keyboard shortcut, and a pressed shortcut proves a keyboard exists —
       // focusComposer()'s touch-device skip would wrongly suppress focus on a

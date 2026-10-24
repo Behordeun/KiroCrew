@@ -19,7 +19,8 @@ import {
 
 import { appNavTargets } from '../../appNav'
 import type { AppDispatch, AppStore, RootState } from '../../store'
-import { createSlot, switchSlot } from '../../store/chatSlice'
+import { switchSlot } from '../../store/chatSlice'
+import { createChatForView, showCreatedChat } from '../../lib/createdChatView'
 import { focusComposerForOpenedSession } from '../../pages/chat/composerFocus'
 import { SETTINGS_REGISTRY } from '../../components/commandPalette/settingsRegistry.gen'
 import { localizedSettingLabel, settingEntryOffered } from '../../components/commandPalette/settingsSearchCore'
@@ -227,10 +228,10 @@ export function useCommandBarOverlayRootRows({
         // The navigate is part of the action, not decoration: created off-screen from
         // Settings or Task Runner the new session is invisible, so a success reads as a
         // failure and the user runs it again into a duplicate. The palette carried this
-        // in the mutation's `onSuccess`; it belongs to the row either way.
+        // in the mutation's `onSuccess`; it belongs to the row either way. A user who
+        // moved to another session or page while the create ran stays there.
         run: async () => {
-          await dispatch(createSlot(undefined)).unwrap()
-          navigate('/chat')
+          showCreatedChat(await createChatForView(dispatch, store.getState, undefined), navigate)
         },
         keywords: ['chat', 'start', 'blank'],
       },

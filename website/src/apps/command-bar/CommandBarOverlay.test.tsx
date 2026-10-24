@@ -27,7 +27,7 @@ const enterInsertOrNewSession = vi.fn()
 /** Live store the overlay reads for the attention section. Mutated per test. */
 const storeState: {
   dashboard: { slots: Record<string, unknown>[]; unreadSlots: string[] }
-  chat: { slotStatusDetail: Record<string, unknown>; activeSlot: string | null }
+  chat: { slotStatusDetail: Record<string, unknown>; activeSlot: string | null; lastCreatedActivation?: { slot: string; requestId: string } | null }
 } = {
   dashboard: { slots: [], unreadSlots: [] },
   chat: { slotStatusDetail: {}, activeSlot: null },
@@ -200,14 +200,35 @@ describe('CommandBarOverlay rows', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'createSlot', arg: undefined })
   })
 
+  /** A create the store opened: the reducer records it under its requestId. */
+  const openingDispatch = (activation: { slot: string; requestId: string }) => {
+    dispatch.mockReturnValue({ requestId: 'req-1', unwrap: () => Promise.resolve({ key: 'slot-1' }) })
+    storeState.chat = { ...storeState.chat, activeSlot: activation.slot, lastCreatedActivation: activation }
+  }
+
   it('navigates to the new session so a success is visible off the chat page', async () => {
     // Created from Settings or Task Runner without this, the session lands off-screen
     // and the success reads as a failure -- the user runs it again into a duplicate.
-    resolvingDispatch()
+    window.history.replaceState(null, '', '/settings')
+    try {
+      openingDispatch({ slot: 'slot-1', requestId: 'req-1' })
+      const onClose = mount()
+      fireEvent.mouseDown(rowByText('New Session'))
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat'))
+      await waitFor(() => expect(onClose).toHaveBeenCalled())
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
+  })
+
+  it('stays put when the user opened another session during the create', async () => {
+    // The store left the view on the session the user picked, so the activation
+    // names no request of this row's.
+    openingDispatch({ slot: 'slot-b', requestId: 'req-other' })
     const onClose = mount()
     fireEvent.mouseDown(rowByText('New Session'))
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat'))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(navigate).not.toHaveBeenCalled()
   })
 
   it('clears a stale failure once the user types again', async () => {
