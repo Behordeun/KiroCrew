@@ -149,6 +149,7 @@ from kiro_crew.dashboard.chat_turn.eager_spawn import (
     schedule_eager_spawn,
     stop_eager_spawns,
 )
+from kiro_crew.dashboard.chat_turn.elicitation_prompt import _on_elicitation_request
 from kiro_crew.dashboard.chat_turn.file_changes import _MAX_RECONSTRUCT_BYTES  # noqa: F401
 from kiro_crew.dashboard.chat_turn.mcp_session import (  # noqa: F401
     _on_mcp_oauth_request,
@@ -382,6 +383,7 @@ from kiro_crew.name_grant import (  # noqa: F401
 )
 from kiro_crew.providers.base import (
     EVENT_COMPLETE,
+    EVENT_ELICITATION_REQUEST,
     EVENT_PERMISSION_REQUEST,
     EVENT_SUBAGENT_ACTIVITY,
     EVENT_SUBAGENT_LIST,
@@ -982,6 +984,12 @@ async def _run_chat(
                     break
                 if _flow is _Flow.CONTINUE:
                     continue
+            elif event.kind == EVENT_ELICITATION_REQUEST:
+                # An MCP server's own human-in-the-loop ask, put to the person
+                # as a card. No trust tier answers it: the server declared the
+                # requirement, so only a person (or the window running out) does.
+                await _on_elicitation_request(turn, event)
+                continue
             elif event.kind == EVENT_STEER_CONSUMED:
                 await _on_steer_consumed(turn, event)
             elif event.kind == EVENT_COMPACTION_STATUS:
