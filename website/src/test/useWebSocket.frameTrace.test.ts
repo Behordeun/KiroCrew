@@ -1485,6 +1485,7 @@ const EXPECTED_LIFECYCLE: Record<string, string[]> = {
     'query fetchQuery ["automation-seed","structured"] {"staleTime":0,"retry":false}',
     'action notifications/fetch/pending',
     'query fetchQuery ["workflow-runs-reconcile"] {"staleTime":0,"gcTime":30000,"retry":false}',
+    'action chat/resyncWaitingSideConversations/pending',
     'action chat/clearSubagentsForSnapshot undefined',
     'send {"type":"subscribe_subagents"}',
     'send {"type":"subscribe_logs"}',
@@ -1493,6 +1494,7 @@ const EXPECTED_LIFECYCLE: Record<string, string[]> = {
     'query setQueryData ["command-center","workflows"]',
     'action chat/setAutomations {"records":[],"legacyComplete":true,"structuredComplete":true,"protectedSlots":[]}',
     'action notifications/fetch/fulfilled',
+    'action chat/resyncWaitingSideConversations/fulfilled',
   ],
   "reconnect catch-up": [
     'action dashboard/sseDisconnected undefined',
@@ -1521,6 +1523,7 @@ const EXPECTED_LIFECYCLE: Record<string, string[]> = {
     'query fetchQuery ["automation-seed","structured"] {"staleTime":0,"retry":false}',
     'action notifications/fetch/pending',
     'query fetchQuery ["workflow-runs-reconcile"] {"staleTime":0,"gcTime":30000,"retry":false}',
+    'action chat/resyncWaitingSideConversations/pending',
     'action chat/refreshSlot/pending',
     'action chat/clearSubagentsForSnapshot undefined',
     'send {"type":"subscribe_subagents"}',
@@ -1530,6 +1533,7 @@ const EXPECTED_LIFECYCLE: Record<string, string[]> = {
     'query setQueryData ["command-center","workflows"]',
     'action chat/setAutomations {"records":[],"legacyComplete":true,"structuredComplete":true,"protectedSlots":[]}',
     'action notifications/fetch/fulfilled',
+    'action chat/resyncWaitingSideConversations/fulfilled',
     'action chat/refreshSlot/fulfilled',
   ],
   "reconnect after an update restart reloads": [
@@ -1572,6 +1576,7 @@ const EXPECTED_LIFECYCLE: Record<string, string[]> = {
     'query fetchQuery ["automation-seed","structured"] {"staleTime":0,"retry":false}',
     'action notifications/fetch/pending',
     'query fetchQuery ["workflow-runs-reconcile"] {"staleTime":0,"gcTime":30000,"retry":false}',
+    'action chat/resyncWaitingSideConversations/pending',
     'action chat/refreshSlot/pending',
     'action chat/clearSubagentsForSnapshot undefined',
     'send {"type":"subscribe_subagents"}',
@@ -1581,6 +1586,7 @@ const EXPECTED_LIFECYCLE: Record<string, string[]> = {
     'query setQueryData ["command-center","workflows"]',
     'action chat/setAutomations {"records":[],"legacyComplete":true,"structuredComplete":true,"protectedSlots":[]}',
     'action notifications/fetch/fulfilled',
+    'action chat/resyncWaitingSideConversations/fulfilled',
     'action chat/refreshSlot/fulfilled',
   ],
   "StrictMode mounts twice and connects once": [
@@ -1594,6 +1600,7 @@ const EXPECTED_LIFECYCLE: Record<string, string[]> = {
     'query fetchQuery ["automation-seed","structured"] {"staleTime":0,"retry":false}',
     'action notifications/fetch/pending',
     'query fetchQuery ["workflow-runs-reconcile"] {"staleTime":0,"gcTime":30000,"retry":false}',
+    'action chat/resyncWaitingSideConversations/pending',
     'action chat/clearSubagentsForSnapshot undefined',
     'send {"type":"subscribe_subagents"}',
     'send {"type":"slot_focused","slot":"slot-a","announce":true}',
@@ -1601,6 +1608,7 @@ const EXPECTED_LIFECYCLE: Record<string, string[]> = {
     'query setQueryData ["command-center","workflows"]',
     'action chat/setAutomations {"records":[],"legacyComplete":true,"structuredComplete":true,"protectedSlots":[]}',
     'action notifications/fetch/fulfilled',
+    'action chat/resyncWaitingSideConversations/fulfilled',
   ],
   "a stream hold defers all three pipelines to one timer each": [
     'action chat/setSlotStatusDetail {"slot":"slot-a","kind":"streaming","ts":"<clock>"}',
