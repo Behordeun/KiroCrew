@@ -18460,6 +18460,8 @@
       "team_week_routed": "여기로 라우팅됨",
       "team_week_chat_in": "{{project}} 프로젝트의 채팅",
       "team_week_chat": "채팅",
+      "team_week_spawn_in": "{{project}} 프로젝트의 위임된 실행",
+      "team_week_spawn": "위임된 실행",
       "team_state_running": "작업 중",
       "team_state_waiting_other": "회신 대기 · 질문 {{count}}개",
       "team_state_needs_you": "회신 대기",

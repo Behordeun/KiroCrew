@@ -13891,6 +13891,8 @@
       "team_week_routed": "[Ŕøùţèð ĥèŕè ··········]",
       "team_week_chat_in": "[Çĥàţ ìñ þŕøĵèçţ {{project}} ··············]",
       "team_week_chat": "[Çĥàţ ······]",
+      "team_week_spawn_in": "[Ðèĺèğàţèð ŕùñ ìñ þŕøĵèçţ {{project}} ··················]",
+      "team_week_spawn": "[Ðèĺèğàţèð ŕùñ ············]",
       "team_state_running": "[Ẁøŕķìñğ ···········]",
       "team_state_waiting_one": "[Ẁàìţìñğ øñ ýøù · {{count}} ǫùèşţìøñ ··················]",
       "team_state_waiting_other": "[Ẁàìţìñğ øñ ýøù · {{count}} ǫùèşţìøñş ···················]",

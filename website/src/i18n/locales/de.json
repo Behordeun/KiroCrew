@@ -18750,6 +18750,8 @@
       "team_week_routed": "Hierher geleitet",
       "team_week_chat_in": "Chat im Projekt {{project}}",
       "team_week_chat": "Chat",
+      "team_week_spawn_in": "Delegierter Lauf im Projekt {{project}}",
+      "team_week_spawn": "Delegierter Lauf",
       "team_state_running": "Arbeitet",
       "team_state_waiting_one": "Wartet auf dich · {{count}} Frage",
       "team_state_waiting_other": "Wartet auf dich · {{count}} Fragen",

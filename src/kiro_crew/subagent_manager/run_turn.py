@@ -636,6 +636,19 @@ async def _run_inner_impl(
             # Learned recall is optional for prompt construction. Explicit
             # memory tools still report the unavailable captured store.
             logger.debug("Subagent learned memory is unavailable", exc_info=True)
+    if info.crew:
+        from kiro_crew.members import record_activity
+
+        # A respawn of this run re-enters with the same key; the dedupe keeps one entry.
+        await asyncio.to_thread(
+            record_activity,
+            execution.selection_name,
+            session_key,
+            execution.memory_mode,
+            project=info.cwd or "",
+            via="spawn",
+            dedupe_session=True,
+        )
     full_message, _ = await run_in_embed_pool(
         self._manager._ctx_builder.build_message,
         message,

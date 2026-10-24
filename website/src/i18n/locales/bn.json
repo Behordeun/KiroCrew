@@ -18750,6 +18750,8 @@
       "team_week_routed": "এখানে রুট করা হয়েছে",
       "team_week_chat_in": "{{project}} প্রকল্পে চ্যাট",
       "team_week_chat": "চ্যাট",
+      "team_week_spawn_in": "{{project}} প্রকল্পে অর্পিত রান",
+      "team_week_spawn": "অর্পিত রান",
       "team_state_running": "কাজ করছে",
       "team_state_waiting_one": "তোমার অপেক্ষায় · {{count}} টি প্রশ্ন",
       "team_state_waiting_other": "তোমার অপেক্ষায় · {{count}} টি প্রশ্ন",

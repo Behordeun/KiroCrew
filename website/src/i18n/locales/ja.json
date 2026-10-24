@@ -18460,6 +18460,8 @@
       "team_week_routed": "ここにルーティング",
       "team_week_chat_in": "プロジェクト {{project}} のチャット",
       "team_week_chat": "チャット",
+      "team_week_spawn_in": "プロジェクト {{project}} での委任された実行",
+      "team_week_spawn": "委任された実行",
       "team_state_running": "作業中",
       "team_state_waiting_other": "対応待ち · 質問 {{count}} 件",
       "team_state_needs_you": "対応待ち",

@@ -18460,6 +18460,8 @@
       "team_week_routed": "被路由到此",
       "team_week_chat_in": "在项目 {{project}} 中聊天",
       "team_week_chat": "聊天",
+      "team_week_spawn_in": "在项目 {{project}} 中的委派运行",
+      "team_week_spawn": "委派的运行",
       "team_state_running": "工作中",
       "team_state_waiting_other": "等待你 · {{count}} 个问题",
       "team_state_needs_you": "等待你",

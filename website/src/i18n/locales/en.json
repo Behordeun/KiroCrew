@@ -7965,6 +7965,8 @@
       "team_week_routed": "Routed here",
       "team_week_chat_in": "Chat in project {{project}}",
       "team_week_chat": "Chat",
+      "team_week_spawn_in": "Delegated run in project {{project}}",
+      "team_week_spawn": "Delegated run",
       "team_state_running": "Working",
       "team_state_waiting_one": "Waiting on you · {{count}} question",
       "team_state_waiting_other": "Waiting on you · {{count}} questions",

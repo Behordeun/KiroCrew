@@ -19040,6 +19040,8 @@
       "team_week_routed": "Instradato qui",
       "team_week_chat_in": "Chat nel progetto {{project}}",
       "team_week_chat": "Chat",
+      "team_week_spawn_in": "Esecuzione delegata nel progetto {{project}}",
+      "team_week_spawn": "Esecuzione delegata",
       "team_state_running": "Al lavoro",
       "team_state_waiting_many": "In attesa di te · {{count}} domande",
       "team_state_waiting_one": "In attesa di te · {{count}} domanda",

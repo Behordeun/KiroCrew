@@ -3942,7 +3942,8 @@ matter:
   key.
 
 These entries are **intent, not execution**: binding a crew does not oblige the
-model to delegate to it, and no `via="spawn"` execution entry exists today.
+model to delegate to it. The run itself is recorded as `via="spawn"` when a
+`spawn_run(crew=...)` run's session opens.
 
 ## Delegating to a bound crew
 

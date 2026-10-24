@@ -19330,6 +19330,8 @@
       "team_week_routed": "Направлено сюда",
       "team_week_chat_in": "Чат в проекте {{project}}",
       "team_week_chat": "Чат",
+      "team_week_spawn_in": "Делегированный запуск в проекте {{project}}",
+      "team_week_spawn": "Делегированный запуск",
       "team_state_running": "Работает",
       "team_state_waiting_few": "Ждёт тебя · {{count}} вопроса",
       "team_state_waiting_many": "Ждёт тебя · {{count}} вопросов",
