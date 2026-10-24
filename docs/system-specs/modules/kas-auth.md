@@ -380,7 +380,11 @@ access token.
 - Known limit, by decision: the spawn-time probe (`auth/bridge.vault_holds_identity`)
   accepts a stored identity whose access token is live or which carries a refresh
   token; it cannot know without a network call that an issuer will reject that
-  refresh token. When a refresh IS refused (issuer answers 400/401/403,
+  refresh token, nor does it check the local inputs a refresh needs
+  (`KasToken.refresh_blocker`: stored client credentials, a token endpoint) -- a
+  refresh that cannot even be attempted raises `auth/refresh.RefreshBlocked`, as
+  permanent as a rejection but with no issuer asked and so no marker recorded.
+  When a refresh IS refused (issuer answers 400/401/403,
   `auth/refresh.RefreshRejected`), the refresher records a token-free marker beside
   the vault (`TokenStore.mark_refresh_rejected`, cleared by any new credential
   landing in the slot), and that marker is what `kirocrew doctor` (`crew vault:`

@@ -83,6 +83,19 @@ class RefreshRejected(RefreshError):
     """
 
 
+class RefreshBlocked(RefreshError):
+    """The refresh could not even be ATTEMPTED: a local precondition is missing.
+
+    Raised from :meth:`KasToken.refresh_blocker` -- a refresh token with no
+    stored client credentials, an external IdP entry with no token endpoint.
+    Like :class:`RefreshRejected` it is permanent: nothing on this machine will
+    change between polls, so a retry cannot help and only a new sign-in writes
+    the missing input. Unlike it, no issuer was asked, so no marker is recorded
+    on the store. Readers that choose between "sign in again" and "try later"
+    treat both subclasses as the former.
+    """
+
+
 # The issuer statuses that mean "this grant is refused" rather than "try later".
 _REJECTED_STATUSES = frozenset({400, 401, 403})
 
@@ -187,7 +200,7 @@ async def _refresh(token: KasToken, *, session: aiohttp.ClientSession) -> KasTok
     # tokens are renewable.
     blocker = token.refresh_blocker()
     if blocker:
-        raise RefreshError(blocker)
+        raise RefreshBlocked(blocker)
     if token.identity == "social":
         return await _refresh_social(token, session=session)
     if token.identity == "external_idp":
