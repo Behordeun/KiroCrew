@@ -325,6 +325,7 @@ Examples:
   kirocrew spawn run --async 'analyze logs'     # Fire-and-forget
   kirocrew spawn run --crew ops 'triage alerts' # Run as crew member 'ops'
   kirocrew spawn run --agent reviewer 'review'  # Run under agent 'reviewer'
+  kirocrew spawn run --model MODEL_ID 'task'    # Run on model MODEL_ID
   kirocrew spawn list                           # Show active subagents
 """,
         formatter_class=_fmt,
@@ -350,6 +351,11 @@ Examples:
             "Run as this crew member, with its memory store and template; "
             "an unknown member is refused, never replaced"
         ),
+    )
+    spawn_run.add_argument(
+        "--model",
+        metavar="ID",
+        help="Run on this model id; it outranks the member's and the template's pin",
     )
     spawn_sub.add_parser("list", help="List subagents")
     spawn_parser.add_argument("--port", type=int, default=DASHBOARD_PORT, help="Dashboard port")

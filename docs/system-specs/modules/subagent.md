@@ -3539,8 +3539,12 @@ subagent ID. `--crew NAME` runs the task as that crew member (its memory store a
 template) and `--agent NAME` under that agent template; they are sent as the same
 `crew` / `agent` request fields `spawn_run` uses, so an unknown name is refused by
 the gateway (`unknown_member`, `agent_not_found`) and the CLI exits 1 rather than
-running the default. A blank name is refused before any request. `kirocrew spawn
-list` lists current runs.
+running the default. `--model ID` is sent as `spawn_run`'s `model` field: the
+gateway judges it on shape only, it outranks the member's and the template's pin,
+and it is never routed (`subagent_parts/model_choice.py` skips tier routing for
+any run that names a model). A name or model that sanitizes to empty (only
+whitespace or hidden characters) is refused before any request.
+`kirocrew spawn list` lists current runs.
 
 ### MCP Tool: `spawn_run`
 
