@@ -39,6 +39,7 @@ import { MOBILE_BREAKPOINT } from './useIsMobile'
 import { isEditableTarget } from '../utils/editableTarget'
 import { closeShownCrewWindow, crewWindowShown } from '../pages/chat/crew-window/crewWindowStore'
 import { stepTurn } from '../pages/chat/turnStep'
+import { noteEscapeStoppedSpeech } from '../utils/speechStopKey'
 
 /** Shortcuts scoped to the session on screen (see the crew-window guard). */
 const CREW_WINDOW_SCOPED: ReadonlySet<string> = new Set([
@@ -1171,6 +1172,9 @@ export function useKeyboardShortcuts({ onToggleShortcutsModal, onNewChat, onCycl
       if (e.key !== 'Escape') return
       const { voicePlaying, voicePreparing } = appStore.getState().chat
       if (!voicePlaying && !voicePreparing) return
+      // Spent on speech: the composer's Escape-to-stop gate reads this and
+      // leaves the running turn alone (utils/speechStopKey.ts, #22315).
+      noteEscapeStoppedSpeech(e)
       window.dispatchEvent(new Event('voice-stop'))
     }
     document.addEventListener('keydown', onEsc, true)

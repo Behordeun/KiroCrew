@@ -1231,6 +1231,14 @@ export default memo(forwardRef<MarkdownPanelHandle, Props>(function MarkdownPane
     <>
     <DetailPanel
       embedded={embedded}
+      // Mark this panel as the current Escape owner while its own document
+      // handler (above) will answer Escape by closing: embedded, visible
+      // (active + not hidden behind a remote Crew), and not already deferring
+      // to a surface that carries its own role="dialog" (the discard confirm,
+      // the fullscreen overlay). The composer's Escape-to-stop gate reads this
+      // marker and yields, so one Escape closes the preview without also
+      // stopping the running turn (#22315).
+      escapeOwner={!!embedded && active && !crewHidden && !confirmOpen && !fullscreen}
       title={fileName}
       onClose={guardedClose}
       initialWidth={480}
