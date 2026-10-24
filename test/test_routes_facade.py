@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import ast
 import importlib
-import logging
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -35,6 +34,10 @@ from kiro_crew.apps import routes as facade
 
 # Walks src/kiro_crew for owner imports; keep it on one worker.
 pytestmark = pytest.mark.xdist_group(name="tree_scan_routes_facade")
+
+#: Checks ``test_facade_shared_checks.py`` runs against this module's helpers; each is
+#: the same for every facade, so it is written once there and parametrized per module.
+SHARED_FACADE_CHECKS = ("owners_log_as_facade",)
 
 _SRC = Path(kiro_crew.__file__).resolve().parent
 _FACADE = "kiro_crew.apps.routes"
@@ -210,15 +213,6 @@ def test_the_import_census_finds_a_planted_import() -> None:
     planted = _source(_FACADE).replace(head, head + "\nimport json as _s51_planted\n", 1)
     assert planted != _source(_FACADE)
     assert _unaccounted_imports(planted, owners) == ["_s51_planted"]
-
-
-def test_every_owner_logs_as_the_facade() -> None:
-    shared = logging.getLogger(_FACADE)
-    assert facade.logger is shared
-    loggers = {
-        owner: vars(importlib.import_module(owner)).get("logger") for owner in _index().owners
-    }
-    assert {owner: log for owner, log in loggers.items() if log not in (None, shared)} == {}
 
 
 def _typing_names(source: str) -> set[str]:

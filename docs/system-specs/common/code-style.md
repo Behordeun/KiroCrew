@@ -249,7 +249,12 @@ family keeps two rules:
 that imports its facade or rebinds a shared global, fails a facade no test patches through,
 and executes only a few patches per facade. Each facade also gets a patch-reach test that
 executes every name the test trees patch through it (read with `test/facade_mirror_scan.py`)
-and proves the scan finds known seams (`test/test_session_pid_facade.py`).
+and proves the scan finds known seams (`test/test_session_pid_facade.py`). A check whose
+body is the same for every facade (the known-seam scan, the corpus-gate derivation, the
+layering, manifest and logger scans) is written once in `test/test_facade_shared_checks.py`
+and parametrized per module: a facade test file names the ones it needs in a module-level
+`SHARED_FACADE_CHECKS` tuple instead of copying their bodies, and keeps only the checks
+particular to its facade.
 
 **A large class keeps one class body**, in the facade or in one home module that sets
 `__module__` to the facade when a pickle, repr or test reads it. Members move to owners as
