@@ -586,6 +586,12 @@ export interface ContentBlock {
    * this to render the bookmark filled, link the title to /artifacts/<slug>,
    * and treat clicks as un-save rather than save. */
   slug?: string
+  /** This markdown block is one paragraph-bounded piece of the trailing
+   * markdown block. `from` is that block's startLine and `part` this piece's
+   * index, so a piece keeps its React key while lines above it are
+   * reclassified. Set while streaming, and after the stream ends in the view
+   * that streamed it; never on a message mounted already finished. */
+  split?: { from: number; part: number }
 }
 
 export interface Notification {
