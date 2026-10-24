@@ -26,7 +26,13 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from kiro_crew import github_runner, platform_compat
-from kiro_crew.browser_cli.install_runner import _PROBE_TIMEOUT_S, _run, redact_install_output
+from kiro_crew.browser_cli.install_runner import (
+    _PROBE_TIMEOUT_S,
+    INTERRUPTED_RC,
+    TIMEOUT_RC,
+    _run,
+    redact_install_output,
+)
 from kiro_crew.config.paths import config_dir
 from kiro_crew.env import find_node_tool
 
@@ -95,6 +101,15 @@ def _managed_node_path() -> Path:
 def _staged_node_runs(candidate: Path) -> str | None:
     """Reason the staged Node copy cannot run standalone, or ``None`` if it can.
 
+    :func:`_probe_staged_node` without the exit code.
+    """
+    failure = _probe_staged_node(candidate)
+    return None if failure is None else failure[1]
+
+
+def _probe_staged_node(candidate: Path) -> tuple[int, str] | None:
+    """``(returncode, reason)`` when the staged Node copy cannot run standalone.
+
     Runs the copy exactly as the gateway will run it -- by absolute path, from
     the managed leaf, under :func:`cli_env` -- and asks for its version. One
     probe covers every way a copy can be dead: a launcher script whose relative
@@ -111,10 +126,78 @@ def _staged_node_runs(candidate: Path) -> str | None:
     )
     if code != 0:
         detail = (err or out).strip().splitlines()
-        return f"exit {code}" + (f": {detail[-1]}" if detail else "")
+        # A loader names the missing library on its first line and follows it
+        # with the paths it tried, so the last line alone drops the cause.
+        line = next((d for d in detail if _MISSING_LIBRARY_RE.search(d)), None)
+        if line is None and detail:
+            line = detail[-1]
+        return code, f"exit {code}" + (f": {line.strip()}" if line else "")
     if _first_version(out) is None:
-        return f"did not report a version (stdout: {out.strip()[:80]!r})"
+        return 1, f"did not report a version (stdout: {out.strip()[:80]!r})"
     return None
+
+
+#: How the macOS (dyld) and Linux (ld.so) loaders name a shared library they
+#: could not load. Homebrew's ``node`` links ``@rpath/libnode.<N>.dylib`` from its
+#: Cellar, so a copy in the managed leaf fails with the first form.
+_MISSING_LIBRARY_RE = re.compile(
+    r"Library not loaded: (?P<dyld>\S+)|error while loading shared libraries: (?P<ld>[^:\s]+)"
+)
+
+
+def _unrunnable_node_remedy(reason: str) -> str:
+    """What the user does about a Node copy that :func:`_staged_node_runs` refused.
+
+    A missing shared library is the Homebrew split-``libnode`` build (or any
+    Node that is not one self-contained file): no copy of that binary can run
+    from the leaf, so the remedy names a Node that can and the override that
+    selects it. ``node_bin_dirs`` is cached for the gateway's lifetime, hence
+    the restart.
+    """
+    match = _MISSING_LIBRARY_RE.search(reason)
+    if match is None:
+        return "Install Node as a self-contained binary."
+    library = match.group("dyld") or match.group("ld")
+    return (
+        f"This Node build loads {library} from its own install tree, so a copy of it "
+        "cannot run (Homebrew's node ships libnode this way). Install a self-contained "
+        "Node 20 or newer, such as the official build from nodejs.org, set "
+        "KIROCREW_NODE_BIN_DIR to its bin directory, restart the gateway, and install "
+        "the browser CLI again."
+    )
+
+
+def staged_node_failure(command: list[str]) -> tuple[int, str] | None:
+    """``(returncode, reason)`` when the staged ``gateway-node`` *command* runs cannot start.
+
+    :func:`_stage_managed_node` runs a copy before it becomes ``gateway-node``,
+    but a copy staged before that check existed is still on disk, and
+    :func:`cli_command` vets it by location only. Running it here lets
+    ``install_browser`` report it before the browser download instead of
+    failing inside it with a loader crash. A fixed system Node is not probed:
+    the gateway did not stage it, and reinstalling the CLI would not change it.
+
+    The probe's own returncode is kept, so a probe that timed out
+    (``TIMEOUT_RC``) or was interrupted (``INTERRUPTED_RC``) reads as that, not
+    as a Node that cannot run, and gets no Node remedy.
+    """
+    if not command:
+        return None
+    managed = _managed_node_path()
+    try:
+        if Path(command[0]).resolve(strict=True) != managed.resolve(strict=True):
+            return None
+    except OSError:
+        return None
+    failure = _probe_staged_node(managed)
+    if failure is None:
+        return None
+    code, reason = failure
+    if code in (TIMEOUT_RC, INTERRUPTED_RC):
+        return code, f"the staged Node {managed} check did not finish ({reason})"
+    return code, (
+        f"the staged Node {managed} does not run ({reason}). {_unrunnable_node_remedy(reason)}"
+    )
 
 
 def _stage_managed_node(source: str) -> Path:
@@ -161,7 +244,7 @@ def _stage_managed_node(source: str) -> Path:
         if reason is not None:
             raise OSError(
                 f"Node copied from {source_path} does not run from the managed leaf "
-                f"({reason}). Install Node as a self-contained binary."
+                f"({reason}). {_unrunnable_node_remedy(reason)}"
             )
         os.replace(incoming, destination)
     finally:

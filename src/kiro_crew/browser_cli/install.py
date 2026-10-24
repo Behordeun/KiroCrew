@@ -69,6 +69,7 @@ from kiro_crew.browser_cli.install_launcher import (
     bootstrap_tool_provenance,
     cli_command,
     cli_path,
+    staged_node_failure,
 )
 from kiro_crew.browser_cli.install_runner import (
     _BROWSER_INSTALL_TIMEOUT_S,
@@ -625,6 +626,23 @@ def install_browser(engine: str, on_stage: StageCallback | None = None) -> dict[
                 }
             ],
         }
+    # A gateway-node staged before stage-node ran its probe can be a copy that
+    # cannot load its shared libraries; report it here, not as a loader crash
+    # inside the download.
+    node_failure = staged_node_failure(command)
+    if node_failure is not None:
+        node_rc, node_detail = node_failure
+        return {
+            "ok": False,
+            "steps": [
+                {
+                    "name": "check-node",
+                    "ok": False,
+                    "returncode": node_rc,
+                    "stderr": redact_install_output(node_detail),
+                }
+            ],
+        }
     _emit_stage(on_stage, STAGE_DOWNLOADING_BROWSER)
     steps = _download_browser(command, engine)
     _emit_stage(on_stage, STAGE_FINISHING)
@@ -681,6 +699,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
     from kiro_crew.browser_cli.install_launcher import (  # noqa: F401
         _BROWSERS_MANIFEST,
         _MANAGED_TOOLS_LEAF,
+        _MISSING_LIBRARY_RE,
         _NODE_EXECUTABLE_PROBE,
         _NODE_MODULES,
         _PLAYWRIGHT_CORE_PKG,
@@ -701,6 +720,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _managed_cli_root,
         _managed_node_path,
         _manifest_for_cli_package,
+        _probe_staged_node,
         _regular_file_within,
         _resolve_cli_candidate,
         _resolve_executable,
@@ -713,6 +733,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _system_node_candidates,
         _system_node_for_launcher,
         _under,
+        _unrunnable_node_remedy,
         _warn_cli_refusal,
         _warned_cli_refusals,
         legacy_launcher_refused,

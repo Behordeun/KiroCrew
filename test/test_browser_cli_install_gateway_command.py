@@ -484,6 +484,111 @@ class TestPosixGatewayCommand:
 
         assert not (crew / "playwright-cli" / "gateway-node").exists()
 
+    # What dyld prints for Homebrew's split-libnode node run outside its Cellar:
+    # the library on the first line, the paths it tried after it.
+    _DYLD_SPLIT_LIBNODE = (
+        "#!/bin/sh\n"
+        "echo 'dyld[4242]: Library not loaded: @rpath/libnode.147.dylib' >&2\n"
+        "echo '  Referenced from: <ABCD> /opt/homebrew/Cellar/node/26.11.1/bin/node' >&2\n"
+        'echo "  Reason: tried: \'$(dirname "$0")/../lib/libnode.147.dylib\' (no such file)" >&2\n'
+        "exit 134\n"
+    )
+
+    def test_install_names_a_missing_shared_library_and_how_to_get_a_node_that_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Homebrew's node links libnode from its Cellar, so no copy of it runs
+        from the leaf. The refusal names the library (not dyld's last "tried"
+        line) and the remedy that works: a self-contained Node selected through
+        KIROCREW_NODE_BIN_DIR. The probe is a REAL process: the test's own shell
+        script, run from a directory the test owns."""
+        crew = tmp_path / "crew"
+        source = tmp_path / "Cellar" / "node" / "bin" / "node"
+        source.parent.mkdir(parents=True)
+        source.write_text(self._DYLD_SPLIT_LIBNODE, encoding="utf-8")
+        source.chmod(0o755)
+        monkeypatch.setattr(mod.platform_compat, "IS_WINDOWS", False)
+        monkeypatch.setattr(mod, "config_dir", lambda: crew)
+
+        with pytest.raises(OSError) as excinfo:
+            mod._stage_managed_node(str(source))
+
+        message = str(excinfo.value)
+        assert "exit 134: dyld[4242]: Library not loaded: @rpath/libnode.147.dylib" in message
+        assert "loads @rpath/libnode.147.dylib from its own install tree" in message
+        assert "such as the official build from nodejs.org, set KIROCREW_NODE_BIN_DIR" in message
+        assert not (crew / "playwright-cli" / "gateway-node").exists()
+
+    def test_install_browser_reports_a_staged_node_that_cannot_run_before_downloading(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A gateway-node staged before stage-node probed its copy (0.8.x) is
+        still vetted by location only. install-browser runs it first and reports
+        it, instead of letting the download die in a loader crash."""
+        _wrapper, node, _entry, _attacker = self._managed_tree(tmp_path, monkeypatch)
+        node.write_text(self._DYLD_SPLIT_LIBNODE, encoding="utf-8")
+        node.chmod(0o755)
+        downloads: list[list[str]] = []
+        monkeypatch.setattr(
+            mod, "_download_browser", lambda command, engine=None: downloads.append(command) or []
+        )
+
+        result = mod.install_browser("chromium")
+
+        assert result["ok"] is False
+        assert [s["name"] for s in result["steps"]] == ["check-node"]
+        detail = result["steps"][0]["stderr"]
+        assert "does not run" in detail
+        assert "@rpath/libnode.147.dylib" in detail
+        assert "KIROCREW_NODE_BIN_DIR" in detail
+        assert downloads == [], "the download must not start on a Node that cannot run"
+
+    @pytest.mark.parametrize("probe_rc", [mod.TIMEOUT_RC, mod.INTERRUPTED_RC])
+    def test_a_probe_that_did_not_finish_keeps_its_returncode_and_no_node_remedy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe_rc: int
+    ) -> None:
+        """install_job.outcome_of reads the last step's returncode to tell a
+        timeout or an interruption from a failed step, so the check must not
+        flatten either into 127, nor tell a user whose Node works to replace it."""
+        self._managed_tree(tmp_path, monkeypatch)
+        monkeypatch.setattr(
+            mod, "_run", lambda argv, timeout, cwd=None: (probe_rc, "", "timed out after 20s")
+        )
+        downloads: list[list[str]] = []
+        monkeypatch.setattr(
+            mod, "_download_browser", lambda command, engine=None: downloads.append(command) or []
+        )
+
+        result = mod.install_browser("chromium")
+
+        assert result["ok"] is False
+        step = result["steps"][-1]
+        assert step["name"] == "check-node"
+        assert step["returncode"] == probe_rc
+        assert "did not finish" in step["stderr"]
+        assert "KIROCREW_NODE_BIN_DIR" not in step["stderr"]
+        assert "self-contained" not in step["stderr"]
+        assert downloads == []
+
+    def test_install_browser_downloads_with_a_staged_node_that_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _wrapper, node, entry, _attacker = self._managed_tree(tmp_path, monkeypatch)
+        node.write_text("#!/bin/sh\necho v24.22.0\n", encoding="utf-8")
+        node.chmod(0o755)
+        downloads: list[list[str]] = []
+
+        def fake_download(command: list[str], engine: str | None = None) -> list[dict]:
+            downloads.append(command)
+            return [{"name": "install-browser", "ok": True, "returncode": 0}]
+
+        monkeypatch.setattr(mod, "_download_browser", fake_download)
+
+        result = mod.install_browser("chromium")
+
+        assert result["ok"] is True
+        assert downloads == [[str(node.resolve()), str(entry.resolve())]]
+
 
 class TestNodeRuntimeExecutableProbe:
     """The staged binary is the one the KERNEL says is running, not the one
