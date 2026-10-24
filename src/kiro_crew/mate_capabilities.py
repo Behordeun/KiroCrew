@@ -302,11 +302,12 @@ def get(member: str, catalog: dict[str, str]) -> dict:
     )
 
 
-def worker_summary(member: str, catalog: dict[str, str]) -> dict[str, int] | None:
-    """How much the crewmate's WORKER carries: tools, MCP servers and skills.
+def worker_summary(member: str, catalog: dict[str, str]) -> dict[str, list[dict]] | None:
+    """What the crewmate's WORKER carries, as the rows Built From lists and counts.
 
     Read from the merged worker spec (``mate_worker.member_worker_spec``), not
-    the file alone. ``None`` when that spec is unreadable.
+    the file alone, so the summary and the Tools / MCP / Skills lists read one
+    set. ``None`` when that spec is unreadable.
     """
     from kiro_crew import mate_worker
 
@@ -318,16 +319,37 @@ def worker_summary(member: str, catalog: dict[str, str]) -> dict[str, int] | Non
     def _strs(value: Any) -> list[str]:
         return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
 
-    uris = set(catalog.values())
-    skills = {
-        r for r in _strs(spec.get("resources")) if r.startswith("skill://") or r in uris
-    } | set(_strs(spec.get("skills")))
+    def _row(section: str, key: str, value: Any = True) -> dict:
+        return {
+            "section": section,
+            "id": key,
+            # A skill carries no label: the pane names it from its id, a skill
+            # URI through ``workerKitLabels.skillLabel``, as the kit preview does.
+            "label": "" if section == "skills" else key,
+            "state": "inherited",
+            "present": True,
+            "value": value,
+            "managed": False,
+            "shared_reference": section == "skills",
+        }
+
+    rows = [_row("tools", t) for t in dict.fromkeys(_strs(spec.get("tools")))]
+    rows += [_row("allowedTools", t) for t in dict.fromkeys(_strs(spec.get("allowedTools")))]
     servers = spec.get("mcpServers")
-    return {
-        "tools": len(_strs(spec.get("tools"))),
-        "mcpServers": len(servers) if isinstance(servers, dict) else 0,
-        "skills": len(skills),
-    }
+    for name, entry in (servers if isinstance(servers, dict) else {}).items():
+        if isinstance(name, str) and isinstance(entry, dict):
+            rows.append(
+                _row("mcpServers", name, {k: v for k, v in entry.items() if k != "autoApprove"})
+            )
+    names = {uri: key for key, uri in reversed(list(catalog.items()))}
+    skills = [
+        names[uri] if uri in names else uri
+        for uri in _strs(spec.get("resources"))
+        if uri in names or uri.startswith("skill://")
+    ]
+    skills += _strs(spec.get("skills"))
+    rows += [_row("skills", key, key) for key in dict.fromkeys(skills)]
+    return {"rows": rows}
 
 
 def _edit(

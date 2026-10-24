@@ -18,6 +18,17 @@ vi.mock('../api/crewCapabilities', async (orig) => {
   return { ...real, crewWorkerKitApi: mockKit }
 })
 
+// The hand-off is stubbed to show whether it was handed the request's report.
+vi.mock('../components/AskAgentButton', () => ({
+  default: ({ report }: { report?: { id?: string } }) => <span data-testid="ask-agent-stub" data-report={report?.id ?? ''} />,
+  handoffErrorToAgent: () => true,
+}))
+const mockReportForError = vi.hoisted(() => vi.fn())
+vi.mock('../utils/errorReport', async (orig) => {
+  const real = await orig<typeof import('../utils/errorReport')>()
+  return { ...real, reportForError: mockReportForError }
+})
+
 import { CrewRosterList, type CrewView } from './KiroCrewAgentsPageRoster'
 
 const ADA: KiroCrewAgent = {
@@ -112,7 +123,20 @@ describe.each<CrewView>(['cards', 'list'])('crew roster labels (%s)', view => {
     mockKit.get.mockRejectedValue(new ApiError(500, 'invalid_spec', JSON.stringify({ error: 'invalid_spec', code: 'invalid_spec' })))
     renderRoster([ADA], view)
     const ada = holder('Ada', view)
-    await waitFor(() => expect(within(ada).getByTestId('crew-built-from-error')).toBeInTheDocument())
+    const notice = await within(ada).findByTestId('crew-built-from-error')
     expect(builtFrom(ada).textContent ?? '').not.toContain(i18nT('pages.membersPage.built_from_default', { agent: 'kirocrew' }))
+    // The refusal's code reads as a sentence, never as the code itself.
+    expect(notice).toHaveTextContent(i18nT('crewWorkerKit.error_invalid_spec'))
+    expect(notice).not.toHaveTextContent('invalid_spec')
+  })
+
+  it('hands the agent the failed request, not just the translated sentence', async () => {
+    const err = new ApiError(500, 'invalid_spec', JSON.stringify({ error: 'invalid_spec', code: 'invalid_spec' }))
+    mockReportForError.mockImplementation((e: unknown) => (e === err ? { id: 'rep-ada-kit' } : undefined))
+    mockKit.get.mockRejectedValue(err)
+    renderRoster([ADA], view)
+    const ada = holder('Ada', view)
+    const stub = await within(ada).findByTestId('ask-agent-stub')
+    expect(stub).toHaveAttribute('data-report', 'rep-ada-kit')
   })
 })

@@ -3768,17 +3768,30 @@ the file's. A template with `permissions` deny/ask rules, `toolsSettings` or
 hooks the worker would not carry (`uncarried_restrictions`) is refused
 `template_restrictions_uncarried`, and a create from it keeps the crewmate on
 that template. Other refusals: `not_a_mate_file`, `template_unreadable`,
-`template_required`, `revision_required`. The surface is the crew editor's
+`template_required`, `revision_required`. Each code reads as a localized
+sentence (`components/crew/workerKitErrors.ts`), never as the code, wherever a
+kit failure shows; a `stale_revision` apply also drops the preview, and the
+roster's agent hand-off still carries the failed request (`reportForError`). A preview
+also lists what the copy restricts on a server the worker base declares
+(`disabledServers`, `disabledTools`), since the base's own entry wins the merge
+and those limits are not in the kit's servers. The surface is the crew editor's
 **Advanced** section (`components/crew/WorkerKitPane.tsx`, only for
-`mode: "mate"`); its rows name items through `components/crew/workerKitLabels.ts`.
+`mode: "mate"`); its rows name items through `components/crew/workerKitLabels.ts`,
+grouped by kind in a fixed order under a counted heading, added before changed
+before removed (`components/crew/workerKitGroups.ts`), each change word a badge
+tinted by its hue with a hue-coloured glyph, the word itself in `--text`.
+Under "Turned off" the badge states the effect ("Turns off", "Turns back on"),
+and a tool selector reads as what the worker can use ("Can use every jira tool").
 For such a crewmate, General shows the template read-only with **Open
 Advanced**. A switch changes only the file: a running worker keeps the kit it
 started with (`acp/harness/kas.mate_worker_projection` reads it at session
 start). Every "Built from" shows a template's name, never an id
 (`components/crew/builtFromName.ts`); a `crew-<hex>` copy is named by its origin
-(`mate_worker_kit._private_copy_origin`) or "Its own copy". The Built From
-summary counts the WORKER's merged tools, servers and skills
-(`mate_capabilities.worker_summary`). The Customize > Crewmates roster
+(`mate_worker_kit._private_copy_origin`) or "Its own copy". Built From's
+summary and its Tools / MCP Servers / Skills lists read one set, the WORKER's
+merged rows (`mate_capabilities.worker_summary`, the view's `worker.rows`); a
+skill row carries no label, and the pane names a `skill://` row with the
+preview's own `workerKitLabels.skillLabel`. The Customize > Crewmates roster
 (`pages/kiroCrewAgentsPageRosterLabels.ts`) names bindings the same way and
 shows **Memory store** as "Private to this crewmate", "Shared" or "Open to
 check".
