@@ -19,6 +19,7 @@ import { touchSlotActivity } from '../../store/dashboardSlice'
 import { streamingFlushHoldMs } from '../../lib/streamHold'
 import { registerPendingChunkDrain } from '../../lib/pendingChunkDrain'
 import type { SocketConnection } from './connection'
+import { autoBatched, batchedUnlessOpen } from '../../lib/streamBatch'
 
 /** One buffered chunk: its text (gap marker included) and the seq it carried,
  *  kept apart so the reducer can hold each part against the slot's replay
@@ -160,15 +161,18 @@ export function useStreamBuffers({ dispatch, socket, onActiveSlotFlushed }: Stre
         entry.chars = 0
         // Thinking first: within a turn the reasoning stream precedes the answer
         // stream, so a frame holding both must land them in that order.
+        // A background slot's flush defers its store notification
+        // (lib/streamBatch.ts), so N streaming slots cost one notification per
+        // frame instead of N.
         if (entry.thinking) {
-          dispatch(sseThinkingChunk({ slot, content: entry.thinking }))
+          dispatch(batchedUnlessOpen(slot, sseThinkingChunk({ slot, content: entry.thinking }), activeSlot))
           entry.thinking = ''
         }
         // The reducer holds each part against the slot's replay floor and drops
         // what a snapshot already holds; the hook only batches.
         const text = bufferedText(entry)
         if (!text) continue
-        dispatch(sseChatMessage({ slot, role: 'chunk', content: text, seq: entry.lastSeq, gen: entry.gen, batched: true, parts: entry.parts }))
+        dispatch(batchedUnlessOpen(slot, sseChatMessage({ slot, role: 'chunk', content: text, seq: entry.lastSeq, gen: entry.gen, batched: true, parts: entry.parts }), activeSlot))
         entry.parts = []
         if (slot === activeSlot) dispatchedActive = true
       }
@@ -209,8 +213,10 @@ export function useStreamBuffers({ dispatch, socket, onActiveSlotFlushed }: Stre
       // rule lives in the reducer, which holds both fields. It has to be per-field —
       // mid-turn `last_ts` runs ahead of `last_turn_ts`, so one shared check would
       // drop a settling bump whose ts is older than the newest streamed row.
+      // Recency only re-ranks the sidebar, so every bump defers its
+      // notification, the open slot's included: one frame later is invisible.
       for (const [key, { ts, settled }] of buf) {
-        dispatch(touchSlotActivity({ key, ts, settled }))
+        dispatch(autoBatched(touchSlotActivity({ key, ts, settled })))
       }
       buf.clear()
     }
@@ -229,7 +235,11 @@ export function useStreamBuffers({ dispatch, socket, onActiveSlotFlushed }: Stre
         if (entry.text) chunks.push({ id: entry.id, slot: entry.slot, text: entry.text })
       }
       buf.clear()
-      if (chunks.length > 0) dispatch(sseSubagentBatchChunks({ chunks }))
+      if (chunks.length === 0) return
+      // Deferred only when none of the chunks belongs to the open slot.
+      const activeSlot = store.getState().chat.activeSlot
+      const action = sseSubagentBatchChunks({ chunks })
+      dispatch(chunks.some((c) => c.slot === activeSlot) ? action : autoBatched(action))
     }
 
     return {

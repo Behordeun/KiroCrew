@@ -59,6 +59,7 @@ import { useTurnCompletion } from './websocket/turnCompletion'
 import { attachFocusRelay, focusedSlotForCurrentSurface } from './websocket/attention'
 import { emitAppReload, emitChannelEvent, emitComputerUseFrame, emitCronHistory } from './websocket/browserEvents'
 import { runFirstConnect, runReconnectCatchUp } from './websocket/reconnectCatchUp'
+import { batchedUnlessOpen } from '../lib/streamBatch'
 
 /* The dashboard's single multiplexed WebSocket. `useWebSocket` composes the
    owners under ./websocket — connection, stream buffers, voice, approvals,
@@ -516,7 +517,7 @@ export function useWebSocket() {
             chatStream.onToolCall(data)
             break
           case 'tool_result':
-            dispatch(sseToolResult(data as { slot: string; output: string; tool_call_id?: string; final?: boolean }))
+            dispatch(batchedUnlessOpen(data.slot, sseToolResult(data as { slot: string; output: string; tool_call_id?: string; final?: boolean })))
             break
           case 'mcp_app_render':
             // MCP App (SEP-1865) render payload from the gateway. Stored by

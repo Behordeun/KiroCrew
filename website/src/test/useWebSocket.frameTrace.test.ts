@@ -215,6 +215,10 @@ beforeEach(async () => {
     return id
   })
   vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    // Only frames this stub issued are traced. The store's deferred
+    // notification schedules on the frame source it captured when the store
+    // was made, before this stub, and cancels that frame through the global.
+    if (typeof id !== 'number' || id >= nextFrameId) return
     trace.push(`cancel-frame ${id}`)
     rafQueue = rafQueue.filter(entry => entry.id !== id)
   })
