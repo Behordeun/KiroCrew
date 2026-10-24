@@ -6,7 +6,7 @@ import string
 
 import pytest
 
-from kiro_crew import security
+from kiro_crew import edition, security
 from kiro_crew.config.loader import KiroCrewConfig
 from kiro_crew.platform import (
     BASELINE_DENY,
@@ -200,6 +200,62 @@ class TestProfileResolution:
         monkeypatch.setenv("KIROCREW_SSO_PROFILE_PROBE", "1")
         monkeypatch.setattr("kiro_crew.platform.profile.Path.home", lambda: _FakeHome(False))
         assert resolve_profile(cfg, entry_points=[]) == PROFILE_STANDALONE
+
+    def test_precedence_tests_run_on_the_oss_edition(self) -> None:
+        # Every test above relies on the checked-in edition; pin it.
+        assert edition.EDITION == "oss"
+
+
+class TestEnterpriseEditionProfile:
+    """An enterprise build resolves enterprise before every other signal."""
+
+    @pytest.mark.parametrize("value", ["standalone", "bogus", "", "enterprise"])
+    def test_env_profile_cannot_change_it(
+        self, cfg: KiroCrewConfig, monkeypatch, value: str
+    ) -> None:
+        monkeypatch.setattr("kiro_crew.edition.EDITION", "enterprise")
+        monkeypatch.setenv("KIROCREW_PROFILE", value)
+        assert resolve_profile(cfg, entry_points=[]) == PROFILE_ENTERPRISE
+
+    def test_no_companion_and_no_marker_is_still_enterprise(
+        self, cfg: KiroCrewConfig, monkeypatch
+    ) -> None:
+        # No entry point, no probe, no marker: still enterprise, so discovery
+        # fails closed instead of booting open-source defaults.
+        monkeypatch.setattr("kiro_crew.edition.EDITION", "enterprise")
+        monkeypatch.delenv("KIROCREW_PROFILE", raising=False)
+        monkeypatch.delenv("KIROCREW_SSO_PROFILE_PROBE", raising=False)
+        monkeypatch.delenv("KIROCREW_MIDWAY_PROFILE_PROBE", raising=False)
+        monkeypatch.setattr("kiro_crew.platform.profile.Path.home", lambda: _FakeHome(False))
+        assert resolve_profile(cfg, entry_points=[]) == PROFILE_ENTERPRISE
+
+    def test_enterprise_build_without_companion_fails_closed_at_discovery(
+        self, monkeypatch
+    ) -> None:
+        from kiro_crew.platform.discovery import (
+            PlatformCompositionError,
+            discover_companion_context,
+        )
+
+        monkeypatch.setattr("kiro_crew.edition.EDITION", "enterprise")
+        monkeypatch.setenv("KIROCREW_PROFILE", "standalone")
+        cfg = KiroCrewConfig()
+        profile = resolve_profile(cfg, entry_points=[])
+        with pytest.raises(PlatformCompositionError, match="fail-closed") as raised:
+            discover_companion_context(profile, cfg, entry_points=[])
+        # The advice must not point at an override this build ignores.
+        message = str(raised.value)
+        assert "KIROCREW_PROFILE=standalone" not in message
+        assert "enterprise-edition build" in message
+
+    def test_oss_build_keeps_the_standalone_advice(self, monkeypatch) -> None:
+        from kiro_crew.platform.discovery import (
+            PlatformCompositionError,
+            discover_companion_context,
+        )
+
+        with pytest.raises(PlatformCompositionError, match="KIROCREW_PROFILE=standalone"):
+            discover_companion_context(PROFILE_ENTERPRISE, KiroCrewConfig(), entry_points=[])
 
 
 class _FakeHome:

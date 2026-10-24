@@ -13,6 +13,7 @@ import importlib.metadata
 import logging
 from typing import TYPE_CHECKING, List, Sequence
 
+from kiro_crew import edition
 from kiro_crew.platform.admission import (
     AdmissionPolicy,
     PluginManifest,
@@ -126,6 +127,15 @@ def discover_companion_context(
 
     eps = list(entry_points) if entry_points is not None else plugin_entry_points()
     if not eps:
+        if edition.is_enterprise():
+            # resolve_profile ignores KIROCREW_PROFILE on this build, so the
+            # standalone advice below would send the operator round in a loop.
+            raise PlatformCompositionError(
+                f"this is an enterprise-edition build but no {PLUGIN_GROUP!r} entry "
+                "point is installed; refusing to boot with open-source defaults "
+                "(fail-closed). Install the companion package, or run an oss build "
+                "to use the open-source edition."
+            )
         raise PlatformCompositionError(
             f"profile={profile!r} but no {PLUGIN_GROUP!r} entry point is installed; "
             "refusing to boot with open-source defaults (fail-closed). Install the "
