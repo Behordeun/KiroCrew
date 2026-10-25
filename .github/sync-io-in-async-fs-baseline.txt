@@ -39,7 +39,6 @@
 2 src/kiro_crew/dashboard/file_index.py
 3 src/kiro_crew/dashboard/handlers/artifacts_parts/item_lifecycle.py
 7 src/kiro_crew/dashboard/handlers/core.py
-1 src/kiro_crew/dashboard/handlers/hooks_scripts.py
 8 src/kiro_crew/dashboard/handlers/mcp.py
 4 src/kiro_crew/dashboard/handlers/mcp_probe.py
 1 src/kiro_crew/dashboard/handlers/memory_admin.py
