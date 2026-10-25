@@ -59,7 +59,6 @@
 1 src/kiro_crew/knowledge/ingestion.py
 2 src/kiro_crew/knowledge/watcher.py
 1 src/kiro_crew/mcp_discovery_probe.py
-1 src/kiro_crew/mcp_gateway/backend_record.py
 1 src/kiro_crew/mcp_gateway/resolve_once.py
 1 src/kiro_crew/mcp_gateway/transport.py
 1 src/kiro_crew/providers/acp_runtime_start.py
