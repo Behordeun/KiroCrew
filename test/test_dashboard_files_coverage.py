@@ -37,6 +37,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -902,6 +903,40 @@ class TestOutboxList:
                 resp = await client.get("/api/outbox")
                 names = {f["filename"] for f in (await resp.json())["files"]}
         assert names == {"stable.txt"}
+
+    @pytest.mark.asyncio
+    async def test_scan_runs_off_the_event_loop_thread(self, outbox, mock_sel):
+        # The outbox grows with every file an agent sends, and a stat on a
+        # mount that stopped answering blocks for as long as the kernel does:
+        # on the loop that stalls every session, so the scan must not run there.
+        (outbox / "kept.txt").write_text("kept", encoding="utf-8")
+        (outbox / "a_subdir").mkdir()
+        (outbox / ("ghp_" + "b" * 36)).write_text("x", encoding="utf-8")
+        loop_thread = threading.get_ident()
+        scan_threads: set[int] = set()
+        real_iterdir = Path.iterdir
+        real_stat = Path.stat
+
+        def tracked_iterdir(self):
+            if self == outbox:
+                scan_threads.add(threading.get_ident())
+            return real_iterdir(self)
+
+        def tracked_stat(self, *a, **kw):
+            if outbox in (self, self.parent):
+                scan_threads.add(threading.get_ident())
+            return real_stat(self, *a, **kw)
+
+        with (
+            patch.object(Path, "iterdir", tracked_iterdir),
+            patch.object(Path, "stat", tracked_stat),
+        ):
+            async with TestClient(TestServer(self._client_app())) as client:
+                resp = await client.get("/api/outbox")
+                files = (await resp.json())["files"]
+        assert [(f["filename"], f["size"]) for f in files] == [("kept.txt", len("kept"))]
+        assert scan_threads, "the listing never scanned the outbox"
+        assert loop_thread not in scan_threads
 
 
 class TestOutboxDownload:
