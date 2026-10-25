@@ -11,7 +11,7 @@ import type { StatusData, ChatSlot, TodoList, McpSessionReport } from '../types'
 import type { SessionColorMode, PaletteName, DefaultColorSetting, IntensityName } from '../utils/sessionColors'
 import { isChatPageSurface } from '../utils/channelOrigin'
 import { slotListHoldTest } from '../utils/slotListHold'
-import { MANUAL_UNREAD, _relayUnreadToParent, clearSharedUnreadIfCovered, drainUnreadKeys, hasUnreadRelayHold, heldOrphanTest, persistManualSentinels, persistSharedUnread, readCovers, relayUnreadIfHolding, relayedUnreadKeys, restoreUnreadBadges, restoreUnreadSince } from './dashboard/unread'
+import { MANUAL_UNREAD, _relayUnreadToParent, clearSharedUnreadIfCovered, drainUnreadKeys, dropQueuedSharedUnreadCoveredBy, hasUnreadRelayHold, heldOrphanTest, persistManualSentinels, persistSharedUnread, queueSharedUnread, readCovers, relayUnreadCount, relayUnreadIfHolding, relayedUnreadKeys, restoreUnreadBadges, restoreUnreadSince } from './dashboard/unread'
 
 export interface SubagentDetail {
   id: string; task: string; agent: string; turns: number; last_tool: string; startedAt: number
@@ -1502,8 +1502,11 @@ const dashboardSlice = createSlice({
         // ONE atomic shared write: badge presence and watermark are the same
         // record entry ('' = badge with no watermark, any relayed read
         // clears). The RMW keeps the newest instant, so publishing on every
-        // arrival converges.
-        persistSharedUnread({ [slot]: effectiveTs ?? '' }, [])
+        // arrival converges. The write is queued, not done here: arrivals
+        // coalesce into one write per SHARED_UNREAD_FLUSH_MS, and every read
+        // or drain in this window flushes the queue before it touches the
+        // record.
+        queueSharedUnread(slot, effectiveTs ?? '')
         const prev = state.unreadSince[slot]
         // `localTs` is the row's own server ts and guards THIS window only.
         // A row the gateway never saves (a permission row) publishes the
@@ -1526,7 +1529,10 @@ const dashboardSlice = createSlice({
         state.unreadSince[slot] = MANUAL_UNREAD
         persistManualSentinels(state.unreadSince)
       }
-      _relayUnreadToParent(JSON.stringify(relayedUnreadKeys(state)))
+      // Relayed on every arrival, not only when the badge is new: the hub
+      // zeroes an instance's count when the user selects it, and the next
+      // arrival is what lights the chip again. A standalone window skips it.
+      relayUnreadCount(state)
     },
     markSlotRead(state, action: PayloadAction<string>) {
       if (state.unreadSince?.[action.payload] !== undefined) {
@@ -1558,6 +1564,10 @@ const dashboardSlice = createSlice({
      *  a sibling window's trailing relay. */
     remoteSlotRead(state, action: PayloadAction<{ slot: string; readTs?: string }>) {
       const { slot, readTs } = action.payload
+      // The reader already cleared the shared record for what it read, so a
+      // queued arrival this read covers must not be written after that clear.
+      // Runs before the local guard below, which keeps this window's own badge.
+      dropQueuedSharedUnreadCoveredBy(slot, readTs)
       const since = state.unreadSince?.[slot]
       if (since !== undefined && !readCovers(readTs, since)) return
       // The local watermark accepted the relay — but this window's view can
