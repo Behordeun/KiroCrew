@@ -60,7 +60,6 @@
 2 src/kiro_crew/knowledge/watcher.py
 1 src/kiro_crew/mcp_discovery_probe.py
 1 src/kiro_crew/mcp_gateway/resolve_once.py
-1 src/kiro_crew/mcp_gateway/transport.py
 1 src/kiro_crew/providers/acp_runtime_start.py
 4 src/kiro_crew/slack/gateway_runtime/install_repair.py
 2 src/kiro_crew/slack/handler_runtime/commands.py
