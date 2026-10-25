@@ -320,7 +320,10 @@ Both targets bootstrap their toolchain first (`ensure-node.sh`,
 `ensure-python.sh`) and fall back to whatever is on `PATH` if that fails. The
 backend target refuses to build a venv from an interpreter older than 3.12,
 matching `pyproject.toml`'s `requires-python`, rather than letting dependency
-resolution backtrack or the package fail at import.
+resolution backtrack or the package fail at import. `ensure-python.sh` also
+skips any interpreter whose throwaway `--without-pip` venv cannot run python,
+such as a shared-libpython build behind a launcher wrapper (Toolbox's kirocrew
+Python), and moves on to the next candidate or mise.
 
 `make.ps1` resolves the same toolchain but installs none of it: the bootstrap
 scripts' install paths are `curl … | sh`, so on Windows it searches (`py`
