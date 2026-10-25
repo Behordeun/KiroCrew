@@ -9,6 +9,7 @@ import type { ChatMessage } from '../../types'
 import { emitSlotRead } from '../../lib/slotReadRelay'
 import { devLog, inspectorOn } from '../../dev/scrollInspector'
 import { armConfirmedCloseHold, markSlotRead, removeSlotOptimistic } from '../dashboardSlice'
+import { slotLastTsOf } from '../slotLastTs'
 import { mergePreservedPastes } from '../../utils/pasteTokens'
 import { errMessage, isMissingSlotError, type StatusRejection } from '../../utils/thunkError'
 import { i18nT } from '../../i18n/t'
@@ -212,7 +213,7 @@ export const switchSlot = createAsyncThunk<
     // relays. Optional-chained like the slotRun guard below: a partial
     // preloaded test state can omit the dashboard slice, and throwing here
     // would abort the switch fetch itself.
-    const _newestSlotTs = () => (getState() as RootState).dashboard?.slots?.find(s => s.key === key)?.last_ts
+    const _newestSlotTs = () => slotLastTsOf((getState() as RootState).dashboard, key)
     // Bounded to the page size so opening a long session costs one page, not the
     // whole chained transcript; `loadOlderMessages` walks back from the cursor
     // this fetch returns, and a window that misses rows this tab already holds
