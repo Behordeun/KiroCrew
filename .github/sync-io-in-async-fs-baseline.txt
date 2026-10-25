@@ -65,7 +65,6 @@
 4 src/kiro_crew/slack/gateway_runtime/install_repair.py
 2 src/kiro_crew/slack/handler_runtime/commands.py
 2 src/kiro_crew/slack/interactions.py
-1 src/kiro_crew/stt/decoder.py
 1 src/kiro_crew/stt/models.py
 1 src/kiro_crew/taskrunner_parts/plan_mode.py
 1 src/kiro_crew/taskrunner_parts/run_lifecycle.py
