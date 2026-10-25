@@ -11,7 +11,6 @@
 # Refresh (after fixing something listed here):
 #   python3 scripts/check_subprocess_encoding.py --update-baseline
 1 conftest.py
-1 src/kiro_crew/acp/client.py
 3 src/kiro_crew/apple_speech/__init__.py
 1 src/kiro_crew/apps/builtins/auto_improvement/backend/deps.py
 1 src/kiro_crew/apps/builtins/auto_improvement/profiles/github_repo/profile.py
