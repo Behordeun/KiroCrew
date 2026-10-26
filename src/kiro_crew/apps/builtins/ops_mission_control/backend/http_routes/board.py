@@ -37,6 +37,7 @@ from kiro_crew.apps.builtins.ops_mission_control.backend.models import (
 )
 from kiro_crew.apps.builtins.ops_mission_control.backend.providers import provider_config
 from kiro_crew.apps.builtins.ops_mission_control.backend.providers import webhook as webhook_mod
+from kiro_crew.apps.builtins.ops_mission_control.backend.registry import OpsProviderRegistry
 from kiro_crew.apps.builtins.ops_mission_control.backend.secrets import describe_secrets
 
 
@@ -214,7 +215,7 @@ async def _handle_state(
             "incidents": [inc.to_dict() for inc in open_incidents],
             "counts": counts,
             "blocked": slot_watch.blocked_summary(open_incidents),
-            "providers": [_provider_dict(p) for p in registry.catalog()],
+            "providers": await asyncio.to_thread(_provider_catalog, registry),
             "rotation": rotation_view,
             "ledger": ledger_stats,
             # Shared-ledger git sync. ``ledger_sync.status()`` was written to be
@@ -274,7 +275,7 @@ async def _handle_handover(
             slot_watch.reconcile, inc.incident_id, _slot_state(request, slot_key)
         )
 
-    providers = [_provider_dict(p) for p in registry.catalog()]
+    providers = await asyncio.to_thread(_provider_catalog, registry)
     # `describe()` was evaluated INLINE here as an argument — the `to_thread` moved
     # `handover.build` off the loop but the argument is computed before the call, so the
     # `gh` spawn inside `describe()` still ran on it. Both off-loop now.
@@ -412,6 +413,16 @@ async def _handle_signals(
     )
 
 
+def _provider_catalog(registry: OpsProviderRegistry) -> list[dict[str, Any]]:
+    """The provider list for the settings UI. Blocking: call through ``asyncio.to_thread``.
+
+    ``catalog()`` asks every adapter ``configured()``, which reads ``config.json`` and the
+    secret store, and ``_provider_dict`` then reads each provider's config and secret
+    status. ``/state`` is the dashboard's hot poll, so those reads must not run on the loop.
+    """
+    return [_provider_dict(p) for p in registry.catalog()]
+
+
 def _provider_dict(info: Any) -> dict[str, Any]:
     return {
         "id": info.id,
@@ -430,7 +441,8 @@ def _provider_dict(info: Any) -> dict[str, Any]:
 async def _handle_providers(
     request: web.Request, *, get_registry: RegistryLookup
 ) -> web.StreamResponse:
-    return web.json_response({"providers": [_provider_dict(p) for p in get_registry().catalog()]})
+    providers = await asyncio.to_thread(_provider_catalog, get_registry())
+    return web.json_response({"providers": providers})
 
 
 async def _handle_rotation(

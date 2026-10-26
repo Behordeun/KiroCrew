@@ -682,3 +682,102 @@ class TestIncidentLogPathIsResolvedOffTheLoop(unittest.IsolatedAsyncioTestCase):
                     status, payload = await self._get(inc.incident_id)
                 self.assertEqual(status, 200)
                 self.assertEqual(payload["log_path"], "")
+
+
+class _ThreadRecordingProvider:
+    """A signal adapter that records which thread ran ``configured()``.
+
+    The real adapters' ``configured()`` reads ``config.json`` and the secret store, so the
+    catalog that asks every one of them must be built off the event loop.
+    """
+
+    id = "probe"
+    display_name = "Probe"
+    config_fields = ("region",)
+    secret_fields = ("token",)
+
+    def __init__(self):
+        self.configured_threads: list[int] = []
+
+    def configured(self) -> bool:
+        import threading
+
+        self.configured_threads.append(threading.get_ident())
+        return True
+
+    async def poll(self):
+        return []
+
+
+class TestProviderCatalogIsBuiltOffTheLoop(unittest.IsolatedAsyncioTestCase):
+    """``/state``, ``/handover`` and ``/providers`` build the provider catalog in a thread.
+
+    ``registry.catalog()`` calls every adapter's ``configured()``, and ``_provider_dict``
+    then reads each provider's config and secret status: about ten adapters times one to
+    three file reads. ``/state`` is the dashboard's hot poll, so inline those reads ran on
+    the loop on every poll. Asserted by thread identity, so the test cannot be timing-flaky.
+    """
+
+    def setUp(self):
+        import os
+
+        from kiro_crew.apps.builtins.ops_mission_control.backend.http_routes import board
+        from kiro_crew.apps.builtins.ops_mission_control.backend.registry import (
+            OpsProviderRegistry,
+        )
+
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self.enterContext(mock.patch.dict(os.environ, {"KIROCREW_HOME": tmp}))
+        self.provider = _ThreadRecordingProvider()
+        registry = OpsProviderRegistry()
+        registry.register_signal_source(self.provider)
+        self.enterContext(mock.patch.object(routes, "is_app_enabled", return_value=True))
+        self.enterContext(mock.patch.object(routes, "get_registry", return_value=registry))
+        self.config_threads: list[int] = []
+        real_config = board.provider_config
+
+        def _recording_config(provider_id):
+            import threading
+
+            self.config_threads.append(threading.get_ident())
+            return real_config(provider_id)
+
+        self.enterContext(mock.patch.object(board, "provider_config", _recording_config))
+
+    async def _get(self, path: str) -> dict:
+        import threading
+
+        from aiohttp.test_utils import TestClient, TestServer
+
+        app = web.Application()
+        routes.register_routes(app)
+        async with TestClient(TestServer(app)) as client:
+            self.loop_thread = threading.get_ident()
+            resp = await client.get(f"/api/apps/ops-mission-control/{path}")
+            self.assertEqual(resp.status, 200)
+            return await resp.json()
+
+    def _assert_built_off_loop(self) -> None:
+        # Floors, so the assertion cannot pass by recording nothing.
+        self.assertTrue(self.provider.configured_threads, "configured() was never asked")
+        self.assertTrue(self.config_threads, "provider_config() was never read")
+        self.assertNotIn(self.loop_thread, self.provider.configured_threads)
+        self.assertNotIn(self.loop_thread, self.config_threads)
+
+    async def test_state_builds_the_catalog_off_the_loop(self):
+        payload = await self._get("state")
+        self.assertEqual([p["id"] for p in payload["providers"]], ["probe"])
+        self.assertTrue(payload["providers"][0]["configured"])
+        self._assert_built_off_loop()
+
+    async def test_handover_builds_the_catalog_off_the_loop(self):
+        payload = await self._get("handover")
+        self.assertIn("text", payload)
+        self._assert_built_off_loop()
+
+    async def test_providers_builds_the_catalog_off_the_loop(self):
+        payload = await self._get("providers")
+        self.assertEqual([p["id"] for p in payload["providers"]], ["probe"])
+        self.assertEqual(payload["providers"][0]["roles"], ["signal"])
+        self._assert_built_off_loop()
