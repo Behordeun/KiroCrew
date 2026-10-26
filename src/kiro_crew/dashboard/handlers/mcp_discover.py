@@ -390,7 +390,7 @@ async def _install_from_official(request: web.Request, server_id: str) -> web.Re
     enable_now = False
 
     async with _get_mcp_lock():
-        existing = _find_server_spec_anywhere(name)
+        existing = await asyncio.to_thread(_find_server_spec_anywhere, name)
         if existing is not None and not _same_core_spec(existing, spec):
             # Same name, different invocation — refuse to clobber the
             # user's existing server silently.
