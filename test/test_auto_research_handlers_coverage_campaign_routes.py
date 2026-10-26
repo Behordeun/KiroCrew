@@ -61,6 +61,37 @@ class TestReportAndNudge:
         assert _body(resp)["report"] == "# Key finding"
 
     @pytest.mark.asyncio
+    async def test_report_endpoint_reads_the_findings_file_off_the_event_loop(self, _isolate: Path):
+        """FINDINGS.md is the agent's cumulative report and grows every cycle,
+        so the path checks and the full read must run in a worker thread, not
+        on the event loop every session shares. The read is still redacted."""
+        import threading
+
+        cid = _campaign()
+        (h._campaign_dir(cid) / "FINDINGS.md").write_text("# Key finding")
+        loop_thread = threading.get_ident()
+        real_read = h.publication._read_report
+        seen_threads: list[int] = []
+
+        def _record(campaign_id: str) -> str:
+            seen_threads.append(threading.get_ident())
+            return real_read(campaign_id)
+
+        with (
+            mock.patch.object(h.publication, "_read_report", side_effect=_record),
+            mock.patch.object(
+                h.untrusted, "_redact_finding", side_effect=lambda d: {"v": d["v"] + "!"}
+            ) as redact,
+        ):
+            resp = await h._handle_report(
+                _mk("GET", f"campaigns/{cid}/report", app=_app(), match={"id": cid})
+            )
+        assert _body(resp)["report"] == "# Key finding!"
+        redact.assert_called_once_with({"v": "# Key finding"})
+        assert len(seen_threads) == 1
+        assert seen_threads[0] != loop_thread
+
+    @pytest.mark.asyncio
     async def test_nudge_is_refused_in_workflow_mode(self, _isolate: Path):
         cid = _campaign(execution_mode="workflow")
         resp = await h._handle_nudge(
