@@ -157,7 +157,7 @@ def read_queue(queue_path: str | Path) -> MochiQueue | None:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
-    except OSError as err:
+    except (OSError, UnicodeDecodeError) as err:
         logger.warning("[read_queue] Failed to read %s: %s", path, err)
         return None
 
