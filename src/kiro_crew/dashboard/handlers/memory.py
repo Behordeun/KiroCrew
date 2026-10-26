@@ -1052,9 +1052,10 @@ async def api_memory_stats(request: web.Request) -> web.Response:
     stats["embedding_provider"] = cfg.memory.embedding_provider
     stats["migrated"] = cfg.memory.migrated
     # Legacy markdown presence (diagnostics; migration is automatic at boot).
+    # Offload: it reads two markdown files, globs history/ and stats lessons.jsonl.
     from kiro_crew.memory import legacy_memory_present  # noqa: F811
 
-    stats["has_legacy_memory"] = legacy_memory_present()
+    stats["has_legacy_memory"] = await asyncio.to_thread(legacy_memory_present)
     return web.json_response(stats)
 
 
