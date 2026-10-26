@@ -1212,7 +1212,13 @@ async def api_memory_consolidate(request: web.Request) -> web.Response:
     if body_err is not None:
         return body_err
     assert body is not None  # read_bounded_json returns (dict, None) on success
-    key = body.get("key", "").strip()
+    key = body.get("key", "")
+    if not isinstance(key, str):
+        return web.json_response(
+            {"error": "session key must be a string", "code": "invalid_session_key"},
+            status=400,
+        )
+    key = key.strip()
     if not key:
         return web.json_response({"error": "session key required"}, status=400)
     from kiro_crew.context import store_of_session
