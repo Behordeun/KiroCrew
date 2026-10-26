@@ -307,7 +307,7 @@ def _plan(member: str, body: Any) -> tuple[Path, dict[str, Any], dict[str, Any],
     # The template's exclusions are restrictions, not kit: they join what the
     # file already excludes and are never dropped by a re-copy.
     excluded = [
-        *(t for t in new_spec.get("excludedTools", []) if isinstance(t, str)),
+        *(t for t in new_spec.get("excludedTools", []) or [] if isinstance(t, str)),
         *(t for t in source.get("excludedTools", []) or [] if isinstance(t, str)),
     ]
     if excluded:

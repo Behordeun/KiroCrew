@@ -552,3 +552,51 @@ async def test_the_worker_kit_routes_serve_the_owner(home, monkeypatch):
         assert (stale.status, (await stale.json())["code"]) == (409, "stale_revision")
         missing = await client.get("/k/peer")
         assert (await missing.json())["code"] == "not_a_mate_file"
+
+
+@pytest.mark.asyncio
+async def test_a_recopy_reads_a_null_exclusion_list_copied_from_the_template(home, monkeypatch):
+    """A template's ``excludedTools: null`` is copied verbatim at create; a re-copy reads it as none."""
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient, TestServer
+
+    from kiro_crew import mate_config
+    from kiro_crew.config import loader
+    from kiro_crew.dashboard.handlers import member_worker_kit as route
+
+    async def _owner(request, operation):
+        return None
+
+    user, mates = home
+    monkeypatch.setattr(loader, "publish_mate_agents", lambda names: None)
+    monkeypatch.setattr(route, "require_owner_dashboard_request", _owner)
+    (user / "release-bot.json").write_text(
+        json.dumps({**TEMPLATE, "excludedTools": None}), encoding="utf-8"
+    )
+    mate_config.write_mate_config("pixel", "release-bot")
+    assert _file(mates)["excludedTools"] is None
+
+    app = web.Application()
+    app["state"] = type("S", (), {"push_refresh": lambda self, what: None})()
+    for method, path in (("POST", "/preview"), ("PUT", "")):
+        app.router.add_route(method, "/k/{name}" + path, route.api_member_worker_kit)
+
+    async def _recopy(client) -> list[dict]:
+        preview = await client.post("/k/pixel/preview", json={"template": "release-bot"})
+        assert preview.status == 200
+        body = await preview.json()
+        put = await client.put(
+            "/k/pixel", json={"template": "release-bot", "revision": body["revision"]}
+        )
+        assert put.status == 200
+        return body["changes"]
+
+    async with TestClient(TestServer(app)) as client:
+        changes = await _recopy(client)
+        assert not [row for row in changes if row["section"] == "excludedTools"]
+
+        (user / "release-bot.json").write_text(
+            json.dumps({**TEMPLATE, "excludedTools": ["execute_bash"]}), encoding="utf-8"
+        )
+        await _recopy(client)
+    assert _file(mates)["excludedTools"] == ["execute_bash"]
