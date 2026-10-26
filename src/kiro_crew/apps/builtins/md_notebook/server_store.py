@@ -134,7 +134,7 @@ def _read_vaults_sync() -> list[dict[str, Any]]:
         with open(_vaults_json(), encoding="utf-8") as fh:
             data = json.load(fh)
         return data if isinstance(data, list) else []
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return []
 
 
@@ -308,7 +308,7 @@ def _read_settings_sync() -> dict[str, Any]:
             raw = json.load(fh)
     except FileNotFoundError:
         return out
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         logger.warning("md-notebook: unreadable settings, using defaults")
         return out
     if not isinstance(raw, dict):
