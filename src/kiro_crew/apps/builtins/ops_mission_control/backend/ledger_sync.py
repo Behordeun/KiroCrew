@@ -753,7 +753,8 @@ async def pull() -> tuple[bool, str]:
     fingerprint lookup. Returns ``(ok, detail)`` and never raises: sync is a
     convenience, and a dispatch cycle must not fail because a remote was unreachable.
     """
-    if not configured():
+    # Off the loop: each policy_store.get re-reads the keystone policy file.
+    if not await asyncio.to_thread(configured):
         return False, "ledger sync is not configured"
     ok, err = await _ensure_repo()
     if not ok:
@@ -887,7 +888,8 @@ async def _stage_and_commit(message: str, *, allow_empty_message_only: bool = Fa
 
 async def push(*, message: str = "update ops ledger") -> tuple[bool, str]:
     """Commit and push the local ledger. Call AFTER recording a lesson."""
-    if not configured():
+    # Off the loop for the reason given in `pull`.
+    if not await asyncio.to_thread(configured):
         return False, "ledger sync is not configured"
     ok, err = await _ensure_repo()
     if not ok:
@@ -1029,7 +1031,9 @@ async def sync_safely(*, direction: str = "pull") -> str:
     that resolves in milliseconds. The retry is bounded at one and only re-runs an
     idempotent git step, so it cannot mask a genuine fault.
     """
-    if not configured():
+    # Off the loop: `run_cycle` awaits this on every heartbeat, and the check re-reads the
+    # keystone policy file each time.
+    if not await asyncio.to_thread(configured):
         return ""
     last = ""
     for attempt in (1, 2):
