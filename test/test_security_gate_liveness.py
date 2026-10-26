@@ -635,7 +635,17 @@ def _url_payload_command(n: int) -> str:
 #: was relaxed.
 #: Raised by 3, from 33,720, for the ``kas-mcp-launch`` leaf on the read+write floor
 #: (``paths_lists``): one entry and its two-line note; the floor only grows.
-_PACKAGE_LINE_BUDGET = 33_723
+#: Raised again, from 33,723, for the self-protection-kill refusal diagnostic: the
+#: ``self-protection-kill`` floor reports the matched kill TARGET's offsets
+#: instead of the whole command. ``_is_self_kill`` is a boolean wrapper over a
+#: span-returning ``_self_kill_span`` (one walk, so verdict and span cannot
+#: disagree) with a local ``_locate`` closure that anchors the span on the product
+#: NAME inside the matched token -- best-effort location, so it points at the name
+#: only in an unquoted, single-occurrence, at/after-verb command and returns the
+#: whole command otherwise; ``deny_gate`` forwards it behind a length-preserving
+#: guard. No matcher, rule, threshold or verdict moved -- the decision is
+#: byte-identical and the change is diagnostics-only.
+_PACKAGE_LINE_BUDGET = 33_807
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
