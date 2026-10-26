@@ -504,7 +504,9 @@ async def _handle_review_revise_submit(payload: dict) -> None:
             )
             logger.exception("Review revision failed for %s in %s", caller, channel)
 
-    asyncio.create_task(_do_revise())
+    t = asyncio.create_task(_do_revise())
+    _orch._handler_tasks.add(t)
+    t.add_done_callback(_orch._handler_tasks.discard)
 
 
 register_view_handler("mc_review_revise_submit", _handle_review_revise_submit)
