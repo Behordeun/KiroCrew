@@ -20,7 +20,6 @@
 1 src/kiro_crew/apps/builtins/dev_fleet/worktree_ops.py
 2 src/kiro_crew/apps/builtins/dev_fleet/worktree_ops_pods.py
 3 src/kiro_crew/apps/builtins/dev_fleet/worktree_ops_sync.py
-2 src/kiro_crew/apps/builtins/ops_mission_control/backend/ledger_sync.py
 1 src/kiro_crew/apps/lifecycle_scripts.py
 7 src/kiro_crew/apps/registry.py
 9 src/kiro_crew/apps/registry_pipeline/checkout.py
