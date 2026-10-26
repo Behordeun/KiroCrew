@@ -346,8 +346,9 @@ def _build_app_context_from_info(
     name = app_info.get("name", "")
     manifest = app_info.get("manifest", {})
     permissions = approved_manifest_permissions(app_info)
+    # Created by ``_prepare_app_context_from_info`` off the loop before this runs.
     data_path = app_dir(name) / "data"
-    data_path.mkdir(parents=True, exist_ok=True)
+
     # Only an app that declares a ``routes`` hook is handed the gateway's
     # Application, and only because it already has it: the registry dispatches
     # the real ``web.Request`` into that app's handlers, so ``request.app`` is
@@ -379,6 +380,22 @@ def _build_app_context_from_info(
     if ctx.job is not None:
         register_sdk(ctx.job)
     return ctx
+
+
+async def _prepare_app_context_from_info(
+    app_info: dict[str, Any],
+    cron_service: Any = None,
+    broadcast_fn: Any = None,
+    spawn_impl: Any = None,
+) -> Any:
+    """Create the app's data dir off the loop, then build its context on it.
+
+    The ``mkdir`` is blocking disk I/O on the enable and boot paths, so it takes
+    a ``to_thread`` hop; the context is built back on the loop that owns it.
+    """
+    data_path = app_dir(app_info.get("name", "")) / "data"
+    await asyncio.to_thread(data_path.mkdir, parents=True, exist_ok=True)
+    return _build_app_context_from_info(app_info, cron_service, broadcast_fn, spawn_impl)
 
 
 async def on_app_enable(
@@ -465,7 +482,7 @@ async def on_app_enable(
     )
 
     # Build AppContext for this app (shared helper ensures consistency)
-    ctx = _build_app_context_from_info(app_info, cron_service, broadcast_fn, spawn_impl)
+    ctx = await _prepare_app_context_from_info(app_info, cron_service, broadcast_fn, spawn_impl)
 
     # Register routes if declared
     routes_hook = hooks.get("routes", "")
@@ -728,7 +745,7 @@ async def on_app_disable(
         success = await _lifecycle_dispatcher._invoke(
             app_name,
             shutdown_hook,
-            _lifecycle_dispatcher._build_context(app_info, phase="shutdown"),
+            await _lifecycle_dispatcher._prepare_context(app_info, phase="shutdown"),
             phase="shutdown",
         )
         result["hooks_shutdown"] = "ok" if success else "failed"
@@ -860,7 +877,7 @@ async def on_gateway_startup(
         if not hooks:
             continue
 
-        ctx = _build_app_context_from_info(app_info, cron_service, broadcast_fn, spawn_impl)
+        ctx = await _prepare_app_context_from_info(app_info, cron_service, broadcast_fn, spawn_impl)
 
         # Register routes (if declared)
         routes_hook = hooks.get("routes", "")
