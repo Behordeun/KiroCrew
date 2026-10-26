@@ -1562,7 +1562,7 @@ def test_a_block_this_module_cannot_close_draws_nothing():
     assert sm._MAX_CLOSERS >= 4
     boundary = sm._SENTINEL_BASE
     for source in ("plain", f"swallowed {boundary}", f"<div>\n{boundary}"):
-        assert sm._markdown_need(sm._PARSER.parse(source), boundary) == (False, None), source
+        assert sm._markdown_need(sm._parser().parse(source), boundary) == (False, None), source
 
 
 @pytest.mark.parametrize(
