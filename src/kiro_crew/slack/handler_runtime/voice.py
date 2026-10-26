@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         logger,
         read_config_text,
         resolve_configured_provider,
+        track_background_task,
         validated_config_string,
         validated_language_code,
     )
@@ -198,15 +199,17 @@ async def _reply_by_voice(
                 _eng = _vc.engines.get(session_key, _vc.default_engine)
                 _rate = _vc.rates.get(session_key, _vc.default_rate)
                 _pitch = _vc.pitches.get(session_key, _vc.default_pitch)
-                asyncio.create_task(
-                    _safe_voice_reply(
-                        slack,
-                        channel,
-                        reply_ts,
-                        final_text,
-                        voice_id=_vid,
-                        engine=_eng,
-                        rate=_rate,
-                        pitch=_pitch,
+                track_background_task(
+                    asyncio.create_task(
+                        _safe_voice_reply(
+                            slack,
+                            channel,
+                            reply_ts,
+                            final_text,
+                            voice_id=_vid,
+                            engine=_eng,
+                            rate=_rate,
+                            pitch=_pitch,
+                        )
                     )
                 )
