@@ -226,7 +226,7 @@ def _read_json(path: Path, default: Any) -> Any:
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
         logger.warning("meetings: unreadable JSON at %s — using default", path)
         return default
 
@@ -788,7 +788,9 @@ def read_agent_outputs(
             continue
         path = agent_output_path(meeting_id, fname, root)
         try:
-            outputs[agent_id] = path.read_text(encoding="utf-8") if path.is_file() else ""
+            outputs[agent_id] = (
+                path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+            )
         except OSError:
             outputs[agent_id] = ""
     return outputs
