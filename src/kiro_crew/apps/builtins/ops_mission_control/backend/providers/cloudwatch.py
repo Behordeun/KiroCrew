@@ -206,7 +206,8 @@ class CloudWatchSignalSource:
         return provider_enabled(PROVIDER_ID)
 
     async def poll(self) -> list[Signal]:
-        if not self.configured():
+        # configured() reads config.json, so it runs off the loop like the poll itself.
+        if not await asyncio.to_thread(self.configured):
             return []
         return await asyncio.to_thread(self._poll_sync)
 
@@ -402,7 +403,9 @@ class CloudWatchEvidenceSource:
         return provider_enabled(EVIDENCE_PROVIDER_ID) or provider_enabled(PROVIDER_ID)
 
     async def gather(self, signal: Signal, budget: EvidenceBudget) -> list[Evidence]:
-        if not self.configured() or signal.source != PROVIDER_ID:
+        # The source check is free, so it goes first; configured() reads config.json
+        # (twice when disabled), so it runs off the loop like the gather itself.
+        if signal.source != PROVIDER_ID or not await asyncio.to_thread(self.configured):
             return []
         return await asyncio.to_thread(self._gather_sync, signal, budget)
 
