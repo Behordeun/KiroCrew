@@ -679,14 +679,11 @@ def test_a_first_history_page_in_a_new_process_reads_the_page_not_the_file(tmp_p
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GET /api/memory/graph reads the whole semantic table: "
-    "memory_graph._build_memory_graph calls get_all_semantic() with no limit; "
-    "issue #24255",
-)
 def test_the_memory_graph_reads_a_bounded_number_of_semantic_rows(tmp_path):
-    from kiro_crew.dashboard.handlers.memory_graph import _build_memory_graph
+    from kiro_crew.dashboard.handlers.memory_graph import (
+        GRAPH_SEMANTIC_LIMIT,
+        _build_memory_graph,
+    )
     from kiro_crew.vector_memory import VectorMemoryStore
 
     store = VectorMemoryStore(db_path=tmp_path / "guard-vm.db")
@@ -713,7 +710,8 @@ def test_the_memory_graph_reads_a_bounded_number_of_semantic_rows(tmp_path):
             vector_store=store,
         )
         _build_memory_graph(mem, [])
-        assert fetched["rows"] <= 200, fetched
+        # The cap plus the one row read past it to tell a partial graph; a constant.
+        assert fetched["rows"] <= GRAPH_SEMANTIC_LIMIT + 1, fetched
     finally:
         close = getattr(store, "close", None)
         if callable(close):
