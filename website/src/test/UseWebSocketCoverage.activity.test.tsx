@@ -465,19 +465,6 @@ describe('useWebSocket frame router', () => {
     expect(dash().refreshTrigger).toBe(before + 2)
   })
 
-  it('tracks aggregate subagent status and per-agent text', () => {
-    const { ws } = mount()
-    act(() => {
-      ws.simulateMessage({ type: 'subagent_status', data: { slot: ACTIVE, running: 2, agents: [] } })
-      ws.simulateMessage({ type: 'subagent_text', data: { slot: ACTIVE, id: 'ag-1', text: 'progress' } })
-      // Neither arm dispatches without the identifying fields.
-      ws.simulateMessage({ type: 'subagent_status', data: { running: 5 } })
-      ws.simulateMessage({ type: 'subagent_text', data: { slot: ACTIVE, text: 'no id' } })
-    })
-    expect(dash().subagentRunning[ACTIVE]).toBe(2)
-    expect(dash().subagentText[ACTIVE]?.['ag-1']).toBe('progress')
-  })
-
   it('re-broadcasts every channel frame on one window event', () => {
     const { ws } = mount()
     const kinds: string[] = []
