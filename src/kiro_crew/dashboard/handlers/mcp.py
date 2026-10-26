@@ -1059,6 +1059,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _measure_progress,
         _probe_currency,
         _quarantine_verdicts,
+        _read_global_mcps,
         _record_probe_verdicts,
         _run_mcp_probe,
         _stamp_config_state,
