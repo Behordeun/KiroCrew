@@ -58,6 +58,7 @@ the Business Cloud API there is no 24-hour window, so
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import OrderedDict
@@ -666,12 +667,20 @@ class WhatsAppTransport(MessagingTransport):
             msg.person_origin = True
             await self._dispatch(msg)
         finally:
-            # The shared ingest hands path ownership to the caller.
-            cleanup(temp_paths)
             self.pending_verdicts.pop(id(msg), None)
             self.pending_operator.pop(id(msg), None)
             self.pending_message_id.pop(id(msg), None)
             self.pending_original.pop(id(msg), None)
+            # The shared ingest hands path ownership to the caller. Unlinked in a
+            # worker, last, so a cancel arriving during the await cannot skip the
+            # side-table pops above: TMPDIR is not guaranteed to be local disk.
+            if temp_paths:
+                try:
+                    await asyncio.to_thread(cleanup, temp_paths)
+                except RuntimeError:
+                    # The loop refused the work (executor already shut down), so no
+                    # worker owns it; deleting inline beats leaving decrypted media.
+                    cleanup(temp_paths)
 
     def _is_addressed(self, message: Any, chat: str, sender_is_operator: bool) -> bool:
         """Mentioned (@-tag of the linked account) or replying to the agent's

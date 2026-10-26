@@ -682,3 +682,70 @@ class TestPreIngestionOriginalIsCapturedForTheSpool:
         )
 
         assert seen == [("just words", 0)]
+
+
+@pytest.mark.asyncio
+class TestAttachmentCleanupRunsOffTheLoop:
+    """The post-dispatch unlink of ingested media must not run on the gateway loop.
+
+    TMPDIR is not guaranteed to be local disk, so each ``os.unlink`` can be a
+    round trip; every other channel hands the same cleanup to a worker thread.
+    """
+
+    async def test_cleanup_runs_in_a_worker_thread(self, harness, monkeypatch, tmp_path):
+        import threading
+
+        import kiro_crew.whatsapp.transport as mod
+        from kiro_crew.messaging.attachments import IngestResult
+        from kiro_crew.messaging.attachments import cleanup as real_cleanup
+
+        image = tmp_path / "kc-att" / "img-1.jpg"
+        image.parent.mkdir()
+        image.write_bytes(b"jpg")
+
+        async def fake_ingest(*a, **kw):
+            return IngestResult(image_paths=[str(image)])
+
+        cleanup_threads: list[int] = []
+
+        def recording_cleanup(paths):
+            cleanup_threads.append(threading.get_ident())
+            real_cleanup(paths)
+
+        monkeypatch.setattr(mod, "ingest_media", fake_ingest)
+        monkeypatch.setattr(mod, "cleanup", recording_cleanup)
+        loop_thread = threading.get_ident()
+
+        await harness.transport.receive(
+            event(chat=OWN_JID, sender=OWN_JID, from_me=True, text="look", image=True)
+        )
+
+        assert len(harness.dispatched) == 1
+        assert len(cleanup_threads) == 1, "receive did not clean up the ingested media"
+        assert cleanup_threads[0] != loop_thread, "attachment cleanup ran on the event loop"
+        assert not image.exists()
+        assert harness.transport.pending_original == {}
+
+    async def test_a_refused_offload_still_deletes_inline(self, harness, monkeypatch, tmp_path):
+        """A loop whose executor is gone must not leave decrypted media on disk."""
+        import kiro_crew.whatsapp.transport as mod
+        from kiro_crew.messaging.attachments import IngestResult
+
+        image = tmp_path / "kc-att" / "img-1.jpg"
+        image.parent.mkdir()
+        image.write_bytes(b"jpg")
+
+        async def fake_ingest(*a, **kw):
+            return IngestResult(image_paths=[str(image)])
+
+        async def refused(*a, **kw):
+            raise RuntimeError("cannot schedule new futures after shutdown")
+
+        monkeypatch.setattr(mod, "ingest_media", fake_ingest)
+        monkeypatch.setattr(mod.asyncio, "to_thread", refused)
+
+        await harness.transport.receive(
+            event(chat=OWN_JID, sender=OWN_JID, from_me=True, text="look", image=True)
+        )
+
+        assert not image.exists(), "a refused offload left the temp file behind"
