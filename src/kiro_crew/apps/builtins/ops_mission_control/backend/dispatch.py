@@ -770,7 +770,7 @@ async def run_cycle(
     limit = (
         max_claims
         if max_claims is not None
-        else _config_int(_CONFIG_MAX_CLAIMS, DEFAULT_MAX_CLAIMS_PER_CYCLE)
+        else await asyncio.to_thread(_config_int, _CONFIG_MAX_CLAIMS, DEFAULT_MAX_CLAIMS_PER_CYCLE)
     )
 
     claimed: list[ClaimedIncident] = []
@@ -853,14 +853,16 @@ async def run_cycle(
     # absence means anything at all.
     verifications = await asyncio.to_thread(verify_pending_actions, signals, registry.poll_health())
 
-    stale_after = _config_int(_CONFIG_STALE_AFTER, DEFAULT_STALE_AFTER_SECS)
+    stale_after = await asyncio.to_thread(
+        _config_int, _CONFIG_STALE_AFTER, DEFAULT_STALE_AFTER_SECS
+    )
     try:
         released = await asyncio.to_thread(
             store.sweep_stale,
             stale_after,
             # 0 / unset means "derive from the working threshold", which is what
             # ``sweep_stale`` does for ``None``.
-            _config_int(_CONFIG_NEEDS_HUMAN_STALE_AFTER, 0) or None,
+            (await asyncio.to_thread(_config_int, _CONFIG_NEEDS_HUMAN_STALE_AFTER, 0)) or None,
         )
     except OSError:
         # Same policy and same breadth as the proposal expiry above: any
