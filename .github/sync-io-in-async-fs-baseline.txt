@@ -48,7 +48,6 @@
 1 src/kiro_crew/dashboard/messaging_api/teams_settings.py
 1 src/kiro_crew/dashboard/messaging_api/webex_settings.py
 1 src/kiro_crew/dashboard/server.py
-1 src/kiro_crew/eval/runner.py
 2 src/kiro_crew/frontend.py
 1 src/kiro_crew/knowledge/artifact_ingest.py
 3 src/kiro_crew/knowledge/folder_watcher.py
