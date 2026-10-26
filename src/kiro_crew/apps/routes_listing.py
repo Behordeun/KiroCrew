@@ -157,7 +157,7 @@ def _provider_is_configured(app_name: str, pp: dict[str, Any]) -> bool:
     cfg_path = apps_dir() / app_name / "data" / config_file
     try:
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
+    except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError):
         return False
     return bool(isinstance(cfg, dict) and str(cfg.get(field_name, "")).strip())
 
