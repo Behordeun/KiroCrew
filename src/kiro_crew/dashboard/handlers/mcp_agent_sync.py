@@ -144,7 +144,9 @@ def _sync_mcp_to_agent_unlocked(name: str, enabled: bool, *, remove: bool = Fals
                     changed = True
                 else:
                     return
-            except (FileNotFoundError, json.JSONDecodeError):
+            # The user's hand-edited file: unreadable (permissions) or not UTF-8
+            # (a legacy code-page save) means no spec to copy, same as absent.
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                 return
         # Strip a governed `autoApprove` from the entry REGARDLESS of whether the
         # alias was just copied or already existed: a re-enable, or a spec written
@@ -308,7 +310,7 @@ def _sync_mcp_to_agent_batch_unlocked(names: list[str], enabled: bool) -> None:
         mcp_servers = cfg.setdefault("mcpServers", {})
         try:
             gdata = loads_mcp_config(_GLOBAL_MCP_JSON.read_text(encoding="utf-8"), jsonc=True)
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):  # see the single path
             gdata = {}
         granted_refs: list[str] = []
         withheld_refs: list[str] = []
