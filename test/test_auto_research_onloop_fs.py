@@ -43,6 +43,7 @@ from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
 from kiro_crew.apps.builtins.auto_research import handlers as h
+from kiro_crew.apps.builtins.auto_research.campaign import publication
 from kiro_crew.apps.builtins.auto_research.campaign import workflow_mode as wm
 
 BASE = "/api/apps/auto-research"
@@ -493,3 +494,29 @@ class TestWorkflowRunFileOffLoop:
         cancel.assert_awaited_once_with("run-7")  # the written id round-trips
         assert set(calls) == {"_write_workflow_run_id", "_read_workflow_run_id"}
         assert all(t != loop_thread for ts in calls.values() for t in ts), calls
+
+
+class TestKnowledgeCopyUriOffLoop:
+    """``_write_knowledge_copy`` must resolve the URI it returns in a worker.
+
+    The write already runs in a worker, but the ``Path.resolve()`` behind
+    ``_knowledge_uri`` sits in a sync helper, where the static ratchet above
+    cannot see it; this records the thread the resolve actually ran on.
+    """
+
+    @pytest.mark.asyncio
+    async def test_uri_resolve_runs_off_the_event_loop(
+        self, _isolate: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        d = h.RESEARCH_DIR / "aaaa0008"
+        d.mkdir(parents=True)
+        copy = publication._knowledge_copy(d)
+        expected = str(copy.resolve())
+        resolves: list[str] = []
+        _spy(monkeypatch, "resolve", copy, resolves)
+
+        uri = await publication._write_knowledge_copy(d, "# findings\n")
+
+        assert uri == expected, "the returned URI must be unchanged"
+        assert copy.read_text() == "# findings\n", "the scrubbed copy must still be written"
+        assert resolves and all(t != "MainThread" for t in resolves), resolves
