@@ -628,7 +628,9 @@ async def ensure_local_transcript(
         # rather than dropped: we cannot promise the conversation's history.
         raise TranscriptUnavailable(f"slot id does not map into the sessions dir: {stem!r}")
 
-    if _probe_local_entry(path):
+    # The probe opens and fstats the entry, so it runs off the event loop like every
+    # other filesystem step here; its refusals propagate out of the thread unchanged.
+    if await asyncio.to_thread(_probe_local_entry, path):
         # This task already served this conversation. The local copy leads S3 by
         # up to one backup interval, so re-fetching could only lose turns.
         logger.debug("transcript fetch: sid=%s already on disk; not re-fetching", stem)
