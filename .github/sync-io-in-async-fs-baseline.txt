@@ -25,7 +25,7 @@
 7 src/kiro_crew/apps/registry.py
 9 src/kiro_crew/apps/registry_pipeline/checkout.py
 4 src/kiro_crew/apps/registry_pipeline/indexes.py
-2 src/kiro_crew/apps/registry_pipeline/install_clone.py
+1 src/kiro_crew/apps/registry_pipeline/install_clone.py
 1 src/kiro_crew/apps/registry_pipeline/recovery.py
 1 src/kiro_crew/autonudge_service/firing.py
 2 src/kiro_crew/cli_commands_eval.py
