@@ -119,6 +119,8 @@ export const WS_SILENCE_CHECK_MS = 5_000
 export const WS_SILENCE_MAX_MS = 300_000
 
 /** Single multiplexed WebSocket replacing all SSE + polling connections. */
+const getDashboardState = () => store.getState().dashboard
+
 export function useWebSocket() {
   const dispatch = useAppDispatch()
   const queryClient = useQueryClient()
@@ -141,7 +143,7 @@ export function useWebSocket() {
   const syncWorkflowRuns = useWorkflowRunReconcile(dispatch, queryClient)
   const buffers = useStreamBuffers({ dispatch, socket, onActiveSlotFlushed: voice.speakStreamedDelta })
   const slotList = useSlotListSync(dispatch, queryClient, buffers)
-  const bundle = useBundleReload(dispatch)
+  const bundle = useBundleReload(dispatch, getDashboardState)
   const chatStream = useChatStream({ dispatch, buffers, voice, reconnectingRef })
   const turnCompletion = useTurnCompletion({ dispatch, queryClient, reconnectingRef })
 
