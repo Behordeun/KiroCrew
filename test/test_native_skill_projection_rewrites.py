@@ -1307,7 +1307,13 @@ def test_the_legacy_lease_scan_takes_the_older_builds_publication_lock(native_tr
     (legacy_leases / f"{stem}.hold").write_text("")
     lock_path = projection._legacy_lock_path(agents)
     lock_path.write_bytes(b"")
+    # The budget is also how long the scan waits for that lock, so a short one
+    # keeps the held case quick. The scan's own deadline is wall-clock time,
+    # though, and a worker that stalls past it mid-scan makes the lock-free pass
+    # answer uncertain too. Freeze the clock the deadline reads; the lock wait
+    # keeps the real one, so the held case is still refused on the lock alone.
     monkeypatch.setattr(projection, "_PROJECTION_LEASE_SCAN_MAX_SECONDS", 0.2)
+    _hold_the_prune_clock(monkeypatch)
 
     with projection.platform_compat.open_lock_file(lock_path) as lock_fd:
         with projection.platform_compat.file_lock(lock_fd, exclusive=True, wait=False):
