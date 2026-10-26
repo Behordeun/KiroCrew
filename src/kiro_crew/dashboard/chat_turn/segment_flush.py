@@ -668,6 +668,9 @@ def _flush_segment(
     turn, and the emitter records nothing, which is correct: a segment flushed
     outside a turn has no turn or model call to name.
     """
+    # This flush ends the segment a permission request owed a cut for; paying
+    # that cut on the append below would save the same text twice.
+    slot._owed_segment_cut = None
 
     # Remove trailing chunk messages (they belong to this segment).
     # Also pull aside any stop_event interleaved with this segment's chunks

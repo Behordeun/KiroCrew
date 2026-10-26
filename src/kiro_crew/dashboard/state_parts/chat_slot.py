@@ -302,6 +302,7 @@ class _ChatSlot:
         "_last_turn_awaiting_permission",
         "_last_turn_children_announced",
         "_steer_segment_cut",
+        "_owed_segment_cut",
         "_native_subagent_tracker",
         "_native_subagent_output",
         "_steer_confirmed",
@@ -572,6 +573,7 @@ class _ChatSlot:
     _compaction_fail_streak: int
     _compaction_fail_cooldown_until: float
     _steer_segment_cut: Callable[[], None] | None
+    _owed_segment_cut: Callable[[], None] | None
     _native_subagent_tracker: dict[str, dict[str, Any]]
     _native_subagent_output: dict[str, list[str]]
     _steer_confirmed: set[str]

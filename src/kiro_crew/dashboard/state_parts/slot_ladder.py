@@ -305,6 +305,9 @@ def init_ladder_fields(self: _ChatSlot) -> None:
     # chunk entries above it, which _flush_segment's trailing-run walk could
     # then never reclaim). None when idle.
     self._steer_segment_cut = None
+    # A segment cut a permission request owes: paid by ``append`` before the
+    # next durable row, dropped when the request lands none. None when idle.
+    self._owed_segment_cut = None
     # Native kiro-cli subagents run inside the parent ACP turn. Keep their
     # live and terminal state on the slot so reconnects can hydrate cards.
     self._native_subagent_tracker = {}
