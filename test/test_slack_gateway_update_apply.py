@@ -467,6 +467,97 @@ class TestBrazilInstallAndDeps:
                     asyncio.run(orch._check_console_script())
         spawn.assert_awaited_once()
 
+    def test_check_console_script_probes_the_checkout_off_the_event_loop(self, tmp_path):
+        """The startup probe stats and reads the checkout, which may be on a network
+        mount, so none of it may run on the loop thread that serves every session."""
+        (tmp_path / ".install-method").write_text("pip")
+        venv_py = gw.dep_sync.project_venv_python(tmp_path)
+        script = gw.dep_sync.console_script_path(venv_py)
+        script.parent.mkdir(parents=True)
+        script.write_text("#!/bin/sh\n")
+        script.chmod(0o755)
+        orch = _make_orchestrator()
+        seen: dict[str, int] = {}
+        real_is_brazil = GatewayOrchestrator._is_brazil_install
+        real_read_text = Path.read_text
+        real_access = gw.os.access
+        read_kwargs: dict = {}
+
+        def is_brazil(proj):
+            seen["is_brazil"] = threading.get_ident()
+            return real_is_brazil(proj)
+
+        def read_text(self_path, *args, **kwargs):
+            if self_path.name == ".install-method":
+                seen["read_method"] = threading.get_ident()
+                read_kwargs.update(kwargs)
+            return real_read_text(self_path, *args, **kwargs)
+
+        def access(path, mode, *args, **kwargs):
+            if Path(path) == script:
+                seen["access"] = threading.get_ident()
+            return real_access(path, mode, *args, **kwargs)
+
+        async def run() -> int:
+            loop_thread = threading.get_ident()
+            await orch._check_console_script()
+            return loop_thread
+
+        with (
+            patch.dict("os.environ", {"KIROCREW_PROJECT_DIR": str(tmp_path)}, clear=False),
+            patch.object(GatewayOrchestrator, "_is_brazil_install", side_effect=is_brazil),
+            patch.object(Path, "read_text", read_text),
+            patch.object(gw.os, "access", side_effect=access),
+            patch.object(gw, "sandboxed_spawn_argv_async", new_callable=AsyncMock) as spawn,
+        ):
+            loop_thread = asyncio.run(run())
+
+        # The script is present and executable, so this is the healthy no-op path.
+        spawn.assert_not_awaited()
+        assert set(seen) == {"is_brazil", "read_method", "access"}
+        assert all(ident != loop_thread for ident in seen.values()), seen
+        # The marker is ASCII we wrote; decode it as such, not in the locale code page.
+        assert read_kwargs.get("encoding") == "utf-8"
+
+    def test_check_console_script_resolves_the_repair_module_off_the_event_loop(self, tmp_path):
+        """On the repair path the dep_sync module path is resolved in the probe's
+        thread too, not on the loop before the sandboxed spawn."""
+        (tmp_path / ".install-method").write_text("pip")
+        gw.dep_sync.project_venv_python(tmp_path).parent.mkdir(parents=True)
+        orch = _make_orchestrator()
+        dep_sync_file = Path(gw.dep_sync.__file__)
+        real_resolve = Path.resolve
+        seen: list[int] = []
+
+        def resolve(self_path, *args, **kwargs):
+            if self_path == dep_sync_file:
+                seen.append(threading.get_ident())
+            return real_resolve(self_path, *args, **kwargs)
+
+        async def fake_prepare(cmd, **kwargs):
+            return list(cmd), {}, None
+
+        async def run() -> int:
+            loop_thread = threading.get_ident()
+            await orch._check_console_script()
+            return loop_thread
+
+        with (
+            patch.dict("os.environ", {"KIROCREW_PROJECT_DIR": str(tmp_path)}, clear=False),
+            patch.object(Path, "resolve", resolve),
+            patch.object(gw, "sandboxed_spawn_argv_async", side_effect=fake_prepare),
+            patch.object(
+                gw,
+                "create_subprocess_limited",
+                new_callable=AsyncMock,
+                return_value=_fake_async_proc(),
+            ) as spawn,
+        ):
+            loop_thread = asyncio.run(run())
+
+        spawn.assert_awaited_once()
+        assert seen and all(ident != loop_thread for ident in seen), seen
+
     def test_check_console_script_skipped_when_sandbox_unavailable(self, tmp_path):
         """Fail CLOSED: no sandbox backend means the repair does NOT run.
 
