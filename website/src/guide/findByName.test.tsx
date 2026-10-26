@@ -7,7 +7,7 @@
  * happy-dom lays nothing out, so every element is given a box here; what is
  * hidden is hidden the way the page hides it (not rendered, or `hidden`).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import {
@@ -564,6 +564,29 @@ describe('probeForName', () => {
     expect(document.activeElement).toBe(mine)
     expect(moved).toEqual([])
     expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it.each([
+    ['a popover', <Popover key="p"><PopoverTrigger asChild><button>Filters</button></PopoverTrigger><PopoverContent><button>Apply filter</button></PopoverContent></Popover>, 'Apply filter'],
+    ['a menu', <Menu key="m" label="More actions"><DropdownMenuItem>Export</DropdownMenuItem></Menu>, 'Export'],
+    ['a local tab', <LocalTabs key="t" panes={{ General: <button>Save</button>, Advanced: <button>Purge cache</button> }} />, 'Purge cache'],
+  ])('finds inside %s and puts it back when its settle wait ends before the page renders', async (_, page, label) => {
+    render(page)
+    // A busy machine: the settle timer comes due before React runs the task
+    // that renders the open (or the restore). Modelled by ending each settle
+    // wait at the next microtask instead of on the clock.
+    const SETTLE = 7
+    const realSetTimeout = globalThis.setTimeout
+    const timers = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms !== SETTLE) return realSetTimeout(fn, ms, ...rest)
+      queueMicrotask(fn)
+      return 0
+    }) as typeof setTimeout)
+    // Restored even when the test times out, which a finally would not reach.
+    onTestFinished(() => timers.mockRestore())
+    expect((await probe({ label }, { settleMs: SETTLE })).result).toBe('found')
+    expect(document.querySelector('[role="dialog"], [role="menu"]')).toBeNull()
+    if (label === 'Purge cache') expect(selectedTab()).toBe('General')
   })
 
   it('keeps what it opened from being dismissed by a focus change outside it, until the person acts', async () => {

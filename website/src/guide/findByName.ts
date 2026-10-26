@@ -45,6 +45,7 @@
  * acted since the step began. A container no primitive registered is never
  * opened: the guide asks the person to open it.
  */
+import { flushSync } from 'react-dom'
 import { i18nT } from '../i18n/t'
 import { GUIDE_PLANS } from '../uiLocations/guidePlans.gen'
 import { closestRegistered, registeredId } from '../uiLocations/targetRegistry'
@@ -598,7 +599,12 @@ async function probeOnce(q: FindQuery, opts: ProbeOptions): Promise<ProbeResult>
       const before = new Set(probeTargets().map(e => e.id))
       const saved = save(el)
       opened += 1
-      const restore = entry.open()
+      // Rendered before the settle wait starts, not when React next gets a
+      // task: on a busy machine the wait can end first, and the probe would
+      // then search a closed container and skip a restore that the open
+      // reaches the page after.
+      let restore: () => void = () => {}
+      flushSync(() => { restore = entry.open() })
       // Waited out even when aborted: the restore reads the primitive's
       // state, so what the open did must have rendered first.
       await sleep(settleMs)
@@ -614,7 +620,7 @@ async function probeOnce(q: FindQuery, opts: ProbeOptions): Promise<ProbeResult>
         }
       }
       if (interrupted) return { result: 'none' }
-      restore()
+      flushSync(restore)
       await sleep(settleMs)
       if (interrupted) return { result: 'none' }
       restoreView(saved)
