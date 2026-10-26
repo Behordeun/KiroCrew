@@ -2,8 +2,8 @@
 
 Datadog keys reach only the configured Datadog host, the CloudWatch console link cannot be
 redirected, PagerDuty abstains without an identity instead of borrowing a teammate's shift, a
-CloudWatch fault or a capped poll is never read as a quiet estate, and a timed-out ``gh`` is
-reaped. The provider seam itself (registry, fan-out, redaction) is in ``test_providers.py``.
+CloudWatch fault or a capped poll is never read as a quiet estate, the GitHub Issues adapter
+reads its config off the event loop, and a timed-out ``gh`` is reaped. The provider seam itself (registry, fan-out, redaction) is in ``test_providers.py``.
 """
 
 import asyncio
@@ -700,6 +700,135 @@ class TestPollersMarkTruncationSoAbsenceIsNotRecovery(unittest.IsolatedAsyncioTe
         with mock.patch.object(github_issues, "_run_gh", side_effect=_fake_under):
             result = await github_issues.GitHubIssuesAdapter().poll()
         self.assertNotIsInstance(result, TruncatedSignals)
+
+
+class TestGitHubIssuesReadsConfigOffTheLoop(unittest.IsolatedAsyncioTestCase):
+    """``poll`` and ``execute`` must not read config or walk PATH on the event loop.
+
+    ``configured()`` reads ``config.json`` twice and runs ``shutil.which("gh")``, and
+    ``poll`` then read ``repo`` and ``labels`` with two more config reads, all inline in
+    the coroutine on every heartbeat. These record the thread each read runs on and
+    require it is not the loop's.
+    """
+
+    def setUp(self) -> None:
+        import threading
+
+        from kiro_crew.apps.builtins.ops_mission_control.backend import providers
+        from kiro_crew.apps.builtins.ops_mission_control.backend.providers import (
+            github_issues,
+        )
+
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.read_threads: list[int] = []
+        self.gh_calls: list[list[str]] = []
+        real_read = providers.read_config
+
+        def _recording_read() -> dict[str, Any]:
+            self.read_threads.append(threading.get_ident())
+            return real_read()
+
+        def _recording_which() -> bool:
+            self.read_threads.append(threading.get_ident())
+            return True
+
+        async def _fake_gh(args: list[str]) -> tuple[int, str, str]:
+            self.gh_calls.append(args)
+            return 0, "[]", ""
+
+        for patcher in (
+            mock.patch.dict(os.environ, {"KIROCREW_HOME": self.tmp}),
+            mock.patch.object(providers, "read_config", _recording_read),
+            mock.patch.object(github_issues, "_gh_available", _recording_which),
+            mock.patch.object(github_issues, "_run_gh", _fake_gh),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _configure(self, enabled: bool) -> None:
+        from kiro_crew.apps.builtins.ops_mission_control.backend.providers import (
+            set_top_level,
+        )
+
+        set_top_level(
+            "providers",
+            {"github-issues": {"enabled": enabled, "repo": "o/r", "labels": ["incident"]}},
+        )
+        # The setup write ran on this thread; only the adapter's own reads count.
+        self.read_threads.clear()
+
+    def _assert_off_loop(self) -> None:
+        import threading
+
+        self.assertTrue(self.read_threads, "the adapter read no config at all")
+        self.assertNotIn(threading.get_ident(), self.read_threads)
+
+    async def test_poll_reads_the_config_off_the_loop(self):
+        from kiro_crew.apps.builtins.ops_mission_control.backend.providers import (
+            github_issues,
+        )
+
+        self._configure(enabled=True)
+        result = await github_issues.GitHubIssuesAdapter().poll()
+
+        self.assertEqual(result, [])
+        self._assert_off_loop()
+        self.assertEqual(len(self.gh_calls), 1)
+        args = self.gh_calls[0]
+        self.assertEqual(args[args.index("--repo") + 1], "o/r")
+        self.assertEqual(args[args.index("--label") + 1], "incident")
+
+    async def test_unconfigured_poll_reads_off_the_loop_and_runs_no_gh(self):
+        from kiro_crew.apps.builtins.ops_mission_control.backend.providers import (
+            github_issues,
+        )
+
+        self._configure(enabled=False)
+        result = await github_issues.GitHubIssuesAdapter().poll()
+
+        self.assertEqual(result, [])
+        self._assert_off_loop()
+        self.assertEqual(self.gh_calls, [])
+
+    async def test_execute_reads_the_config_off_the_loop(self):
+        from kiro_crew.apps.builtins.ops_mission_control.backend.models import (
+            ACTION_COMMENT,
+        )
+        from kiro_crew.apps.builtins.ops_mission_control.backend.providers import (
+            github_issues,
+        )
+
+        self._configure(enabled=True)
+        signal = mock.Mock(labels={"repo": "o/r", "issue_number": "7"})
+        result = await github_issues.GitHubIssuesAdapter().execute(
+            signal, ACTION_COMMENT, {"note": "on it"}
+        )
+
+        self.assertTrue(result.ok, result.error)
+        self._assert_off_loop()
+        self.assertEqual(
+            self.gh_calls, [["issue", "comment", "7", "--repo", "o/r", "--body", "on it"]]
+        )
+
+    async def test_unconfigured_execute_reads_off_the_loop_and_runs_no_gh(self):
+        from kiro_crew.apps.builtins.ops_mission_control.backend.models import (
+            ACTION_COMMENT,
+        )
+        from kiro_crew.apps.builtins.ops_mission_control.backend.providers import (
+            github_issues,
+        )
+
+        self._configure(enabled=False)
+        signal = mock.Mock(labels={"repo": "o/r", "issue_number": "7"})
+        result = await github_issues.GitHubIssuesAdapter().execute(
+            signal, ACTION_COMMENT, {"note": "on it"}
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "github-issues is not configured")
+        self._assert_off_loop()
+        self.assertEqual(self.gh_calls, [])
 
 
 class TestRunGhTimeoutReapsChild(unittest.IsolatedAsyncioTestCase):
