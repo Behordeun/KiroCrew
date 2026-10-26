@@ -259,7 +259,7 @@ def _mcp_scopes(name: str) -> dict[str, str]:
             raw = path.read_text(encoding="utf-8")
         except FileNotFoundError:
             continue
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             out[label] = _MCP_SCOPE_UNREADABLE
             continue
         try:
