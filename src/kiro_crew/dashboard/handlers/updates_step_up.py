@@ -135,7 +135,9 @@ async def _arm_packaged_app(request: web.Request) -> web.Response:
                 {"error": "version must be a string", "code": "invalid_version"}, status=400
             )
         version = (raw or "").strip()
-    if version and _downgrade_target_below_min_version(version, _release_channel()):
+    if version and _downgrade_target_below_min_version(
+        version, await asyncio.to_thread(_release_channel)
+    ):
         error = "selected release is below the required minimum version"
         await _audit_update_event(
             request, operation="update.arm", outcome="denied", error=error, resources=f"v{version}"
@@ -379,7 +381,9 @@ async def api_update_arm_status(request: web.Request) -> web.Response:
     # dropped, so the card does not flicker back on the next poll.
     if resolve_provider() is not None or (
         req.target_version
-        and _downgrade_target_below_min_version(req.target_version, _release_channel())
+        and _downgrade_target_below_min_version(
+            req.target_version, await asyncio.to_thread(_release_channel)
+        )
     ):
         await asyncio.to_thread(requests.clear)
         await _audit_update_event(
