@@ -263,9 +263,13 @@ class PagerDutyAdapter:
         return frozenset({ACTION_ACK, ACTION_RESOLVE, ACTION_COMMENT, ACTION_SILENCE})
 
     async def execute(self, signal: Signal, action: str, payload: dict[str, Any]) -> ActionResult:
-        if not self.configured():
+        # Both read config.json (and configured() the secret store), so one hop off the loop.
+        configured, actions = await asyncio.to_thread(
+            lambda: (self.configured(), self.supported_actions())
+        )
+        if not configured:
             return ActionResult(ok=False, action=action, error="pagerduty is not configured")
-        if action not in self.supported_actions():
+        if action not in actions:
             return ActionResult(
                 ok=False,
                 action=action,

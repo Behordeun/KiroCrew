@@ -895,3 +895,123 @@ class TestRunGhTimeoutReapsChild(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(HangProc.kill_calls, 1)
         self.assertEqual(HangProc.communicate_calls, 2)
         self.assertEqual(HangProc.wait_calls, 0)
+
+
+class TestPagerDutyExecuteReadsConfigOffTheLoop(unittest.IsolatedAsyncioTestCase):
+    """``execute`` must not read config or the secret store on the event loop.
+
+    Before every ack, resolve, note or snooze, ``execute`` ran ``configured()`` (a
+    ``config.json`` read and a secret-store check) and ``supported_actions()`` (another
+    ``config.json`` read) inline in the coroutine. The request itself already runs in
+    ``asyncio.to_thread``; these record the thread each read runs on and require it is
+    not the loop's.
+    """
+
+    def setUp(self) -> None:
+        import threading
+
+        from kiro_crew.apps.builtins.ops_mission_control.backend import providers
+        from kiro_crew.apps.builtins.ops_mission_control.backend.providers import pagerduty
+
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.read_threads: list[int] = []
+        self.requests: list[tuple[str, str, Any]] = []
+        self.has_token = True
+        real_read = providers.read_config
+
+        def _recording_read() -> dict[str, Any]:
+            self.read_threads.append(threading.get_ident())
+            return real_read()
+
+        def _recording_has_secrets(provider_id: str, required: tuple[str, ...]) -> bool:
+            self.read_threads.append(threading.get_ident())
+            return self.has_token
+
+        def _fake_request(url: str, method: str = "GET", headers=None, body=None, **_kw):
+            self.requests.append((method, url, body))
+            return {}
+
+        for patcher in (
+            mock.patch.dict(os.environ, {"KIROCREW_HOME": self.tmp}),
+            mock.patch.object(providers, "read_config", _recording_read),
+            mock.patch.object(pagerduty, "has_secrets", _recording_has_secrets),
+            mock.patch.object(pagerduty, "get_secret", return_value="tok"),
+            mock.patch.object(pagerduty, "request_json", _fake_request),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _configure(self, *, enabled: bool = True, from_email: str = "me@example.com") -> None:
+        from kiro_crew.apps.builtins.ops_mission_control.backend.providers import (
+            set_top_level,
+        )
+
+        set_top_level("providers", {"pagerduty": {"enabled": enabled, "from_email": from_email}})
+        # The setup write ran on this thread; only the adapter's own reads count.
+        self.read_threads.clear()
+
+    def _assert_off_loop(self) -> None:
+        import threading
+
+        self.assertTrue(self.read_threads, "the adapter read no config at all")
+        self.assertNotIn(threading.get_ident(), self.read_threads)
+
+    async def _execute(self, action: str, labels: dict[str, str] | None = None):
+        from kiro_crew.apps.builtins.ops_mission_control.backend.providers import pagerduty
+
+        signal = mock.Mock(labels={"pd_incident_id": "PINC1"} if labels is None else labels)
+        return await pagerduty.PagerDutyAdapter().execute(signal, action, {})
+
+    async def test_execute_reads_the_config_off_the_loop(self):
+        from kiro_crew.apps.builtins.ops_mission_control.backend.models import ACTION_ACK
+
+        self._configure()
+        result = await self._execute(ACTION_ACK)
+
+        self.assertTrue(result.ok, result.error)
+        self._assert_off_loop()
+        self.assertEqual(
+            self.requests,
+            [
+                (
+                    "PUT",
+                    "https://api.pagerduty.com/incidents/PINC1",
+                    {"incident": {"type": "incident_reference", "status": "acknowledged"}},
+                )
+            ],
+        )
+
+    async def test_unconfigured_execute_reads_off_the_loop_and_sends_nothing(self):
+        from kiro_crew.apps.builtins.ops_mission_control.backend.models import ACTION_ACK
+
+        self._configure(enabled=False)
+        result = await self._execute(ACTION_ACK)
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "pagerduty is not configured")
+        self._assert_off_loop()
+        self.assertEqual(self.requests, [])
+
+    async def test_missing_token_reads_off_the_loop_and_sends_nothing(self):
+        from kiro_crew.apps.builtins.ops_mission_control.backend.models import ACTION_ACK
+
+        self._configure()
+        self.has_token = False
+        result = await self._execute(ACTION_ACK)
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "pagerduty is not configured")
+        self._assert_off_loop()
+        self.assertEqual(self.requests, [])
+
+    async def test_writes_without_from_email_read_off_the_loop_and_send_nothing(self):
+        from kiro_crew.apps.builtins.ops_mission_control.backend.models import ACTION_RESOLVE
+
+        self._configure(from_email="")
+        result = await self._execute(ACTION_RESOLVE)
+
+        self.assertFalse(result.ok)
+        self.assertIn("unavailable", result.error)
+        self._assert_off_loop()
+        self.assertEqual(self.requests, [])
