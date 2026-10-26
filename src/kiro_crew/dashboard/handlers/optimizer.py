@@ -280,6 +280,20 @@ async def handle_optimize(request: web.Request) -> web.Response:
         data = await request.json()
     except Exception:
         return web.json_response({"error": "invalid JSON"}, status=400)
+    # Shape validation: valid JSON like `[]` has no .get(), and a non-string
+    # prompt/context has no .strip() and cannot be scrubbed — either would
+    # 500. 400 instead. An absent field still defaults to "".
+    if not isinstance(data, dict):
+        return web.json_response(
+            {"error": "request body must be a JSON object", "code": "body_not_object"},
+            status=400,
+        )
+    for _field in ("prompt", "context"):
+        if not isinstance(data.get(_field, ""), str):
+            return web.json_response(
+                {"error": f"'{_field}' must be a string", "code": "invalid_field_type"},
+                status=400,
+            )
 
     prompt = data.get("prompt", "").strip()
     # The context is replayed chat history, forwarded as text and then run

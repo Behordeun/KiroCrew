@@ -8,6 +8,8 @@ import re
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer
 
 from kiro_crew.dashboard.handlers.optimizer import (
     OPTIMIZER_SYSTEM,
@@ -29,6 +31,14 @@ def _ready_app(state):
         "state": state,
         "kiro_prerequisite_service": _READY_KIRO_PREREQUISITE,
     }
+
+
+def _optimize_app(state) -> web.Application:
+    app = web.Application()
+    app["state"] = state
+    app["kiro_prerequisite_service"] = _READY_KIRO_PREREQUISITE
+    app.router.add_post("/api/optimizer/optimize", handle_optimize)
+    return app
 
 
 async def _no_audit(**kwargs):
@@ -125,6 +135,56 @@ class TestOptimizerEndpoint:
 
         resp = await handle_optimize(request)
         assert resp.status == 400
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("body", "code"),
+        [
+            ([], "body_not_object"),
+            ("refactor the auth module", "body_not_object"),
+            ({"prompt": 1}, "invalid_field_type"),
+            ({"prompt": None}, "invalid_field_type"),
+            ({"prompt": ["refactor"]}, "invalid_field_type"),
+            ({"prompt": "refactor the auth module", "context": 5}, "invalid_field_type"),
+            (
+                {"prompt": "refactor the auth module", "context": {"turns": []}},
+                "invalid_field_type",
+            ),
+        ],
+        ids=[
+            "list-body",
+            "string-body",
+            "int-prompt",
+            "null-prompt",
+            "list-prompt",
+            "int-context",
+            "object-context",
+        ],
+    )
+    async def test_malformed_body_returns_400_without_calling_the_llm(self, body, code):
+        # Valid JSON that is not an object has no .get(), and a non-string
+        # prompt/context has no .strip() and cannot be scrubbed: unvalidated,
+        # either raises out of the handler and aiohttp answers a bare 500.
+        # Driven through a real aiohttp server so the status is what the
+        # composer's fetch() sees.
+        state = MagicMock()
+        state.sessions.get_or_create = AsyncMock()
+        async with TestClient(TestServer(_optimize_app(state))) as client:
+            resp = await client.post("/api/optimizer/optimize", json=body)
+            assert resp.status == 400
+            payload = await resp.json()
+            assert payload["code"] == code
+            assert payload["error"]
+        state.sessions.get_or_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_absent_context_is_still_accepted(self):
+        # The control: an object body with a string prompt and no context
+        # key keeps working (context defaults to "").
+        async with TestClient(TestServer(_optimize_app(MagicMock()))) as client:
+            resp = await client.post("/api/optimizer/optimize", json={"prompt": ""})
+            assert resp.status == 200
+            assert await resp.json() == {"optimized": "", "changed": False}
 
     @pytest.mark.asyncio
     async def test_stale_not_ready_does_not_reject_the_optimizer(
