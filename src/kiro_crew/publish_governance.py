@@ -33,9 +33,11 @@ than degrading to permit. That includes a config we cannot parse:
 present a narrowed ``allowed_destinations`` as the empty allow-all one, so this
 module checks parseability itself rather than inheriting that degrade.
 """
+
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 
 from aiohttp import web
 
@@ -149,6 +151,52 @@ def _read_allowed_destinations() -> tuple[list[str], str | None]:
 def publish_denied_reason(request: web.Request, provider_name: str) -> str | None:
     """Return a denial reason for publishing to ``provider_name``, else ``None``.
 
+    The request's only input is its ``X-Session-Key``; :func:`session_denied_reason`
+    takes the decision.
+    """
+    return session_denied_reason(request.headers.get("X-Session-Key") or "", provider_name)
+
+
+#: The session key of the request a publish send runs under, bound by
+#: :func:`bind_egress_session`. ``None`` means no request bound one.
+_EGRESS_SESSION: ContextVar[str | None] = ContextVar("publish_egress_session", default=None)
+
+
+def bind_egress_session(request: web.Request) -> None:
+    """Record the request's session key for :func:`dispatch_denied_reason`.
+
+    aiohttp runs each request in its own task, so the value is scoped to that
+    request and to the tasks and threads it starts.
+    """
+    _EGRESS_SESSION.set(request.headers.get("X-Session-Key") or "")
+
+
+def dispatch_denied_reason(provider_name: str) -> str | None:
+    """The enterprise check at the point bytes leave for a destination.
+
+    ``publish_provider`` runs it before every send method of a provider, with the
+    registry key the provider was resolved under. That key is the destination the
+    bytes go to, so the decision is on the value used, not on an earlier read of
+    the artifact's agent-writable ``meta.json``. A send with no bound request is
+    denied: the session's profile cannot be known.
+    """
+    session_key = _EGRESS_SESSION.get()
+    if session_key is None:
+        reason = "publishing denied: no request is bound to this send"
+        _audit_deny(
+            session_key="",
+            provider_name=provider_name,
+            rule="publish.dispatch",
+            layer="dispatch",
+            reason=reason,
+        )
+        return reason
+    return session_denied_reason(session_key, provider_name)
+
+
+def session_denied_reason(session_key: str, provider_name: str) -> str | None:
+    """Return a denial reason for publishing to ``provider_name``, else ``None``.
+
     Callers turn a non-``None`` reason into a 403 (or, for a provider *listing*,
     omit the row).  Enforces, tightest-wins:
       1. governance ceiling ∩ profile — ``capabilities.publish`` gate AND its
@@ -179,7 +227,6 @@ def publish_denied_reason(request: web.Request, provider_name: str) -> str | Non
     # imported at module scope above.
     from kiro_crew.platform.context import PlatformCompositionError
 
-    session_key = request.headers.get("X-Session-Key") or ""
     try:
         from kiro_crew.platform.governance_profiles import governance_permits
 

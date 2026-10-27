@@ -2852,6 +2852,9 @@ second surface cannot grow a drifting copy):
 | `GET /api/publish-providers` (`apps/routes_listing.py`) | `deploy-web-aws` | the row is omitted, so the button never renders |
 | `POST /api/deploy/deploy` (`deploy/handlers.py`) | `deploy-web-aws` | 403, audited `deploy/denied` |
 | `POST /api/deploy/pending/{id}/confirm` | `deploy-web-aws` | 403 BEFORE `claim_pending`, so a denied confirm does not consume the entry |
+| Every artifact send, enterprise only (`publish_provider._gate_sends`, deciding in `publish_governance.dispatch_denied_reason`) | the registry key the provider was resolved under | `PublishDeniedError`, 403 |
+
+The artifact rows above decide on the `publication.provider` the handler read from the artifact's `meta.json`, and `publish_sync` reads that file again before it sends. The agent can write that file, so in an enterprise build the decision is taken again where the bytes leave. `get_provider` wraps every send method of the provider it builds (`publish`, `push_version`, `update_sharing` and the five comment writes), and each call asks the same ceiling and allowlist for the key the provider serves, which is the destination actually used. The session comes from the request: `_non_owner_refusal`, which every artifact write route calls first, binds its `X-Session-Key` in a context variable. A send with no bound request is refused. Reads and `unpublish` are not gated, so a withdrawal is never refused. The `oss` build does not wrap the provider.
 
 The deploy-path callers are what make the public-web destination genuinely
 closable: hiding the provider row alone would be presentation, not a control

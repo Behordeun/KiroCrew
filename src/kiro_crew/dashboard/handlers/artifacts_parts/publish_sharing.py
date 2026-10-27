@@ -38,6 +38,7 @@ from kiro_crew.publish_provider import (
     KindSupport,
     NotPublishedError,
     PublishConflictError,
+    PublishDeniedError,
     PublishError,
     PublishUnavailableError,
     list_providers,
@@ -88,6 +89,8 @@ def _sync_error_response(
         status, outcome = 409, "error"
     elif isinstance(exc, NotPublishedError):
         status, outcome = 409, "denied"
+    elif isinstance(exc, PublishDeniedError):
+        status, outcome = 403, "denied"
     elif isinstance(exc, PublishError):
         status, outcome = 502, "error"
     else:
@@ -602,6 +605,8 @@ async def api_artifact_overwrite_remote(request: web.Request) -> web.Response:
             extra={"slug": slug},
         )
         return _err(str(exc), status=404)
+    except PublishDeniedError as exc:
+        return _sync_error_response("artifact_overwrite_remote", request, slug, exc)
     except Exception as exc:  # pragma: no cover — overwrite is best-effort
         _audit(
             tool="artifact_overwrite_remote",
