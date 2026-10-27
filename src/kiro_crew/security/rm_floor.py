@@ -37,6 +37,8 @@ _RM_WORD_RE = re.compile(r"(?<![\w.-])r[^\w\s/]*m(?![\w.-])")  # rm as its own w
 _HOME_WORDS = frozenset({"~", "$HOME", "${HOME}"})
 _CUT_CHARS = frozenset(";&|\n`()")
 _SUBST = "\1"  # a substitution: may expand to nothing, unlike a literal ``\0``
+#: an unquoted parameter (``$x``, ``${…}``, ``$1``): an unset one expands to nothing
+_PARAM_RE = re.compile(r"\$(?:\{[^}]*\}|[A-Za-z_]\w*|[0-9@*#?$!-])")
 #: A STANDALONE fd prefix (a bare number or ``{name}``) directly before a redirection
 #: operator: ``2>`` and ``{fd}>`` redirect fd 2 / a named fd, but the ``2`` in
 #: ``/tmp/2>x`` is part of the path, so the prefix counts only at a word boundary.
@@ -169,6 +171,12 @@ def _rm_wipe_targets(command: str) -> "set[str]":
             if _SUBST in words[0]:
                 # a substitution in command position may expand to nothing
                 bare = words[0].replace(_SUBST, "")
+                words = [bare, *words[1:]] if bare else words[1:]
+                continue
+            bare = _PARAM_RE.sub("", words[0])
+            if bare != words[0] and _shell._program_basename(words[0]) != "rm":
+                # ``${x}rm`` runs ``rm`` when ``x`` is unset; a word already read
+                # as ``rm`` keeps that reading, so this only adds refusals
                 words = [bare, *words[1:]] if bare else words[1:]
                 continue
             break

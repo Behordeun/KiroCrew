@@ -580,6 +580,12 @@ class TestRecursiveForceRmFloor:
             "echo $[ $( # don't\nRM -fr ~\n# '\n) ]",
             # An expansion that never closes is also read as if it were not there.
             "echo \\$${x # don't\nRM -fr ~",
+            # An unset parameter in the program word expands to nothing.
+            "${x}RM -fr ~",
+            "$x RM -fr ~",
+            '"${x}"RM -fr ~',
+            "${x}${y}RM -fr /",
+            "$1RM -fr ~",
         ],
     )
     def test_a_recursive_force_wipe_of_root_or_home_is_denied(self, command):
@@ -594,6 +600,14 @@ class TestRecursiveForceRmFloor:
             "RM -f /",
             "RM -r /tmp/x",
             "RM -fr $HOME_BACKUP",
+            # A parameter glued to the program word that leaves no ``rm`` stays allowed.
+            "${x}echo hi",
+            "${x}RM -fr /tmp/x",
+            "${x}RM -f ~",
+            "$xrm -fr ~",
+            "'${x}'RM -fr ~",
+            "\\${x}RM -fr ~",
+            "echo ${x}RM -fr ~",
             "echo RM -fr /",
             # Quoted text and heredoc bodies are data, not commands.
             'git commit -m "pin floor; RM -fr / and RM -fr ~ are refused"',
