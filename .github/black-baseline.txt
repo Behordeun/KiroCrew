@@ -554,8 +554,6 @@ test/test_mcp_api_port_resolution.py
 test/test_mcp_app_panel_config.py
 test/test_mcp_apps_e2e.py
 test/test_mcp_artifact_folders.py
-test/test_mcp_artifacts.py
-test/test_mcp_core.py
 test/test_mcp_core_arg_crash.py
 test/test_mcp_core_set_project.py
 test/test_mcp_core_spawn_sub_agents.py
@@ -577,14 +575,12 @@ test/test_mcp_gateway_stub_poolable_ack.py
 test/test_mcp_gateway_stub_recaller.py
 test/test_mcp_internal_caller.py
 test/test_mcp_knowledge_add_document.py
-test/test_mcp_oauth_banner.py
 test/test_mcp_preflight.py
 test/test_mcp_preflight_real_server.py
 test/test_mcp_probe_treadmill.py
 test/test_mcp_probe_warn_once.py
 test/test_mcp_seed.py
 test/test_mcp_shareability.py
-test/test_mcp_shared_cache.py
 test/test_mcp_shared_cancelled_bound.py
 test/test_mcp_skill_registry.py
 test/test_mcp_stub_freeze_ratchet.py
