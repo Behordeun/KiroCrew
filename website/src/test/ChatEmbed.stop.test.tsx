@@ -109,7 +109,7 @@ describe('ChatEmbed Stop', () => {
     expect(screen.getByTestId('stop-button-pulsing')).toBeInTheDocument()
     expect(screen.getByTestId('chat-embed-stop-hint')).toHaveTextContent('Click again to force stop')
     // The cost of the force stop is shown where the user decides, not only on hover.
-    expect(screen.getByTestId('chat-embed-stop-hint')).toHaveTextContent('discards in-progress work and queued messages')
+    expect(screen.getByTestId('chat-embed-stop-hint')).toHaveTextContent('in-progress work and queued messages are discarded')
     // The header carries the status with the footer; the placeholder stays
     // neutral, so a narrow embed does not say it three times.
     expect(screen.getAllByText('Stopping…').length).toBeGreaterThan(0)
@@ -137,7 +137,7 @@ describe('ChatEmbed Stop', () => {
     await mount()
     expect(screen.getByTestId('stop-button-killing')).toBeDisabled()
     // The header follows the footer's "Killing…"; the placeholder stays neutral.
-    expect(screen.getAllByText('Killing…').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Force stopping…').length).toBeGreaterThan(0)
     expect(screen.getByRole('textbox').getAttribute('placeholder')).toMatch(/^Agent is working/)
     expect(screen.queryByTestId('chat-embed-stop-hint')).toBeNull()
     await act(async () => { vi.advanceTimersByTime(KILLING_ESCAPE_MS + 100) })
@@ -235,7 +235,7 @@ describe('ChatEmbed Stop', () => {
     expect(screen.getByTestId('chat-embed-stop-error')).toHaveTextContent("That Stop didn't go through.")
     expect(screen.getByTestId('chat-embed-stop-error')).not.toHaveTextContent(/again/i)
     expect(screen.getByTestId('chat-embed-stop-hint')).toHaveTextContent('Click again to force stop')
-    expect(screen.getByTestId('chat-embed-stop-hint')).toHaveTextContent('discards in-progress work and queued messages')
+    expect(screen.getByTestId('chat-embed-stop-hint')).toHaveTextContent('in-progress work and queued messages are discarded')
     await act(async () => { vi.advanceTimersByTime(FORCE_KILL_ARMING_MS + 50) })
     await act(async () => { fireEvent.click(screen.getByTestId('stop-button-pulsing')) })
     expect(stopCalls().map(([p]) => p)).toEqual([

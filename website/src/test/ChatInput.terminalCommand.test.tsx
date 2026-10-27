@@ -323,8 +323,8 @@ describe('direct terminal commands', () => {
 
   it.each([
     ['idle', 'Stop generation'],
-    ['soft_pending', 'Force kill session (discards in-progress work and queued messages)'],
-    ['killing', 'Force reset session (taking longer than expected)'],
+    ['soft_pending', 'Force stop (your messages stay; in-progress work and queued messages are discarded)'],
+    ['killing', 'Force stop again (taking longer than expected)'],
   ] as const)('keeps voice and %s cancellation usable outside terminal review', (stopState, stopLabel) => {
     const onStop = vi.fn()
     const onVoiceToggle = vi.fn()
@@ -346,7 +346,7 @@ describe('direct terminal commands', () => {
     fireEvent.click(mic)
     expect(onVoiceToggle).toHaveBeenCalledOnce()
     if (stopState === 'killing') {
-      expect(screen.getByRole('button', { name: 'Killing session' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Force stopping session' })).toBeDisabled()
       act(() => { vi.advanceTimersByTime(KILLING_ESCAPE_MS) })
     }
 

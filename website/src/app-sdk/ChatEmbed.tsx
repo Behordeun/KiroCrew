@@ -1029,7 +1029,7 @@ function ChatEmbed({
     (force: boolean) => sendEmbedStop(api, slotKey, force).finally(refetchNow),
     [api, slotKey, refetchNow],
   )
-  const { stopState, onStop, stopError, stopDeclined } = useStopPress({
+  const { stopState, onStop, stopError, stopErrorDetail, stopDeclined } = useStopPress({
     slotKey, busy: running, serverStopState: shown?.stop_state, sendStop,
     turnScoped: true, turnKey: serverTurn, serverStopDeclined: shown?.stop_declined === true,
   })
@@ -1321,7 +1321,9 @@ function ChatEmbed({
             // No hand-off: the embed's composer draft is unsaved local state that the hand-off's navigation to the main chat would discard.
             <ErrorNotice
               testId="chat-embed-stop-error"
-              message={pressHint ? i18nT('appSdk.chatEmbed.stop_did_not_go_through') : stopError}
+              title={!pressHint && stopErrorDetail ? stopError : undefined}
+              message={pressHint ? i18nT('appSdk.chatEmbed.stop_did_not_go_through') : (stopErrorDetail || stopError)}
+              messagePlacement="below"
             />
           )}
           {pressHint && <div className={stopError ? 'pt-1' : ''}>{pressHint}</div>}

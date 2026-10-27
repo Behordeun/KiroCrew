@@ -17,7 +17,7 @@ import { jsonEqual } from '../utils/structuralEqual'
 import { whenScrollQuiet } from '../lib/scrollQuiet'
 import { nextActiveAfterClose } from '../lib/sessionTabs'
 import { api } from '../api/client'
-import { ApiError, isNotFoundError } from '../api/apiError'
+import { ApiError, apiErrorCode, isNotFoundError } from '../api/apiError'
 import { releaseCloseHold, awaitCloseOutcome, expireCloseHold, confirmCloseHold, removeSlotOptimistic, fetchSlots, slotSurfaceKey } from './dashboardSlice'
 import { isChatPageSurface } from '../utils/channelOrigin'
 import { isNoteRow } from '../lib/noteContract'
@@ -822,8 +822,9 @@ type StopReply = { ok?: boolean; info?: string; already_stopping?: boolean; erro
  *  the request landed (a real stop, an in-flight cancel, a settled no-op, or a
  *  debounced repeat), otherwise the error message the host must SHOW (#9547
  *  round 2): a swallowed failure is indistinguishable from the dead Stop
- *  button this fix exists to remove. */
-export type StopFailure = { error: string } | null
+ *  button this fix exists to remove. `status`, `code` and `authRequired` name
+ *  the reason, so the host can say it in plain words (#20398). */
+export type StopFailure = { error: string; status?: number; code?: string; authRequired?: boolean; edgeChallenge?: boolean } | null
 
 export const requestStop = createAsyncThunk<StopFailure, { slotId: string; force: boolean }>(
   'chat/requestStop',
@@ -842,6 +843,9 @@ export const requestStop = createAsyncThunk<StopFailure, { slotId: string; force
       reply = (force ? await api.stopChatSlotForce(slotId) : await api.stopChatSlot(slotId)) as StopReply
     } catch (e) {
       dispatch(chatSlice.actions.setStopPressedAt({ slotId, ts: 0 }))
+      if (e instanceof ApiError) {
+        return { error: e.message, status: e.status, code: apiErrorCode(e), authRequired: e.authRequired, edgeChallenge: e.edgeChallenge }
+      }
       return { error: e instanceof Error ? e.message : String(e) }
     }
     // A 2xx can still carry a refusal — a peer-bound slot whose crew could
@@ -849,7 +853,7 @@ export const requestStop = createAsyncThunk<StopFailure, { slotId: string; force
     // throws on non-2xx. That is a failed stop the host must show too.
     if (reply && reply.ok === false) {
       dispatch(chatSlice.actions.setStopPressedAt({ slotId, ts: 0 }))
-      return { error: reply.error || reply.code || 'stop refused' }
+      return { error: reply.error || reply.code || 'stop refused', code: reply.code }
     }
     // The backend found no turn on the slot. Its answer is authoritative and
     // the client's busy view is what was wrong, so settle it — otherwise the

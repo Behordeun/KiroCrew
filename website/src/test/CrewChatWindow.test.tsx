@@ -391,7 +391,7 @@ describe('CrewChatWindow', () => {
     detail = { ...detail, running: true }
     renderWindow()
     const footer = await screen.findByTestId('chat-footer', {}, PEER_ROW_WAIT)
-    expect(within(footer).getByText('Killing…').className).toContain('text-danger')
+    expect(within(footer).getByText('Force stopping…').className).toContain('text-danger')
     expect(screen.queryByText('Stopping…')).toBeNull()
   })
 

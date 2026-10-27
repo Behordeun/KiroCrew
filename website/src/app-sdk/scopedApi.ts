@@ -51,8 +51,8 @@ export interface AppApiError extends Error {
  *  status, while keeping the `AppApiError` name and `API <status>: <body>`
  *  message apps have always seen. One spelling for "scoped non-2xx". */
 class ScopedApiError extends ApiError implements AppApiError {
-  constructor(status: number, body: string) {
-    super(status, `API ${status}: ${body}`, body)
+  constructor(status: number, body: string, authRequired = false) {
+    super(status, `API ${status}: ${body}`, body, authRequired)
     this.name = 'AppApiError'
   }
 }
@@ -190,7 +190,9 @@ function createScopedApi(allowedPaths: string[], appName: string, sessionKey: st
       // iframe copy of this SDK — detection is a no-op and the throw below is
       // unchanged either way.
       noteStaleOwnerResponse(res.status, text)
-      throw new ScopedApiError(res.status, text)
+      // The gateway's own signed-out 403, read the way api/client reads it, so
+      // a caller can tell "sign in again" from any other refusal (#20398).
+      throw new ScopedApiError(res.status, text, res.status === 403 && res.headers.get('X-Auth-Required') === 'true')
     }
     return res
   }
