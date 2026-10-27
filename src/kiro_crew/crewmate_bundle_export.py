@@ -14,7 +14,7 @@ Until the mate-owned per-mate file exists (RFC §5.7), ``agent.json`` carries no
 server and no skill entry, the one part of the file that waits on it. The template's
 MCP servers are still listed in the preview, with the keys a receiver would fill in,
 and marked as not in the file. Rules, crons and bundled skills are written in the §5.2
-format Phase 1's reader (``crewmate_bundle.py``) takes, inside its list caps, so a file
+format the reader (``crewmate_bundle.py``) takes, inside its list caps, so a file
 this writes never refuses on import.
 """
 
@@ -882,7 +882,7 @@ def plan_export(
 
 
 def _check_importable(plan: ExportPlan) -> None:
-    """Read the planned file back through Phase 1's reader, as an import would.
+    """Read the planned file back through the reader (``crewmate_bundle.py``), as an import would.
 
     The checks above leave out each part the reader refuses, naming it. This is the
     last check: should any rule still differ, the export stops here with the
@@ -998,27 +998,25 @@ def preview(plan: ExportPlan) -> dict[str, Any]:
 
 
 def _preview_body(plan: ExportPlan) -> dict[str, Any]:
-    avatar_bytes = (
-        plan.avatar[1]
-        if plan.avatar
-        else (
-            json.dumps(
-                plan.manifest["avatarTraits"],
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-            if "avatarTraits" in plan.manifest
-            else b""
-        )
-    )
+    if plan.avatar:
+        avatar_kind, avatar_bytes = "image", plan.avatar[1]
+    elif "avatarTraits" in plan.manifest:
+        avatar_kind = "ghost"
+        avatar_bytes = json.dumps(
+            plan.manifest["avatarTraits"],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    else:
+        avatar_kind, avatar_bytes = "", b""
     return {
         "name": plan.name,
         "filename": bundle_filename(plan.name),
         "description": plan.manifest.get("description", ""),
         "model": plan.manifest.get("modelHint", ""),
         "dashboard": plan.manifest.get("dashboardTemplate", ""),
-        "avatar": "image" if plan.avatar else ("ghost" if "avatarTraits" in plan.manifest else ""),
+        "avatar": avatar_kind,
         "avatar_digest": hashlib.sha256(avatar_bytes).hexdigest() if avatar_bytes else "",
         "rules": plan.rules,
         "goals": plan.goals,
