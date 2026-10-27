@@ -282,6 +282,7 @@ from conftest_resets import (  # noqa: E402,F401 -- bound for pytest and importe
     _isolate_advertised_model_cache,
     _isolate_display_verdicts,
     _isolate_kiro_window_cache,
+    _no_boot_heap_freeze,
     _no_boot_sandbox_sweep,
     _no_carried_auto_update_effect,
     _no_live_catalog_network,
