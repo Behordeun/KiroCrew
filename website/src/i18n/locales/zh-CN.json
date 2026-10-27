@@ -5135,6 +5135,7 @@
         "drive_status_failed": "目前无法读取该硬盘。",
         "setup_title": "设置云端硬盘",
         "setup_body": "这会在你的账户中创建一个私密、加密并带版本控制的存储桶，用来存放文件、产物库和备份。",
+        "setup_searched_region": "在 {{region}} 中未找到云端硬盘。只搜索了这个区域，所以此账户在其他区域的云端硬盘不会显示在这里。",
         "setup_costs_note": "费用随使用量而定：你按存储量向 AWS 付费，在此之前不产生任何费用。",
         "setup_preview_region": "区域",
         "setup_preview_resource": "资源",

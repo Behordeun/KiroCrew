@@ -5319,6 +5319,7 @@
         "drive_status_failed": "No se pudo leer la unidad ahora mismo.",
         "setup_title": "Configura una unidad en la nube",
         "setup_body": "Esto crea un único bucket de almacenamiento privado, cifrado y con versiones en tu propia cuenta, para tus archivos, tu biblioteca de artefactos y tus copias de seguridad.",
+        "setup_searched_region": "No se encontró ninguna unidad en {{region}}. Solo se buscó en esta región, así que una unidad en otra región de esta cuenta no aparecerá aquí.",
         "setup_costs_note": "Los costes dependen del uso: pagas a AWS por lo que almacenas, y nada antes de eso.",
         "setup_preview_region": "Región",
         "setup_preview_resource": "Recurso",

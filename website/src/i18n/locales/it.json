@@ -5319,6 +5319,7 @@
         "drive_status_failed": "Al momento non è stato possibile leggere il drive.",
         "setup_title": "Configura un drive cloud",
         "setup_body": "Questa operazione crea un unico bucket di archiviazione privato, cifrato e con versioni nel tuo account, per i tuoi file, la libreria di artefatti e i backup.",
+        "setup_searched_region": "Nessun drive trovato in {{region}}. È stata cercata solo questa regione, quindi un drive in un’altra regione di questo account non apparirà qui.",
         "setup_costs_note": "I costi seguono l'uso: paghi AWS per ciò che archivi, e nulla prima di allora.",
         "setup_preview_region": "Regione",
         "setup_preview_resource": "Risorsa",

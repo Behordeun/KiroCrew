@@ -5319,6 +5319,7 @@
         "drive_status_failed": "Não foi possível ler o drive agora.",
         "setup_title": "Configurar um drive de nuvem",
         "setup_body": "Isto cria um bucket de armazenamento privado, criptografado e versionado na sua própria conta, para seus arquivos, biblioteca de artefatos e backups.",
+        "setup_searched_region": "Nenhum drive encontrado em {{region}}. Só esta região foi pesquisada, então um drive em outra região desta conta não aparecerá aqui.",
         "setup_costs_note": "Os custos acompanham o uso: você paga à AWS pelo que armazena, e nada antes disso.",
         "setup_preview_region": "Região",
         "setup_preview_resource": "Recurso",

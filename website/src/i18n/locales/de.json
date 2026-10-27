@@ -5227,6 +5227,7 @@
         "drive_status_failed": "Das Laufwerk konnte gerade nicht gelesen werden.",
         "setup_title": "Ein Cloud-Laufwerk einrichten",
         "setup_body": "Damit wird ein privater, verschlüsselter, versionierter Speicher-Bucket in Ihrem eigenen Konto erstellt — für Ihre Dateien, Ihre Artefaktbibliothek und Ihre Sicherungen.",
+        "setup_searched_region": "Kein Laufwerk in {{region}} gefunden. Nur diese Region wurde durchsucht, daher erscheint ein Laufwerk in einer anderen Region dieses Kontos hier nicht.",
         "setup_costs_note": "Die Kosten richten sich nach der Nutzung: Sie zahlen AWS für das, was Sie speichern, und vorher nichts.",
         "setup_preview_region": "Region",
         "setup_preview_resource": "Ressource",

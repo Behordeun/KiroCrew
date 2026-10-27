@@ -5135,6 +5135,7 @@
         "drive_status_failed": "지금은 드라이브를 읽지 못했습니다.",
         "setup_title": "클라우드 드라이브 설정",
         "setup_body": "사용자 계정에 파일, 아티팩트 라이브러리, 백업을 위한 비공개·암호화·버전 관리 저장소 버킷 하나를 생성합니다.",
+        "setup_searched_region": "{{region}}에서 드라이브를 찾지 못했습니다. 이 리전만 검색했으므로 이 계정의 다른 리전에 있는 드라이브는 여기에 표시되지 않습니다.",
         "setup_costs_note": "비용은 사용량에 따릅니다. 저장한 만큼 AWS에 요금을 지불하며, 그 전에는 아무 비용도 들지 않습니다.",
         "setup_preview_region": "리전",
         "setup_preview_resource": "리소스",

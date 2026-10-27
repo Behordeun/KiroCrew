@@ -5319,6 +5319,7 @@
         "drive_status_failed": "Impossible de lire le disque pour le moment.",
         "setup_title": "Configurer un disque cloud",
         "setup_body": "Ceci crée un bucket de stockage privé, chiffré et versionné dans votre propre compte, pour vos fichiers, votre bibliothèque d'artefacts et vos sauvegardes.",
+        "setup_searched_region": "Aucun disque trouvé dans {{region}}. Seule cette région a été cherchée : un disque dans une autre région de ce compte n’apparaîtra pas ici.",
         "setup_costs_note": "Les coûts suivent l'usage : vous payez AWS pour ce que vous stockez, et rien avant cela.",
         "setup_preview_region": "Région",
         "setup_preview_resource": "Ressource",
