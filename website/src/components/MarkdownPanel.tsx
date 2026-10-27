@@ -159,6 +159,7 @@ import { i18nT } from '../i18n/t'
 import { useDocumentImeLatch, useImeGuard } from '../hooks/useImeGuard'
 import { useScrollMemory } from '../hooks/useScrollMemory'
 import { pathBasename } from '../utils/pathBasename'
+import { overlayCaptionClearancePx } from '../lib/electron'
 
 /**
  * File types that render through a dedicated viewer instead of a text editor.
@@ -357,6 +358,8 @@ export default memo(forwardRef<MarkdownPanelHandle, Props>(function MarkdownPane
   // instead of yanking focus and aborting the composition
   // (`useDialogFocusTrap` is the reference consumer of the same seam).
   const fsImeLatch = useDocumentImeLatch(fullscreen)
+  // Read at render time: `.embedded-win-inset` toggles at runtime.
+  const captionTop = overlayCaptionClearancePx()
   const fileName = pathBasename(filePath) || filePath
   // Artifact + knowledge state power the header star/knowledge toggles and
   // the ⋯ menu's Snapshot entry (same query cache as the OverflowMenu's own
@@ -1410,8 +1413,11 @@ export default memo(forwardRef<MarkdownPanelHandle, Props>(function MarkdownPane
           ;(wrapsBackward ? last : first).focus()
         }}>
 
-        {/* Header — pl-20 clears macOS traffic-light buttons */}
-        <div className="flex items-center justify-between pl-20 pr-6 h-12 shrink-0 border-b border-border">
+        {/* Header — pl-20 clears macOS traffic-light buttons; the marginTop drops
+            it below the Windows/Linux caption band, whose native buttons would
+            otherwise sit on top of Exit full screen (#24784). */}
+        <div data-testid="markdown-panel-fullscreen-header" className="flex items-center justify-between pl-20 pr-6 h-12 shrink-0 border-b border-border"
+          style={captionTop > 0 ? { marginTop: `${captionTop}px` } : undefined}>
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-base font-semibold text-text-strong truncate">{fileName}</span>
             {richDiffChip}
