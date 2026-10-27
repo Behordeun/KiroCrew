@@ -281,6 +281,16 @@ class SessionExtras:
     nothing, or takes its agent at spawn time.
     """
 
+    vault_identity: str = ""
+    """The Crew vault identity fingerprint read as this payload was built.
+
+    For a host that takes its credential from Crew's own vault per call (KAS):
+    the account the session's request goes out under, which the KAS catalog
+    recorder keeps with the response's ``model`` select
+    (``agent_sdk/kas_model_catalog.py``). ``""`` for every other host, which
+    records nothing; read here so no other host's session start gains a step.
+    """
+
 
 # ── Seam 5: notification aliases ──
 

@@ -494,9 +494,15 @@ class KasHarness(MembershipHarness):
         which for a restricted agent is a BROADER agent than the caller asked for.
         """
         from kiro_crew.acp.session_handle import AcpAgentUnavailable, AcpRuntimeError
+        from kiro_crew.agent_sdk import kas_model_catalog
 
+        # The account this session's request will go out under: the engine takes
+        # its credential from the vault per call, so the ``model`` select it
+        # answers with is this account's catalog. Read before anything else, off
+        # the loop, and carried on the payload for the catalog recorder.
+        vault_identity = await asyncio.to_thread(kas_model_catalog.vault_identity)
         if not agent:
-            return SessionExtras()
+            return SessionExtras(vault_identity=vault_identity)
 
         def _build() -> tuple[list[dict[str, Any]], Any]:
             agent_mod.require_fork_governance(agent, work_dir)
@@ -621,7 +627,9 @@ class KasHarness(MembershipHarness):
 
         try:
             built, built_from = await asyncio.to_thread(_build)
-            return SessionExtras(custom_agents=built, derived_spec_snapshot=built_from)
+            return SessionExtras(
+                custom_agents=built, derived_spec_snapshot=built_from, vault_identity=vault_identity
+            )
         except ForkGovernanceUnresolved as exc:
             raise AcpRuntimeError(str(exc)) from exc
         except KasAgentTranslationError as exc:

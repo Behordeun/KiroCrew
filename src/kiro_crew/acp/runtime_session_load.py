@@ -256,6 +256,7 @@ async def load_session(
     # compares against it rather than re-reading the file.
     kas_agents = None
     payload_snapshot = None
+    request_identity = ""
     if self._acp_backend == ACP_BACKEND_KAS:
         kas_extras = await self._kas_custom_agents(
             active_agent,
@@ -266,6 +267,9 @@ async def load_session(
         )
         kas_agents = kas_extras.custom_agents
         payload_snapshot = kas_extras.derived_spec_snapshot
+        # Mirrors create_session: the vault identity the request goes out under,
+        # for the KAS catalog recorder (a load echoes the select too).
+        request_identity = kas_extras.vault_identity
         # Same carriage as create_session: a resumed session re-initializes
         # its servers, and the managed ones must win the same-name contest
         # on load exactly as they did on new.  ``include_user_servers=True``
@@ -376,6 +380,7 @@ async def load_session(
     self._harness.record_session_projection(handle, kas_agents, active_agent)
     if self._mirrored_spec_check_needed(mirrored_snapshot):
         await self._require_unchanged_mirrored_spec(resume_sid, mirrored_snapshot)
+    handle.request_vault_identity = request_identity
     handle.store_session_config(resp)
     # session/load echoes ``currentModelId`` exactly like session/new, and a
     # session persisted before the account's served list changed can come
