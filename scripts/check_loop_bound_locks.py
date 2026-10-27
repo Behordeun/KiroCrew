@@ -21,8 +21,9 @@ instantiation.
 An assignment (plain or annotated) whose value expression instantiates
 ``asyncio.Lock``, ``asyncio.Event`` or ``asyncio.Queue`` — directly, through a
 module alias (``import asyncio as aio``), through a from-import (``from
-asyncio import Lock``, ``from asyncio.locks import Lock``), or nested inside a
-container/conditional (``_L = {"k": asyncio.Lock()}``) — executing at import
+asyncio import Lock``, ``from asyncio.locks import Lock``), through a submodule
+attribute (``asyncio.locks.Lock()``, ``asyncio.queues.Queue()``), or nested
+inside a container/conditional (``_L = {"k": asyncio.Lock()}``) — executing at import
 time: module body, a module-level ``if``/``try``/``with``/``match`` block, or
 a class body.
 
@@ -104,13 +105,23 @@ def _instantiates_primitive(value: ast.expr, aliases: set[str], from_names: set[
         if not isinstance(node, ast.Call):
             continue
         fn = node.func
-        if (
-            isinstance(fn, ast.Attribute)
-            and isinstance(fn.value, ast.Name)
-            and fn.value.id in aliases
-            and fn.attr in PRIMITIVES
-        ):
-            return fn.attr
+        if isinstance(fn, ast.Attribute) and fn.attr in PRIMITIVES:
+            base = fn.value
+            # Direct attribute on a module alias: ``asyncio.Lock()``.
+            if isinstance(base, ast.Name) and base.id in aliases:
+                return fn.attr
+            # Submodule attribute: ``asyncio.locks.Lock()`` /
+            # ``asyncio.queues.Queue()`` — the attribute spelling of
+            # ``from asyncio.<sub> import <Primitive>``. Here ``fn.value`` is a
+            # submodule attribute (``asyncio.locks``) over the alias, so match
+            # any ``<alias>.<submodule>.<Primitive>``, as the from-import branch
+            # accepts any ``asyncio.<submodule>``.
+            if (
+                isinstance(base, ast.Attribute)
+                and isinstance(base.value, ast.Name)
+                and base.value.id in aliases
+            ):
+                return fn.attr
         if isinstance(fn, ast.Name) and fn.id in from_names:
             return fn.id
     return None
@@ -213,6 +224,16 @@ _PROBES: list[tuple[str, str, int]] = [
     (
         "from-import of the locks submodule",
         "from asyncio.locks import Lock\n_L = Lock()\n",
+        1,
+    ),
+    (
+        "attribute form of the locks submodule",
+        "import asyncio\n_L = asyncio.locks.Lock()\n",
+        1,
+    ),
+    (
+        "attribute form of the queues submodule",
+        "import asyncio\n_Q = asyncio.queues.Queue()\n",
         1,
     ),
     ("module alias spelling", "import asyncio as aio\n_L = aio.Lock()\n", 1),
