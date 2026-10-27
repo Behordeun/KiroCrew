@@ -66,6 +66,7 @@ from kiro_crew.mcp_cron_tool_list import _list_tools
 from kiro_crew.mcp_cron_vet import (
     _log_cron_denial,
     _resolve_cron_folder,
+    _resolve_cron_folder_via,
     _vet_cron_capability_governance,
     _vet_script_file,
     _vet_shell_command,
@@ -1491,6 +1492,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _fold_runs,
         _format_next_run,
         _job_kind,
+        _json_folder,
         _normalize_summary,
         _sanitize,
     )
@@ -1559,6 +1561,7 @@ if TYPE_CHECKING:  # names it serves from outside the family, from their homes
     )
     from kiro_crew.cron import (  # noqa: F401
         compute_next_run_ts,
+        load_cron_folders,
         lookup_cron_folder_id,
     )
     from kiro_crew.cron_service.model import (  # noqa: F401
