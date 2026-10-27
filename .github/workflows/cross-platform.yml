@@ -45,7 +45,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          # depth-2: the merge commit (HEAD) and its first parent (the base tip,
+          # HEAD^1). `git diff HEAD^1 HEAD` is then the exact set of changes
+          # this PR merges into main -- identical to the three-dot BASE...HEAD
+          # range on a full clone, with no extra fetch step.
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Scan added lines for non-portable patterns
@@ -61,7 +65,7 @@ jobs:
           # ADDED lines only ('^+', excluding the '+++' file header). A
           # pre-existing violation elsewhere in a touched file is not this PR's
           # problem and must not block it.
-          added="$(git diff --unified=0 "$BASE_SHA...$HEAD_SHA" -- \
+          added="$(git diff --unified=0 HEAD^1 HEAD -- \
             'src/kiro_crew/**/*.py' \
             ':(exclude)src/kiro_crew/_vendor/**' \
             ':(exclude)src/kiro_crew/platform_compat.py' \

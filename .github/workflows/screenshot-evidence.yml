@@ -42,7 +42,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          # depth-2: the merge commit (HEAD) and its first parent (the base tip,
+          # HEAD^1). `git diff HEAD^1 HEAD` is then the exact set of changes
+          # this PR merges into main -- identical to the three-dot BASE...HEAD
+          # range on a full clone, with no extra fetch step.
+          fetch-depth: 2
           persist-credentials: false
 
       # Visual surfaces only. Mirrors the `frontend` bucket in ci.yml but
@@ -62,7 +66,7 @@ jobs:
           # required check reporting green having examined nothing. That
           # polarity is worse than a false red, so an uncomputable diff fails
           # loudly and is re-runnable instead.
-          if ! changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" -- \
+          if ! changed="$(git diff --name-only HEAD^1 HEAD -- \
             'website/src/components/**' \
             'website/src/pages/**' \
             'website/src/apps/**' \

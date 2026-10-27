@@ -29,17 +29,17 @@ jobs:
   pr-scope:
     name: PR Scope
     runs-on: ${{ github.repository == 'kirodotdev/KiroCrew' && contains(fromJSON(vars.CODEBUILD_ACTOR_IDS || '[]'), github.actor_id) && (github.event_name == 'push' || (github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'synchronize') && github.event.pull_request.head.repo.full_name == github.repository)) && format('codebuild-kirocrew-gha-linux-{0}-{1}', github.run_id, github.run_attempt) || 'ubuntu-latest' }}
-    # 15, not 5: the job's own work is seconds, but its `fetch-depth: 0`
-    # checkout (it needs the merge base for `BASE...HEAD`) is a full-history
-    # fetch of a large repository, and on a slow hosted runner that fetch alone
-    # has run past 5 minutes and had the job CANCELLED mid-checkout -- no
-    # failure to read, no retry, and on a fork PR another maintainer release
-    # to re-run (#13111). The budget covers a slow fetch; a hung one still ends.
-    timeout-minutes: 15
+    # 5 min: the checkout fetches depth-2 (merge commit + base parent only),
+    # so the entire fetch completes in well under a minute.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          # depth-2: the merge commit (HEAD) and its first parent (the base tip,
+          # HEAD^1). `git diff HEAD^1 HEAD` is then the exact set of changes
+          # this PR merges into main -- identical to the three-dot BASE...HEAD
+          # range on a full clone, with no extra fetch step.
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Measure diff breadth
@@ -66,7 +66,7 @@ jobs:
           # is advisory by contract -- it never fails the build -- so an
           # uncomputable diff refuses to report a verdict instead: a loud
           # warning, no scope claim, and still exit 0.
-          if ! files="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" -- . \
+          if ! files="$(git diff --name-only HEAD^1 HEAD -- . \
             ':(exclude)src/kiro_crew/_vendor/**' \
             ':(exclude)temp-screenshots/**')"; then
             echo "::warning::Could not compute the diff between the base and head commits, so this advisory check measured nothing. This is a read failure, not a self-contained scope -- re-run this job for a real measurement."
@@ -76,7 +76,7 @@ jobs:
           # Same read, same failure mode, for the line count: keep the exit
           # status out of the awk pipeline so a failed `git diff` cannot be
           # summed into a legitimate-looking 0.
-          if ! numstat="$(git diff --numstat "$BASE_SHA...$HEAD_SHA" -- . \
+          if ! numstat="$(git diff --numstat HEAD^1 HEAD -- . \
             ':(exclude)src/kiro_crew/_vendor/**' \
             ':(exclude)temp-screenshots/**')"; then
             echo "::warning::Could not compute the line-count diff between the base and head commits, so this advisory check measured nothing. This is a read failure, not a self-contained scope -- re-run this job for a real measurement."
