@@ -865,6 +865,20 @@ describe('Kiro credits pill — edge cases', () => {
   })
 })
 
+describe('file-menu result toast', () => {
+  it('is mounted in the popout and embed frames, which have no notification sheet', () => {
+    // A file-menu row renders in those frames too (the chat side panels' markdown
+    // header), and the dashboard's copy lives in NotificationSheet, which only the
+    // dashboard branch's ShellHeader renders. Read from source for the same reason
+    // as the import notice below.
+    const src = readFileSync(join(__dirname, '..', 'App.tsx'), 'utf8')
+    const frames = '{(isPopout || isEmbed) && <FileMenuResultToastFrame />}'
+    expect(src.split(frames).length - 1).toBe(1)
+    expect(src.indexOf(frames)).toBeGreaterThan(src.indexOf('<WsContext.Provider'))
+    expect(src.indexOf(frames)).toBeLessThan(src.indexOf('{isPopout ? ('))
+  })
+})
+
 describe('import outcome notice', () => {
   it('is mounted for every layout: popout and embed above the branch, the dashboard in its local pane', () => {
     // The row's menu closes on the picker's blur, so an import's outcome only

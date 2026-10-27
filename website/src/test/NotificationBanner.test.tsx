@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
-import { createRef } from 'react'
+import { createRef, type ReactNode } from 'react'
 import { renderWithProviders, createTestStore } from './helpers'
 import NotificationBanner, { computeExitDelta, exitTarget } from '../components/notifications/NotificationBanner'
 import { SWIPE_CLICK_SWALLOW_MS } from '../components/notifications/SwipeToDismiss'
@@ -80,7 +80,7 @@ const mkN = (over: Partial<Notification> = {}): Notification => ({
   kind: 'cron', ts: `2026-09-21T10:00:0${seq++}.000Z`, title: `Note ${seq}`, body: 'body text', acked: false, ...over,
 })
 
-function renderBanner(opts: { popoverOpen?: boolean; route?: string; activeSlot?: string | null; items?: Notification[] } = {}) {
+function renderBanner(opts: { popoverOpen?: boolean; route?: string; activeSlot?: string | null; items?: Notification[]; after?: ReactNode } = {}) {
   const store = createTestStore({
     notifications: { items: opts.items ?? [] } as RootState['notifications'],
     ...(opts.activeSlot !== undefined ? { chat: { activeSlot: opts.activeSlot } as RootState['chat'] } : {}),
@@ -90,7 +90,7 @@ function renderBanner(opts: { popoverOpen?: boolean; route?: string; activeSlot?
   const utils = renderWithProviders(
     <>
       <button ref={bellRef}>bell</button>
-      <NotificationBanner bellRef={bellRef} popoverOpen={opts.popoverOpen ?? false} onOpenNote={onOpenNote} />
+      <NotificationBanner bellRef={bellRef} popoverOpen={opts.popoverOpen ?? false} onOpenNote={onOpenNote} after={opts.after} />
     </>,
     { store, route: opts.route ?? '/settings' },
   )
@@ -126,6 +126,19 @@ describe('NotificationBanner: arrival', () => {
     expect(cards()).toHaveLength(1)
     expect(screen.getByText('Digest ready')).toBeTruthy()
     expect(region.getAttribute('aria-live')).toBe('polite')
+  })
+
+  it('stacks host `after` content in flow below a live card, in the same fixed region', () => {
+    // The file-menu result toast shares this corner; rendering it inside the region
+    // (not as a second fixed overlay) is what keeps it from covering a feed card.
+    renderBanner({ after: <div data-testid="after-slot">Uploaded</div> })
+    arrive(mkN({ title: 'Digest ready' }))
+    const region = screen.getByTestId('notification-banner-region')
+    const after = screen.getByTestId('after-slot')
+    expect(region.contains(after)).toBe(true)
+    expect(region.lastElementChild).toBe(after)
+    const card = cards()[0]
+    expect(card.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('never renders passive or silenced notes', () => {

@@ -15,6 +15,7 @@ import AskAgentButton from '../../components/AskAgentButton'
 import NotificationDetailPanel from '../../components/notifications/NotificationDetailPanel'
 import NotificationFeed from '../../components/notifications/NotificationFeed'
 import NotificationBanner from '../../components/notifications/NotificationBanner'
+import FileMenuResultToast from '../../components/notifications/FileMenuResultToast'
 import { recordEvent } from '../../rum'
 import { i18nT } from '../../i18n/t'
 import { uiLocation } from '../../uiLocations/uiLocation'
@@ -511,6 +512,7 @@ export function NotificationSheet({ sheet }: { sheet: ReturnType<typeof useNotif
         bellRef={bellRef}
         popoverOpen={phase !== 'closed'}
         onOpenNote={openPanelOn}
+        after={<FileMenuResultToast />}
       />,
       document.body
     )}
