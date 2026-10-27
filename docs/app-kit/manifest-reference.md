@@ -228,9 +228,9 @@ each replaced field with its old and new value (a WARNING line ending in
 | `ui.entry` | string | | Path to ESM bundle (relative to ui/) |
 | `ui.pages[].route` | string | | URL path for the page |
 | `ui.pages[].label` | string | | Sidebar label |
-| `ui.pages[].icon` | string | | Lucide icon name (e.g. `"Shield"`, `"Package"`) |
+| `ui.pages[].icon` | string | | Lucide icon name (e.g. `"Shield"`, `"Package"`). Built-in apps only: an installed app's sidebar row shows the generic icon for it, so ship an image instead (`iconPath`, or `ui.pages[].iconUrl`) |
 | `ui.pages[].iconUrl` | string | | Custom active icon image path (relative to ui/) |
-| `ui.pages[].iconInactiveUrl` | string | | Optional inactive-state icon image path (relative to ui/) |
+| `ui.pages[].iconInactiveUrl` | string | | Optional sidebar icon for when the app is not selected (relative to ui/). Read from the first page. The sidebar row shows this file while another page is open, and the app's normal icon when its own page is open or the row is hovered. Use it for a greyed-out variant, the way built-in icons go grey. If the file fails to load, the row keeps the normal icon |
 | `ui.pages[].entryPoint` | string | | Per-page ESM bundle path, relative to ui/ (overrides `ui.entry`) |
 | `ui.pages[].mountFunction` | string | `"mount"` | Exported function name in the ESM bundle |
 | `ui.sidebar.section` | string | `"Apps"` | Sidebar section name |
