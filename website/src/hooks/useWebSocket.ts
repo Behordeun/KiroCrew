@@ -37,6 +37,7 @@ import {
   takeFoldedSlotProjection,
 } from './websocket/slotProjection'
 import { useSocketConnection } from './websocket/connection'
+import { createFoldWatch, FOLD_HELLO_FRAME, type FoldWatch } from './websocket/foldWatch'
 import { decodeFrame } from './websocket/frames'
 import { useStreamBuffers } from './websocket/streamBuffers'
 import { useVoicePlayback } from './websocket/voicePlayback'
@@ -150,6 +151,9 @@ export function useWebSocket() {
   const bundle = useBundleReload(dispatch, getDashboardState)
   const chatStream = useChatStream({ dispatch, buffers, voice, reconnectingRef })
   const turnCompletion = useTurnCompletion({ dispatch, queryClient, reconnectingRef })
+  // Which work boards this tab shows, sent as `fold_watch` once a gateway that
+  // routes by watch set says `fold_hello`. Created with the hook's lifetime.
+  const foldWatchRef = useRef<FoldWatch | null>(null)
 
   /** Reconcile coordinator approvals against the authority on every open.
    *  The registry decides what to retire and adopt; the permission row an
@@ -182,6 +186,8 @@ export function useWebSocket() {
       silenceClockStartedAtRef.current = Date.now()
       lastFrameAtRef.current = silenceClockStartedAtRef.current
       slotList.resetForConnection()
+      // A new socket starts unwatched; the gateway's hello re-sends the set.
+      foldWatchRef.current?.reset()
       // A fold revision is minted by the gateway process that folded, so numbers
       // from the previous socket are not comparable with this one's: carried over,
       // a restarted gateway's frames would all read as stale.
@@ -696,6 +702,11 @@ export function useWebSocket() {
             onUsageFrame(queryClient, frame)
             break
           }
+          case FOLD_HELLO_FRAME:
+            // This gateway sends a board's slot-fold frames only to tabs that
+            // watch it: tell it which boards this tab shows.
+            foldWatchRef.current?.onHello()
+            break
           case 'slot_projection/subscribed':
             // The revisions this process has published per cell, carrying no
             // values. Nothing acts on it: a revision this tab has not received
@@ -1045,6 +1056,8 @@ export function useWebSocket() {
 
   useEffect(() => {
     socket.resume()
+    const foldWatch = createFoldWatch(queryClient, (payload) => socket.sendIfOpen(payload))
+    foldWatchRef.current = foldWatch
     connect()
     const detachQuestionRetirements = store.subscribe(cards.onQuestionStateChange)
     const detachVoice = voice.attachWindowEvents()
@@ -1061,8 +1074,10 @@ export function useWebSocket() {
       detachQuestionRetirements()
       detachVoice()
       detachFocus()
+      foldWatch.dispose()
+      if (foldWatchRef.current === foldWatch) foldWatchRef.current = null
     }
-  }, [socket, connect, voice, buffers, cards])
+  }, [socket, connect, voice, buffers, cards, queryClient])
 
   return { subscribeLogs: socket.subscribeLogs, subscribeSubagents: socket.subscribeSubagents, forceReconnect }
 }
