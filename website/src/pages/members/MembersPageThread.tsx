@@ -73,6 +73,7 @@ import { type MembersPageLayout } from './useMembersPageLayout'
 import { type MembersPageNavigation } from './useMembersPageNavigation'
 import { type MembersPageRosterRead, type MembersPageRosterSignals } from './useMembersPageRoster'
 import { type MembersPageTeamsRead, type MembersPageTeamView } from './useMembersPageTeams'
+import { slotRowByKey } from '../../store/slotIndex'
 
 /** The notice for a refused Fresh start, by the route's refusal code: queued
  *  work says to wait, a turn that would not stop says to stop it first. */
@@ -439,7 +440,7 @@ export function useMembersPageThreadView({
   const headerInset = headerInBar ? 0 : threadHeaderH
   const [betweenHeaderRef, betweenHeaderH] = useMeasuredHeight<HTMLDivElement>()
   const pillStreamState = useAppSelector((s) => (pillSlotKey ? selectSlotStreamState(s, pillSlotKey) : 'idle'))
-  const pillLiveSlot = useAppSelector((s) => (pillSlotKey ? s.dashboard.slots.find((sl) => sl.key === pillSlotKey) : undefined))
+  const pillLiveSlot = useAppSelector((s) => (pillSlotKey ? slotRowByKey(s.dashboard.slots, pillSlotKey) : undefined))
   const uiLang = useLanguage().resolved
   const pillTurnAct = useSlotActivity(pillSlotKey, {
     running: !!active && !!isRunning(active),

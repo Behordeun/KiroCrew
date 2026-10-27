@@ -13,6 +13,7 @@ import { useTipTrigger } from '../../../components/TipCard'
 import { useKnowledgeFetch } from '../useKnowledgeFetch'
 import { closeCrewWindow, useCrewWindow } from '../crew-window/crewWindowStore'
 import { useGuideRevealScope } from '../../../guide/GuideRevealScope'
+import { slotRowByKey } from '../../../store/slotIndex'
 
 // Stable identity for the "no follow-up cards" case: returning a fresh {} from
 // the selector would make it a new reference on every store update.
@@ -215,7 +216,7 @@ export function useActiveSlotState({
   const [splitAnchor, setSplitAnchor] = useState<string | null>(null)
   // Temporary sessions ("no memory reads or writes") must never show
   // memory-personalized tips.
-  const tipTemporary = useAppSelector(s => s.dashboard.slots.find(sl => sl.key === s.chat.activeSlot)?.memory_mode === 'temporary')
+  const tipTemporary = useAppSelector(s => slotRowByKey(s.dashboard.slots, s.chat.activeSlot)?.memory_mode === 'temporary')
   const tipBlocked = tipTemporary || splitMode || embedMode === 'sessions'
   const { tip: activeTip, dismiss: dismissTip } = useTipTrigger(!!slotRunning, tipSuppressed, activeSlot, tipBlocked)
   const slotState = useAppSelector(s => s.chat.slotState)

@@ -13,6 +13,7 @@ import { fuzzyMatch, makeScoreThenNameComparator } from '../../../utils/fuzzyMat
 import type { ResourceProvider, Result } from '../types'
 
 import { i18nT } from '../../../i18n/t'
+import { slotRowByKey } from '../../../store/slotIndex'
 
 /**
  * Actions provider (Search Everywhere).
@@ -184,7 +185,7 @@ export function useActionsProvider(opts: { openShortcuts: () => void }): Resourc
   const { togglePin } = useSessionActions()
   const activeSlot = useAppSelector((s) => s.chat.activeSlot)
   const activePinned = useAppSelector(
-    (s) => s.dashboard.slots.find((slot) => slot.key === activeSlot)?.pinned ?? false,
+    (s) => slotRowByKey(s.dashboard.slots, activeSlot)?.pinned ?? false,
   )
 
   // "New session" is a write (createSlot); route it through useMutation for

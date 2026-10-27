@@ -65,6 +65,7 @@ import { resolveSlotOverlays, type SlotOwners } from '../apps/overlaySlots'
 import { isChatRoute, useRouteActiveModel } from './nav/routeActive'
 import { useDeveloperMode } from './nav/developerMode'
 import { appPathname } from '../lib/basePath'
+import { slotRowByKey } from '../store/slotIndex'
 
 /** Mobile nav drawer travel: its 220px width + the 8px mx-2 inset + border. */
 /** Mobile nav drawer width. Shared with its travel below so the two cannot drift
@@ -784,7 +785,7 @@ export function useAppShell() {
   // is still its key has no real title yet (same rule as the chat popout).
   const activeSessionTitle = useAppSelector(s => {
     const key = s.chat.activeSlot
-    const title = key ? s.dashboard.slots.find(x => x.key === key)?.title : undefined
+    const title = key ? slotRowByKey(s.dashboard.slots, key)?.title : undefined
     return title && title !== key ? title : ''
   })
 

@@ -14,6 +14,7 @@ import { missingSourcesNotice, useCommandCenter } from './useCommandCenter'
 import AttentionCard, { RestoredQuestionNotice } from './AttentionCard'
 import { APPROVAL_MODE_KEYS, runTitle } from './model'
 import { PANEL_HEADING_ATTR } from './panelHeading'
+import { slotRowByKey } from '../../../store/slotIndex'
 
 const CrewDynamicDashboard = lazy(() => import('../../members/CrewDynamicDashboard'))
 
@@ -70,7 +71,7 @@ export default function CommandCenterPanel({ slot, active, sessionReady = true, 
   // the dashboard PACKAGE; whether a session has a derived CARD to show is a different
   // question on a different route, and `canCarryCard` in `./model` is the one predicate
   // for that.
-  const owner = useAppSelector(s => slot ? s.dashboard.slots.find(item => item.key === slot) : undefined)
+  const owner = useAppSelector(s => slot ? slotRowByKey(s.dashboard.slots, slot) : undefined)
   const root = !!slot && !!owner && !owner.created_by && !owner.parent
   // A crewmate's DM slot is a root too, but its agent writes the CREWMATE's page,
   // not a session page, so the Overview shows that page. Decided by the roster's

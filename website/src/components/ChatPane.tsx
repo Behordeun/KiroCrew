@@ -68,6 +68,7 @@ import { useChatPaneSend } from './useChatPaneSend'
 import { useChatPaneStop, useChatPaneRunSync } from './useChatPaneTurnControl'
 import { useChatPaneContinue } from './useChatPaneContinue'
 import { useChatPaneRenderers, ChatPaneAboveRows } from './ChatPaneTranscript'
+import { slotRowByKey } from '../store/slotIndex'
 
 export type { PaneLeading } from './ChatPaneProps'
 
@@ -186,7 +187,7 @@ export default function ChatPane({
   // Prefer the warm's value: this pane's own query is staleTime:Infinity, so its
   // has_more freezes at mount while a later bounded warm can truncate the cache.
   const warmHasMore = useAppSelector((s) => s.chat.slotPaneHasMore?.[slotKey])
-  const paneSlot = useAppSelector((s) => s.dashboard.slots.find((x) => x.key === slotKey))
+  const paneSlot = useAppSelector((s) => slotRowByKey(s.dashboard.slots, slotKey))
   // A stop is under way on this pane's turn: the stream state's own `stopping`
   // phase, or a Stop pressed from another tab that reaches this pane only as
   // the slots frame's `stopping` flag. This is the footer's and composer's
@@ -246,7 +247,7 @@ export default function ChatPane({
   // history key (dashboard:<slot>); strip the prefix to match the bare slot key.
   const parentKey = paneSlot?.forked_from ? paneSlot.forked_from.replace(/^dashboard:/, '') : null
   const parentSlot = useAppSelector((s) =>
-    parentKey ? s.dashboard.slots.find((x) => x.key === parentKey) : undefined,
+    parentKey ? slotRowByKey(s.dashboard.slots, parentKey) : undefined,
   )
   // An untitled parent reads "Untitled session", never its slot key; the tag's
   // hover keeps the key so two untitled parents stay tellable apart. A parent

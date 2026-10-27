@@ -7,7 +7,7 @@ import { motion } from 'framer-motion'
 import { X, Pin, VolumeX, EyeOff, VenetianMask, MoreVertical, CornerDownRight, GitFork, Loader, Loader2, Bot, ExternalLink, Workflow, TriangleAlert, Goal, MessageCircleQuestionMark, ShieldCheck, Hourglass, GripVertical, Moon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { shallowEqual } from 'react-redux'
-import { useAppDispatch, useAppSelector } from '../../store'
+import { useAppDispatch, useAppSelector, type RootState } from '../../store'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '../../components/ui/dropdown-menu'
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from '../../components/ui/context-menu'
 import { offlineProps } from '../../utils/offline'
@@ -47,6 +47,23 @@ import { CrewOfflineContext } from './CrewGroups'
 import { useSlotTitleGenerating } from '../../hooks/slotTitleGeneration'
 import { DisclosureChevron, isOpenInTabModifierClick } from './chrome'
 import { SessionSourceChips } from './SessionSourceChips'
+
+/** A row's slot-scoped live facts, read in ONE subscription. Flat, so the
+ *  caller's shallowEqual compares each fact by identity: the workflow entry
+ *  (rebuilt per run event) is spread into primitives for the same reason the
+ *  old per-field subscription compared it shallowly. */
+function selectRowLive(st: RootState, localSlotKey: string) {
+  const wf = selectSidebarWorkflowActive(st)[normalizeRunSessionKey(localSlotKey)]
+  return {
+    statusDetail: st.chat.slotStatusDetail?.[localSlotKey],
+    automation: selectAutomationForSlot(st, localSlotKey),
+    queuedForSlot: st.chat.subagentQueued?.[localSlotKey] || 0,
+    queuedReason: st.chat.subagentQueuedReason?.[localSlotKey],
+    wfCount: wf?.count,
+    wfName: wf?.name,
+    wfPhase: wf?.phase,
+  }
+}
 
 /**
  * Session-row type scale, quantized to a 4px baseline grid.
@@ -345,16 +362,22 @@ export const SessionRow = memo(function SessionRow({ view, actions }: SessionRow
   // namespace and a collision would show another session's status here.
   // `selectAutomationForSlot` does its own `isUnsafeKey`/`safeKey` normalization,
   // so this needs no own-property guard of its own.
-  const statusDetail = useAppSelector(st => st.chat.slotStatusDetail?.[localSlotKey])
-  const automation = useAppSelector(st => selectAutomationForSlot(st, localSlotKey))
+  //
+  // ONE subscription for all of them (`selectRowLive`): every mounted row runs
+  // its selectors on every store notification, so five per row was five times
+  // the sidebar's share of each dispatch. shallowEqual over the flat result
+  // keeps each field's own identity rule: an entry object repaints only when
+  // THIS slot's entry is replaced, and the workflow primitives only when this
+  // slot's runs change.
+  const { statusDetail, automation, queuedForSlot, queuedReason, wfCount, wfName: wfRawName, wfPhase: wfRawPhase } =
+    useAppSelector(st => selectRowLive(st, localSlotKey), shallowEqual)
   const goalLoop = automation?.kind === 'legacy_goal_loop' ? automation : undefined
   const monitor = automation?.kind === 'structured_monitor' ? automation : null
-  const queuedForSlot = useAppSelector(st => st.chat.subagentQueued?.[localSlotKey] || 0)
-  const queuedReason = useAppSelector(st => st.chat.subagentQueuedReason?.[localSlotKey])
   // {count, name, phase} of this slot's running workflow fan-out, or undefined.
-  // shallowEqual because the map is rebuilt per run event; the primitives only
-  // change when THIS slot's runs do.
-  const wf = useAppSelector(st => selectSidebarWorkflowActive(st)[normalizeRunSessionKey(localSlotKey)], shallowEqual)
+  const wf = useMemo(
+    () => (wfCount === undefined ? undefined : { count: wfCount, name: wfRawName ?? '', phase: wfRawPhase ?? '' }),
+    [wfCount, wfRawName, wfRawPhase],
+  )
     // The conductor lane's count cluster, built HERE so it can sit inside the card's
     // own meta group. The lane hands over numbers and renders none of this itself,
     // which is what keeps one card implementation across every lane.
