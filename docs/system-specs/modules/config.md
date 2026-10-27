@@ -230,6 +230,12 @@ is the single accessor and resolves to:
    macOS-resolved `/private/etc`), else
 2. `~/.kiro/crew` (the default).
 
+The override is resolved and validated once per distinct raw value
+(`_override_home_pin`, keyed on the env string): a changed value is resolved
+afresh, while a relative or `~` value stays anchored to the cwd and `HOME` of the
+first call, and a repoint of the same string's symlink target is not seen until
+the value changes or the process restarts.
+
 **No migration — net-new users only.** All supported installs start directly in
 `~/.kiro/crew`; there is no `~/.kirocrew` to relocate, so `config_dir()` simply
 resolves and `mkdir`s the home above. The one-time `~/.kirocrew` → `~/.kiro/crew`
