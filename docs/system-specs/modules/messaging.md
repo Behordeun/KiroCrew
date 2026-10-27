@@ -1198,7 +1198,18 @@ So a peer who messaged the bot once can be the single available direct target, w
 is exactly what `_owner_dm_target` reads as the owner. Nothing downstream catches
 it: both `may_send_to` implementations return True unconditionally under their open
 policy (Weixin's promise to consult `_allowed` alone holds only on its `allowlist`
-branch), and `resolve_configured_target` accepts the learned set too.
+branch), and `resolve_configured_target` accepts the learned set too. Weixin's
+`_known_users` is a bounded LRU (`KNOWN_USERS_CAP`), so past the cap the least-recent
+learned peers are evicted; an addressed send to an evicted peer resolves as "target
+not configured" until that peer writes again, which re-adds it. The cap bounds the
+set's growth and never relaxes `may_send_to`, which reads `_allowed` alone. The
+overflow is disclosed once per `configured_targets()` snapshot (an unavailable
+`known_users_truncated` sentinel), and a refusal while the roster is truncated
+carries a redacted SEL note that the roster is truncated — a property of the set,
+not a claim that the refused id was evicted, since an evicted id and one never seen
+are indistinguishable once dropped. An over-long `from_user_id`
+(> `MAX_RETAINED_USER_ID_LEN`) is still served but not retained, so the per-entry
+byte size is bounded too.
 `channel_type` is unaffected for both and stays available.
 
 The exclusion is not hand-kept:
