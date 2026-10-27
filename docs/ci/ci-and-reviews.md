@@ -1002,6 +1002,119 @@ label. Boot-matrix rollback restores `runs-on: ${{ matrix.os }}`. Keep the test
 arguments and coverage unchanged. A rejected webhook leaves a job queued before
 its timeout starts; diagnose or roll back rather than raising that timeout.
 
+### Larger runners for the review lanes and CodeQL
+
+Fourteen `runs-on` sites draw on the `kirocrew-runners` larger-runner group
+rather than `ubuntu-latest`: the six fork review lanes (`fork-opus-review`,
+`fork-gpt-review`, `fork-first-principles-review`, `fork-design-review`,
+`fork-ux-review`, and all three jobs of `fork-security-scope-review`), the five
+same-repo review lanes (`codex-review`, `claude-review`,
+`first-principles-review`, `design-review`, `ux-review`), and `codeql.yml`.
+
+**Why the fork lanes, and why their spend is permanent.** Fork work cannot move
+to the CodeBuild fleet, and the obstruction is structural rather than unfinished
+work: registering a CodeBuild-hosted runner needs a GitHub App installation
+credential carrying `Administration:write`, so no such project can hold a
+zero-permission role, and the `workflow_job` webhook payload carries no fork
+indicator (`head_branch` and `head_sha`, never `head_repository`), so the AWS
+side cannot filter fork work out. Every fork pull request therefore goes to a
+hosted runner by design, which makes a larger runner the only capacity source
+that can take it.
+
+A larger runner satisfies these lanes' isolation requirement the same way
+`ubuntu-latest` does. It is GitHub-managed and ephemeral, and the runner itself
+carries no AWS role, CodeConnections connection or App installation credential,
+so it cannot reach the signing keys or the CDN bucket. Each review job still
+obtains the same short-lived, Bedrock-only OIDC credential it obtained on
+`ubuntu-latest`, through the same `id-token: write` and
+`secrets.AWS_BEDROCK_ROLE_ARN` it used there; moving the job does not widen,
+narrow or re-scope that credential.
+
+**Why CodeQL.** It is the largest single editable `runs-on` in the repository,
+and it already excludes forks through the `Analyze` job's own `if`. Its load is
+also permanent for an unrelated reason: GitHub's CodeQL default setup, which
+this workflow replaced, is off, so there is no second scan to fall back to.
+
+**Every lane moved here can hold merges, so treat any stuck run as an immediate
+rollback.** `pr-readiness.yml` resolves them all through one per-lane loop:
+`claude-review.yml`, `codex-review.yml`, `design-review.yml`, `ux-review.yml`,
+`first-principles-review.yml` and CodeQL sit in `workflow_specs` on the
+same-repo path, and on a fork pull request the fork lanes are read as
+check-runs, where a verdict that has not posted yet counts as pending. A job
+waiting for a runner is therefore recorded as pending rather than skipped --
+SKIPPED is a resolved answer, which is what `codeql.yml`'s comment about a
+skipped `Analyze` job refers to -- so it keeps the required `PR Readiness`
+status pending and holds every merge for up to the 24-hour queue timeout.
+CodeQL has no second scan to fall back to either, since GitHub's default setup
+is off. If the group does not admit the repository, or is at its
+`maximum_runners` cap, restore `runs-on: ubuntu-latest` on the affected line at
+once rather than waiting to see whether the queue clears -- for any of the
+fourteen sites, not just CodeQL.
+
+**Nothing gets faster.** A public-repository `ubuntu-latest` is already 4 vCPU
+and 16 GB, and `kirocrew-linux-4-core` is the same CPU and memory with roughly
+ten times the disk, so job durations should not move; only queue position does.
+Larger-runner minutes are billed even on a public repository, where standard
+runners are free and unlimited, so this trades a free-but-queued resource for a
+paid-but-unqueued one drawing on a separate ceiling.
+
+Each site targets the **group**, not the `kirocrew-linux-4-core` workflow label.
+Both forms work, since a larger runner is automatically assigned a label
+matching its name, but this definition has already been renamed once (from
+`kirocrew-release-4-core`) and a group reference survives a rename where every
+label reference would break simultaneously. The group must stay Linux-only:
+group targeting dispatches to any available runner in the group, so adding a
+Windows definition to `kirocrew-runners` would make every one of these jobs
+eligible to land on Windows. A Windows definition belongs in its own group.
+
+**What is deliberately still on `ubuntu-latest`.** `security-scope-review.yml`
+is itself on that lane's own scope surface, so a diff touching it sets
+`in_scope=true` while giving the model no shell, flow or cron surface to propose
+candidates for, and `scope_candidates.py validate` refuses the resulting empty
+`candidates.json` as `CandidateError`, exit 2, by design -- which reds a lane
+`PR Readiness` watches, so moving it needs its own pull request and a
+`/ai-review override scope <head-sha>: <reason>`. And
+`ai-review-human-override.yml` is the mechanism that clears such a red, so it
+does not move in a change that could need it.
+
+**The same-repo lanes are provisional, not permanent.** `codex-review`,
+`claude-review`, `first-principles-review`, `design-review` and `ux-review` are
+about 18 average concurrent slots. Unlike the fork lanes, they have a plausible
+free alternative: a low-permission CodeBuild project, which would make paid
+capacity for them redundant. That option is not being worked at present, so they
+sit here rather than queueing on the shared pool, and the move is a one-line
+revert per file. Treat this as reversible spend and revisit it if that project
+is ever built.
+
+**Capacity.** The definition is capped at `maximum_runners: 100`, a per-runner
+limit established when the runner is created; raising it goes through GitHub
+Support rather than the organization settings page, so it is not self-service.
+**Measure this definition's own peak from the jobs API filtered on
+`runner_group_name` before putting more load on it**, rather than extrapolating
+from the shared pool's peak-to-mean ratio, which is an aggregate a subset's
+burst pattern need not match. Exceeding the cap is not a failure state, just a
+worse one than headroom: jobs queue against our own 100 slots instead of the
+shared pool, and because these lanes feed `PR Readiness` the cost of being
+wrong shows up as slower merges rather than as a broken check.
+
+Rollback is per site and needs no AWS or runner-group change: restore
+`runs-on: ubuntu-latest` on the affected line. A job dispatched to a group that
+does not admit this repository stays queued for up to 24 hours before
+auto-cancelling, so cancel the run and fix the group's repository access rather
+than waiting out the timeout.
+
+**Moving one of these lanes again means updating a ratchet.**
+`test/test_ci_fleet_routing_expression_parity.py` keeps `_PERMANENT_EXCEPTIONS`,
+the set of jobs that must stay off the CodeBuild fleet, and pins each one's
+expected `runs-on` so a silent re-route fails review. Three of the lanes moved
+here are in that set -- `first-principles-review`, `ux-review` and
+`design-review` -- so their expected value lives in `_HOSTED_EXCEPTION_RUNNERS`
+rather than the `ubuntu-latest` default. Staying off the fleet is what that set
+guarantees; a larger runner is still GitHub-hosted, so the isolation contract is
+unchanged and only the pinned value moves. Change a runner on one of those jobs
+without changing the pin and the gate reds with
+`hosted exception changed runner`, which is the ratchet working.
+
 ### macOS is not a pull-request gate any more
 
 A macOS pytest job on the pull-request path waits hours for a hosted `macos-15`
