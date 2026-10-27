@@ -19,7 +19,9 @@ import pytest
 from acp_client_helpers import _native_projection_for_fake_processes  # noqa: F401 - fixture
 from acp_client_helpers import _pin_the_installed_kiro_cli_version  # noqa: F401 - fixture
 from acp_client_helpers import _stop_stderr_drain
+from acp_launch_capture import _windows_cleanup_passthrough
 
+from kiro_crew.acp import client as client_mod
 from kiro_crew.acp.client import AcpClient
 from kiro_crew.acp.types import ACP_BACKEND_CLAUDE
 from kiro_crew.slack import enterprise, team_ids
@@ -80,6 +82,16 @@ async def _spawn_env(client: AcpClient, *, claude: bool = False) -> dict[str, st
         ),
         patch("kiro_crew.acp.client.wrap_argv", return_value=(argv, None)),
         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
+        # On Windows the launch spawns through the cleanup admission, which hands the
+        # factory an owner and creates a real child instead of reaching the patched
+        # coroutine. Run the factory the way its POSIX branch does, and skip the
+        # suspended-child resume, which would act on the mocked pid as a real one.
+        patch.object(
+            client_mod.platform_compat,
+            "create_windows_cleanup_owned_process",
+            side_effect=_windows_cleanup_passthrough,
+        ),
+        patch("kiro_crew.acp.client.finish_suspended_spawn", return_value=True),
         patch("kiro_crew.session._track_pid"),
         patch("kiro_crew.session._track_session_pid"),
     ):
