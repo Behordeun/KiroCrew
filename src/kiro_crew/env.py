@@ -12,6 +12,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import sysconfig
 import threading
 from collections.abc import Iterable, Mapping, MutableMapping
 from pathlib import Path
@@ -888,13 +889,17 @@ def augmented_path(base_path: str = "", *, home: str | None = None) -> str:
     sync.
 
     On Windows a launched (non-shell) gateway inherits a ``PATH`` that does
-    not include the venv's ``Scripts\\`` directory, so ``shutil.which`` fails
-    to resolve the ``kirocrew`` / ``kirocrew-core`` console-script wrappers
-    pip generated for MCP-server spawn. Append ``sys.executable``'s parent
-    directory as the LAST entry so the running interpreter's own
-    console-scripts (``Scripts\\`` on Windows, ``bin/`` on POSIX) are always
-    discoverable. Last, not first: the interpreter dir also contains
-    ``python``/``pip``, and placing it ahead of ``base_path`` would silently
+    not include the interpreter's console-scripts directory, so
+    ``shutil.which`` fails to resolve the ``kirocrew`` / ``kirocrew-core``
+    wrappers pip generated for MCP-server spawn, or the bundled ``uv`` /
+    ``uvx``. Append ``sys.executable``'s parent and then the interpreter's
+    ``sysconfig`` scripts directory as the LAST entries, so its own console
+    scripts are always discoverable. In a venv (``Scripts\\`` on Windows,
+    ``bin/`` on POSIX) and in a POSIX python-build-standalone tree they are
+    one directory. The Windows desktop backend is a python-build-standalone
+    tree with ``python.exe`` at its root and its console scripts in
+    ``Scripts\\``, so there they differ. Last, not first: the interpreter dir
+    also contains ``python``/``pip``, and placing it ahead of ``base_path`` would silently
     rebind a user MCP spec's bare ``"command": "python"`` (and the spawned
     agent's own ``python``/``pip`` shell calls) to the gateway's venv
     interpreter. As a pure fallback it resolves only names found nowhere
@@ -922,8 +927,33 @@ def augmented_path(base_path: str = "", *, home: str | None = None) -> str:
     ]
     extra += _node_all_bin_dirs(resolved_home, mise_data, _xdg_config_dir(resolved_home))
     parts = extra + ([base_path] if base_path else [])
-    parts.append(str(Path(sys.executable).parent))
+    parts.extend(_interpreter_script_dirs())
     return os.pathsep.join(parts)
+
+
+def _interpreter_script_dirs() -> list[str]:
+    """The running interpreter's own directory, then its console-scripts directory.
+
+    One entry when they are the same directory (a venv, POSIX
+    python-build-standalone); two on the Windows desktop backend, where
+    ``python.exe`` sits at the tree root and pip installs ``uv.exe`` and the
+    ``kirocrew`` wrappers into ``Scripts\\``.
+    """
+    dirs = [str(Path(sys.executable).parent)]
+    scripts = _INTERPRETER_SCRIPTS_DIR
+    same = os.path.normcase(os.path.normpath(scripts)) == os.path.normcase(
+        os.path.normpath(dirs[0])
+    )
+    if scripts and os.path.isabs(scripts) and not same:
+        dirs.append(scripts)
+    return dirs
+
+
+#: The interpreter's console-scripts directory, read once at import. It
+#: depends only on ``sys.prefix``, which does not change at runtime, and
+#: ``sysconfig.get_path`` runs ``os.path.expanduser`` over its result, so a
+#: per-call read would follow whatever home the caller is pinning.
+_INTERPRETER_SCRIPTS_DIR = sysconfig.get_path("scripts") or ""
 
 
 #: How many directories :func:`describe_search_path` names before truncating.
