@@ -2142,7 +2142,13 @@ read-your-writes should add it deliberately, with its own tests.
   `policy_alias_split`) only for a server-less trusted identity those tables
   know, on a permission event the KAS harness built (`kas_builtin_ids`) -- an
   MCP-served call keeps exactly the targets it had, and another harness that
-  stamps the same bare id is asked under that id alone. This admits more than
+  stamps the same bare id is asked under that id alone. A Side Chat read
+  built-in whose seam states `harness_builtin_tool` is one group too when its
+  title is that harness's own name for the built-in
+  (`HARNESS_READ_POLICY_NAMES`): pi's `read` with `fs_read` once the pi seam
+  states it, so an allow list naming either admits it. claude is not grouped:
+  its permission title carries the arguments (`Read .env`) and stays its own
+  item. This admits more than
   asking the raw id by itself did: an allow-mode `tools: ["fs_write"]` now
   permits a KAS `str_replace` / `fs_append` (and `fs_read` / `grep` / `glob`
   permit the KAS read and search ids), which is the kiro-cli parity the table

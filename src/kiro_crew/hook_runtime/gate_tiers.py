@@ -892,12 +892,20 @@ def _tier_governance(facts: GateFacts, tier: GateTier) -> ToolHookResult | None:
     elif alias and call.identity_trusted:
         alias_groups = ((call.mcp_tool, alias),)
     else:
+        from kiro_crew.platform.tool_names import is_harness_read_alias
+
         # claude states no _meta.kiro identity: its read built-in is named by
         # harness_builtin_tool, so a ceiling's deny on web_search binds it too.
+        # A title that is the harness's own name for that built-in (pi's
+        # ``read`` beside ``fs_read``) is the same ONE tool,
+        # asked as one identity as deepseek's is below; any other title is still
+        # asked on its own.
+        builtin = call.harness_builtin_tool
+        if not call.mcp_server and is_harness_read_alias(call.title, builtin):
+            alias_groups = ((call.title, builtin),)
+            builtin = ""
         identity = tuple(
-            name
-            for name in dict.fromkeys((call.mcp_tool, call.harness_builtin_tool))
-            if name and name != call.title
+            name for name in dict.fromkeys((call.mcp_tool, builtin)) if name and name != call.title
         )
         if alias:
             deny_aliases = (alias,)
