@@ -511,12 +511,6 @@ def test_an_eager_advance_on_a_log_without_a_cut_counter_reads_only_the_new_entr
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="session tree reads up to TREE_UNIT_CAP units per request: "
-    "SessionTree._records_with_fault -> store_units.unit_dirs(limit=4096); "
-    "issue #24253",
-)
 def test_a_dispatch_view_for_one_unit_reads_a_fixed_number_of_units(meter, monkeypatch):
     from kiro_crew.crew_log.read import dispatch_view
 
