@@ -514,6 +514,7 @@ _KNOWN_SECOND_BOOT_CHANGES: dict[tuple[str, str], str] = {
     ("kiro_crew.executors", "_cron_pool"): "lazy thread pool",
     ("kiro_crew.executors", "_discovery_pool"): "lazy thread pool",
     ("kiro_crew.executors", "_embed_pool"): "lazy thread pool",
+    ("kiro_crew.executors", "_memory_background_pool"): "lazy thread pool",
     ("kiro_crew.executors", "_recall_pool"): "lazy thread pool",
     ("kiro_crew.executors", "_image_pool"): "lazy thread pool",
     ("kiro_crew.executors", "_stt_pool"): "lazy thread pool",
@@ -524,6 +525,9 @@ _KNOWN_SECOND_BOOT_CHANGES: dict[tuple[str, str], str] = {
     ("kiro_crew.executors", "_path_probe_pool"): "lazy thread pool",
     ("kiro_crew.executors", "_path_transfer_pool"): "lazy thread pool",
     ("kiro_crew.executors", "_crew_log_pool"): "lazy thread pool",
+    # Log-once dedup of the loop-thread lock warning: it holds source
+    # locations already warned about, not home state.
+    ("kiro_crew.vector_memory_lifecycle", "_loop_lock_sites"): "log-once warning dedup",
     # Task handles of loops the harness reaps at teardown (docstring, item 4);
     # only the dead handle remains.
     ("kiro_crew.apps.builtins.auto_research.handlers", "_watchdog_task"): "reaped task handle",
