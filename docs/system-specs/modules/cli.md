@@ -2636,6 +2636,12 @@ per-session tree ceiling the cleanup watchdog recycles at
 published by `/api/status` for this line; `kirocrew doctor` prints the same two
 readings at the top of its Memory Pressure section, on every platform.
 
+It exits 1 when nothing answers the resolved port (a refused connection,
+printed as "not running"), so a script or health check can gate on `$?`
+without parsing stdout. It exits 0 whenever a gateway answers: the stats
+view, a token-auth `401`/`403`, another HTTP error, a busy timeout or an
+unexpected body.
+
 ## App Dev Mode
 
 `kirocrew app dev <name> [--off] [--confirm-out-of-install-root]` toggles an
