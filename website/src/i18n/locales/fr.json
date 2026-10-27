@@ -16329,7 +16329,7 @@
         "gateway_auto_update_mandatory_note": "Une politique exige une version plus récente que celle-ci, et dès qu’il y en a une, elle est installée quel que soit ce réglage.",
         "gateway_auto_update_description": "Redémarre la gateway pour installer une nouvelle version une fois qu'aucun travail n'est en cours. Désactivé, elle reste sur sa version actuelle.",
         "gateway_updates_heading": "Mises à jour de la gateway",
-        "gateway_auto_update_desktop_context": "La gateway exécute tes agents et chats. Elle est installée séparément de {{productName}}, donc ce bouton la met à jour, pas cette app. Elle ne redémarre que lorsqu'aucun travail n'est actif.",
+        "gateway_auto_update_desktop_context": "Tes agents et chats s'exécutent dans un programme en arrière-plan appelé gateway, installée séparément de {{productName}}. Ce bouton maintient la gateway à jour, pas cette app. La gateway ne redémarre que lorsqu'aucun travail n'est actif.",
         "automatic_updates_are_unavailable_in_this_build": "Les mises à jour automatiques ne sont pas disponibles dans cette version",
         "automatic_updates_unavailable_dev_build": "Les mises à jour automatiques ne sont pas disponibles dans cette version (version de développement).",
         "automatic_updates_unavailable_channel": "Les mises à jour automatiques ne sont pas disponibles car ce canal de publication ne propose pas encore de builds pour votre plateforme. Changez de canal ci-dessus pour recevoir les mises à jour.",

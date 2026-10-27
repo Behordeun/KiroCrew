@@ -7605,7 +7605,7 @@
         "gateway_auto_update_mandatory_note": "A policy requires a newer version than this one; when one is available it is installed whatever this switch says.",
         "gateway_auto_update_description": "Restarts the gateway to install a new release once no work is running. When off, it stays on its current version.",
         "gateway_updates_heading": "Gateway updates",
-        "gateway_auto_update_desktop_context": "The gateway runs your agents and chats. It's installed separately from {{productName}}, so this switch updates it, not this app. It only restarts when no work is active.",
+        "gateway_auto_update_desktop_context": "Your agents and chats run in a background program called the gateway, installed separately from {{productName}}. This switch keeps the gateway up to date, not this app. The gateway only restarts when no work is active.",
         "nightly": "Nightly",
         "channel_help_show_all": "▸ What's the difference between Stable, Insider and Nightly?",
         "channel_explainer_nightly": "Untested daily builds from main. Expect breakage — useful for trying a fix the day it lands.",
