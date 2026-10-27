@@ -82,8 +82,8 @@ export function useBusyTurnControls({
   dispatch,
   onSlashRefused,
 }: BusyTurnControlsOptions) {
-  const { drafts, fileDrafts, pasteDrafts, saveDrafts } = stores
-  const { pendingFilesRef, pasteBlocksRef, setPasteBlocks, setPendingFiles, pickedFileTokens, mergeSlotTokens } = staging
+  const { drafts, fileDrafts, pasteDrafts, sessionRefDrafts, saveDrafts } = stores
+  const { pendingFilesRef, pasteBlocksRef, setPasteBlocks, setPendingFiles, pendingSessionsRef, setPendingSessions, pickedFileTokens, mergeSlotTokens } = staging
   const allQueuedMessages = useMemo(() => messages.filter(m => m.role === 'queued'), [messages])
   // Only user-typed queued messages get the interactive (edit/cancel) card
   // stack. System injections are excluded (isNonInteractiveQueued): sub-agent
@@ -152,6 +152,11 @@ export function useBusyTurnControls({
     const askAtSteer = capturePendingAskId(store.getState().chat.pendingQuestions, activeSlot)
     const raw = inputRef.current.trim()
     const files = pendingFilesRef.current
+    // Dropped session references ride the steer as links, exactly as on a
+    // send. They are not a steer payload on their own: the busy send button
+    // is not offered for a refs-only composer (busySend.tsx), so a bare ref
+    // waits for the turn to end and rides the idle send.
+    const sessionRefs = pendingSessionsRef.current
     // A staged quote alone is a payload; a slash command is not a send, so the
     // quote stays staged through it.
     const steerQuote = isInterceptedSlashCommand(raw) ? null : messageQuote.consume('').quote
@@ -213,9 +218,10 @@ export function useBusyTurnControls({
     }
     // The text-only steer turn (`buildOutgoingTurn`): files inlined, folder
     // tokens kept in their `@rel/` form (a marker with no `meta.dirs` to
-    // replay against would truncate a spaced path), the live paste tokens
-    // expanded, the quote opening the text.
-    const llmTxt = buildOutgoingTurn({ text: raw, files, pastes: pasteBlocksRef.current, quote: steerQuote }, 'steer').wire
+    // replay against would truncate a spaced path), staged session references
+    // appended as links, the live paste tokens expanded, the quote opening
+    // the text.
+    const llmTxt = buildOutgoingTurn({ text: raw, files, pastes: pasteBlocksRef.current, sessionRefs, quote: steerQuote }, 'steer').wire
     // Optimistically show the steered text immediately. Steer is the default
     // mid-turn action (split send button), so pressing Enter while a turn is
     // running routes here; without an optimistic bubble the message only appears
@@ -239,22 +245,19 @@ export function useBusyTurnControls({
     // is in flight, and a queue answer replaces this row through the same
     // `queue_push` reconcile a manual queue uses.
     steerMutation.mutate({ text: llmTxt, sendId: steerSendId, slot: activeSlot, auto: opts?.auto === true, quote: steerQuote, askId: askAtSteer })
-    // Staged session references are deliberately NOT part of steering: neither
-    // carried into the payload nor cleared. Only the TEXT has a restore path
-    // (steerMutation hands it back on a refused, failed or unconfirmed steer);
-    // attachments and pastes are still discarded, and adding refs to that set
-    // would lose a reference the user cannot recover except by dragging again.
-    // Leaving them staged is lossless and predictable: the chip stays in the
-    // composer and rides the next real send, which does have a full restore path.
+    // Staged session references were appended to `llmTxt` as links, so they
+    // are consumed with the rest of the composer. Nothing is lost on a
+    // refused, failed or unconfirmed steer: steerMutation hands the whole
+    // text back, links included, and a retry carries each link once.
     // Drops only this slot's own token sub-map -- see the same-shaped
     // comment at send()'s send-clear site in composerSend.ts.
-    setInput(''); setPendingFiles([]); delete pickedFileTokens.current[activeSlot]; setPasteBlocks([])
-    delete drafts.current[activeSlot]; delete fileDrafts.current[activeSlot]; delete pasteDrafts.current[activeSlot]
+    setInput(''); setPendingFiles([]); delete pickedFileTokens.current[activeSlot]; setPasteBlocks([]); setPendingSessions([])
+    delete drafts.current[activeSlot]; delete fileDrafts.current[activeSlot]; delete pasteDrafts.current[activeSlot]; delete sessionRefDrafts.current[activeSlot]
     saveDrafts()
   }, [activeSlot, slotRunning, connected, send, steerText, steerMutation, messageQuote, saveDrafts, dispatch, setInput, onSlashRefused,
     // Refs and state setters: stable, so none of these re-creates the callback.
-    activeSlotRef, composerRef, composerSlotRef, inputRef, drafts, fileDrafts, pasteDrafts,
-    pendingFilesRef, pasteBlocksRef, setPasteBlocks, setPendingFiles, pickedFileTokens])
+    activeSlotRef, composerRef, composerSlotRef, inputRef, drafts, fileDrafts, pasteDrafts, sessionRefDrafts,
+    pendingFilesRef, pasteBlocksRef, pendingSessionsRef, setPasteBlocks, setPendingFiles, setPendingSessions, pickedFileTokens])
 
   // The queue-card recipe is shared with every other host that draws a
   // QueueStack over this slot queue (#5891) — see useQueuedMessageActions for
