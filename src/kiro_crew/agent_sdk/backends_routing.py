@@ -221,6 +221,11 @@ ACP_BACKENDS_PERMISSION_KIND_FROM_TOOL_CALL: FrozenSet[str] = frozenset({ACP_BAC
 # ``initialize`` result advertises ``authMethods: []`` and its ``authenticate``
 # returns immediate success, so the ACP layer authenticates nothing at all and the
 # provider key it needs is resolved inside the harness from its own credential store.
+# Captured live on KAS 0.66.70 (kiro-cli 2.35.1 spawned WITHOUT ``--auth-method
+# cli``): ``test/fixtures/acp_frames/kas/host-auth-callback-live.jsonl``. On connect
+# the engine sent ``_kiro/auth/getAccessToken`` with empty params for the client to
+# answer from Crew's vault; the request carries no secret and the answer is
+# client-to-agent, off the capture.
 ACP_BACKENDS_HOST_AUTH_CALLBACK = frozenset({ACP_BACKEND_KAS})
 
 #: Backends whose engine sends an MCP OAuth consent URL to its client as a

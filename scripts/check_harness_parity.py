@@ -408,21 +408,28 @@ X_FEATURE_SETS: dict[str, frozenset[str] | None] = {
     "ACP_BACKENDS_UNMARKED_COMPACTION_PAIR": None,
     "ACP_BACKENDS_MCP_WIRE_REINJECT": None,
     "ACP_BACKENDS_MATE_WORKER_TOOL_LIMITS": None,
+    # kiro-cli 2.35.1 / KAS 0.66.70 / codex-acp 2.2.2: each member's teardown
+    # verb is captured live, the same id answered before and 'not found' after.
+    "ACP_BACKENDS_SESSION_EVICTION": None,
+    # KAS 0.66.70: the settings channel's neverDefer flips the probe tool's
+    # toolOrigin to "client".
+    "ACP_BACKENDS_CLIENT_META_SETTINGS": None,
+    # KAS 0.66.70 spawned without --auth-method cli sends _kiro/auth/getAccessToken.
+    "ACP_BACKENDS_HOST_AUTH_CALLBACK": None,
+    # kiro-cli 2.35.1 --agent off disk; KAS 0.66.70 via customAgents: the spec's
+    # own MCP server reached the session with an EMPTY session/new array.
+    "ACP_BACKENDS_SPEC_SERVERS_OFF_WIRE": None,
 }
 
 # Coverage is opt-out: every ``ACP_BACKENDS_*`` set is in X_FEATURE_SETS, here, or
 # in HARNESS_EXEMPT_SETS. These are X sets with no capture yet. Shrink-only: an
 # entry missing on the base ref fails, and a removed entry must move to X_FEATURE_SETS.
 X_REGISTRATION_PENDING: dict[str, str] = {
-    "ACP_BACKENDS_CLIENT_META_SETTINGS": "kas clientCapabilities._meta.kiro.settings",
-    "ACP_BACKENDS_HOOKS_LIST": "kas _kiro/hooks/* requests",
-    "ACP_BACKENDS_HOST_AUTH_CALLBACK": "kas _kiro/auth/getAccessToken request",
+    "ACP_BACKENDS_HOOKS_LIST": "kas _kiro/hooks/* requests (KAS_CLIENT_CAPABILITIES does not announce hooks, so the engine asks none; not reachable to capture)",
     "ACP_BACKENDS_OPEN_EXTERNAL_URL": "kas _kiro/openExternalUrl request",
     "ACP_BACKENDS_STRUCTURED_REFUSAL": "kiro/kas _kiro.dev/metadata refusal notification",
     "ACP_BACKENDS_FORK_AT_MESSAGE": "claude _meta.jetbrains.air.fork.messageId fork",
     "ACP_BACKENDS_META_IDENTITY": "goose _meta tool identity channel",
-    "ACP_BACKENDS_SESSION_EVICTION": "kiro/kas _kiro terminate/delete verbs; codex session/close",
-    "ACP_BACKENDS_SPEC_SERVERS_OFF_WIRE": "kas spec over _meta; kiro-cli --agent off disk",
     "ACP_BACKENDS_HARNESS_MANAGED_COMPACTION": "kas summarization_* notifications",
     "ACP_BACKENDS_NATIVE_TODOS": "claude native /todos prompt command",
     "ACP_BACKENDS_REPORT_USAGE": "kiro _kiro.dev/metadata meteringUsage; kas _meta.kiro turn_completion",

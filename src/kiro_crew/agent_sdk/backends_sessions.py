@@ -199,6 +199,17 @@ ACP_BACKENDS_ACP_CLIENT_SPAWNABLE = frozenset(
 # spelled as "not <some host>" would inherit an eviction guarantee it has never
 # demonstrated, and the operator who never opted into it is the one who finds the
 # adapter growing. Membership is earned by a measured teardown, not by default.
+#
+# Each member cites a live capture whose replay snapshot shows the same id live
+# before the teardown and 'not found' after it, at the releases kiro-cli 2.35.1
+# installs: kiro-cli 2.35.1 ``test/fixtures/acp_frames/kiro/session-evict-live.jsonl``
+# (set_mode, then ``_kiro.dev/session/terminate``, then set_mode -> -32603 Session
+# not found); KAS 0.66.70 ``test/fixtures/acp_frames/kas/session-evict-live.jsonl``
+# (set_mode, then ``_kiro/session/delete`` -> success, then set_mode -> -32000 not
+# found); codex-acp 2.2.2 ``test/fixtures/acp_frames/codex/session-evict-live.jsonl``
+# (set_config_option, then ``session/close`` -> {}, then set_config_option -> Session
+# not found). The real-adapter lane's live test is the anti-drift guard; these
+# captures are the replayed record.
 ACP_BACKENDS_SESSION_EVICTION = frozenset({ACP_BACKEND_KIRO, ACP_BACKEND_KAS, ACP_BACKEND_CODEX})
 
 # Backends whose process answers ``session/new``, ``session/load`` and

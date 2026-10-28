@@ -24,7 +24,7 @@ _spec.loader.exec_module(gate)
 # The ceiling only moves down. Raising it is the change this test exists to stop.
 X_CAPTURE_CEILING = 4
 KIRO_KAS_PAIR_CEILING = 0
-X_REGISTRATION_PENDING_CEILING = 13
+X_REGISTRATION_PENDING_CEILING = 9
 
 
 def test_tree_passes() -> None:
@@ -410,3 +410,55 @@ def test_opencode_second_prompt_joins_the_running_turn() -> None:
         for u in _updates("opencode/concurrent-prompt-steer-live.jsonl", "agent_message_chunk")
     )
     assert reply.strip() == "first-done pineapple"
+
+
+def _responses(rel: str) -> dict[int, dict]:
+    """Every id-matched response frame in a capture, keyed by request id."""
+    return {f["id"]: f for f in _frames(rel)[1:] if "id" in f and "method" not in f}
+
+
+def test_session_eviction_captures_show_the_id_dying_on_teardown() -> None:
+    """Each member: a live request answered, the teardown answered, the SAME id 'not found'."""
+    for rel, live_id, teardown_id, gone_id in (
+        ("kiro/session-evict-live.jsonl", 3, 4, 5),
+        ("kas/session-evict-live.jsonl", 3, 4, 5),
+        ("codex/session-evict-live.jsonl", 3, 4, 5),
+    ):
+        r = _responses(rel)
+        assert "error" not in r[live_id], f"{rel}: the session was not live before teardown"
+        assert "error" not in r[teardown_id], f"{rel}: the teardown verb was refused"
+        gone = r[gone_id]
+        assert "error" in gone, f"{rel}: the id still answered after teardown"
+        text = json.dumps(gone["error"])
+        assert "not found" in text.lower(), f"{rel}: {text}"
+
+
+def test_client_meta_settings_capture_shows_tool_origin_from_the_client() -> None:
+    """KAS read settings.toolSearch.neverDefer: the probe tool_call is toolOrigin client."""
+    rel = "kas/client-meta-settings-live.jsonl"
+    (call,) = _updates(rel, "tool_call")
+    assert (call.get("_meta") or {}).get("kiro", {}).get("toolOrigin") == "client"
+    assert call["title"] == "@probe/probe_codeword"
+    reply = "".join(u["content"]["text"] for u in _updates(rel, "agent_message_chunk"))
+    assert reply.strip() == "tangerine-42"
+
+
+def test_host_auth_callback_capture_shows_the_engine_asking_for_a_token() -> None:
+    """KAS spawned without --auth-method cli sends _kiro/auth/getAccessToken, no secret in it."""
+    rel = "kas/host-auth-callback-live.jsonl"
+    asks = _methods(rel, "_kiro/auth/getAccessToken")
+    assert len(asks) == 1, rel
+    assert asks[0].get("params") in ({}, None), "the token request must carry no secret"
+    assert "id" in asks[0], "it is a request the client answers, so it carries an id"
+
+
+def test_spec_servers_off_wire_captures_run_the_spec_server_off_an_empty_array() -> None:
+    """kiro --agent off disk and KAS via customAgents: the probe tool ran and returned the codeword."""
+    for rel in (
+        "kiro/spec-servers-off-wire-live.jsonl",
+        "kas/client-meta-settings-live.jsonl",
+    ):
+        (call,) = _updates(rel, "tool_call")
+        assert "probe_codeword" in json.dumps(call), rel
+        reply = "".join(u["content"]["text"] for u in _updates(rel, "agent_message_chunk"))
+        assert reply.strip() == "tangerine-42", rel

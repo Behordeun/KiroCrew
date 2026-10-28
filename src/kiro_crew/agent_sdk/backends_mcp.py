@@ -282,6 +282,12 @@ def overlay_project_scope(backend: str, work_dir: Any) -> dict[str, Any]:
 # membership rather than as "is kiro": a host added later that mounts a spec's
 # servers by its own channel joins here, and the detector says nothing wrong about
 # it on day one.
+# Both members are captured live with an EMPTY session/new mcpServers array and the
+# spec's own server still reached: kiro-cli 2.35.1 ``--agent probe`` off disk,
+# ``test/fixtures/acp_frames/kiro/spec-servers-off-wire-live.jsonl``; KAS 0.66.70
+# via ``_meta.kiro.customAgents``, ``test/fixtures/acp_frames/kas/client-meta-settings-live.jsonl``
+# (same run: the projected probe server's tool ran off the empty array). In each
+# the model called ``@probe/probe_codeword`` and it returned ``tangerine-42``.
 ACP_BACKENDS_SPEC_SERVERS_OFF_WIRE = frozenset({ACP_BACKEND_KIRO, ACP_BACKEND_KAS})
 
 # Backends on which an agent spec's ``"tools": []`` is honoured as a total ban --
@@ -404,6 +410,14 @@ ACP_BACKENDS_TOOL_SEARCH_OVERLAY = frozenset({ACP_BACKEND_KIRO})
 # every MCP tool not on ``toolSearch.neverDefer`` whatever ``enabled`` says, so a
 # spec without the loader is sent its MCP tools on that list. kiro-cli
 # is not a member: it has no such channel and reads the overlay file instead.
+# Captured live on KAS 0.66.70 (kiro-cli 2.35.1):
+# ``test/fixtures/acp_frames/kas/client-meta-settings-live.jsonl``. The client's
+# initialize carried ``settings.toolSearch.neverDefer=["probe::probe_codeword"]``,
+# and the probe tool's tool_call came back with ``_meta.kiro.toolOrigin: "client"``
+# -- KAS kept it direct because the client's settings named it, not by its own
+# default deferral (a control run with an empty settings object showed the same
+# tool with toolOrigin ``default``). kiro-cli has no capture here because it reads
+# no such channel.
 ACP_BACKENDS_CLIENT_META_SETTINGS = frozenset({ACP_BACKEND_KAS})
 
 # Backends that reconcile an edited agent config into their RUNNING sessions: a
