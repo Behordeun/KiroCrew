@@ -739,6 +739,7 @@ if TYPE_CHECKING:  # every owner-defined name this module forwards, for type che
         _stored_agent_dict,
         _subagent_timeout_from,
         _title_refresh_every_turns,
+        _translucent_panels_from,
         consume_managed_service_launch_environment,
         launched_as_managed_service,
         resolve_loop_stall_exit_after,
