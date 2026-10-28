@@ -47,6 +47,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _FOLDER_ID_SHAPE,
         _cron_folders_lock,
         _get_cron_folders_lock,
+        _job_snapshot,
         api_cron_folders,
         api_cron_folders_create,
         api_cron_folders_delete,

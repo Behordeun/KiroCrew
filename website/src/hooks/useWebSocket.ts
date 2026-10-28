@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { isLookPreviewFrame } from '../utils/lookPreview'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppDispatch } from '../store'
-import { sseTodoUpdate, sseMcpReportUpdate, sseSlotTitle, triggerRefresh, fetchSlots, remoteSlotRead } from '../store/dashboardSlice'
+import { sseTodoUpdate, sseMcpReportUpdate, sseSlotTitle, triggerRefresh, triggerCronRefresh, fetchSlots, remoteSlotRead } from '../store/dashboardSlice'
 import { addNotification, ackNotificationByTs, unackNotificationByTs, clearAllNotifications } from '../store/notificationsSlice'
 import { dispatchMcNotification, dispatchLiveNotification } from './notificationEvent'
 import {
@@ -456,7 +456,7 @@ export function useWebSocket() {
           case 'refresh': {
             const kinds: string[] = Array.isArray(data.kinds) ? data.kinds.filter((k: unknown): k is string => typeof k === 'string') : []
             dispatch(triggerRefresh())
-            invalidateRefreshQueries(queryClient, kinds)
+            invalidateRefreshQueries(queryClient, kinds, () => dispatch(triggerCronRefresh()))
             if (kinds.includes('history')) dispatch(fetchHistory(false))
             break
           }
@@ -971,7 +971,7 @@ export function useWebSocket() {
           case 'sessions_restarting':
             // Backend pushed session restart status (restarting/ready)
             dispatch(triggerRefresh())
-            invalidateRefreshQueries(queryClient)
+            invalidateRefreshQueries(queryClient, undefined, () => dispatch(triggerCronRefresh()))
             break
           case 'update_progress':
             handleUpdateProgress(dispatch, data)
@@ -979,7 +979,7 @@ export function useWebSocket() {
           case 'refine':
             // Handled by ProjectsPage via Redux
             dispatch(triggerRefresh())
-            invalidateRefreshQueries(queryClient)
+            invalidateRefreshQueries(queryClient, undefined, () => dispatch(triggerCronRefresh()))
             break
           case 'channel_message':
           case 'channel_agent_status':

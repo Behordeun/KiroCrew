@@ -144,6 +144,48 @@ const NARROW_KINDS: Readonly<Record<string, readonly RefreshTarget[]>> = {
 const sameTarget = (a: RefreshTarget, b: RefreshTarget) =>
   a.exact === b.exact && a.queryKey.length === b.queryKey.length && a.queryKey.every((k, i) => k === b.queryKey[i])
 
+/** How long the cron caches wait after a turn-end frame before they re-read.
+ *  A `history` frame ends every turn on every session, and on a busy install
+ *  that is many a minute; each one re-read the whole job list (twice, with the
+ *  Schedule page open), which is a large read when jobs carry long results.
+ *  A turn writes a job through the gateway's own cron tools, which announce
+ *  `crons` and refetch at once; only a write from an agent's shell (the CLI)
+ *  goes unannounced, and the turn-end frame is still what picks that up -- at
+ *  most once per this window, however many turns end in it. */
+export const TURN_END_CRON_REFRESH_MS = 15_000
+
+let turnEndCronTimer: ReturnType<typeof setTimeout> | null = null
+let turnEndCronClient: QueryClient | null = null
+let turnEndCronNotify: (() => void) | undefined
+
+/** Test seam: drop a pending turn-end cron refresh. */
+export function __resetTurnEndCronRefreshForTests(): void {
+  if (turnEndCronTimer !== null) clearTimeout(turnEndCronTimer)
+  turnEndCronTimer = null
+  turnEndCronClient = null
+  turnEndCronNotify = undefined
+}
+
+/** Re-read the cron caches once the window ends. Later frames inside the
+ *  window join the pending refresh rather than restart it, so a steady stream
+ *  of turns cannot hold the refresh off. */
+function scheduleTurnEndCronRefresh(qc: QueryClient, onCronsStale?: () => void): void {
+  turnEndCronClient = qc
+  turnEndCronNotify = onCronsStale
+  if (turnEndCronTimer !== null) return
+  turnEndCronTimer = setTimeout(() => {
+    const client = turnEndCronClient
+    const notify = turnEndCronNotify
+    turnEndCronTimer = null
+    turnEndCronClient = null
+    turnEndCronNotify = undefined
+    if (client) for (const target of CRON_TARGETS) client.invalidateQueries(target)
+    notify?.()
+  }, TURN_END_CRON_REFRESH_MS)
+}
+
+const isTurnEndOnly = (kinds?: readonly string[]) => !!kinds?.length && kinds.every(kind => kind === 'history')
+
 /**
  * Invalidate the React Query caches a `refresh` frame names in `kinds`
  * (every cache, see `NARROW_KINDS`, when it names none or one outside that
@@ -157,18 +199,35 @@ const sameTarget = (a: RefreshTarget, b: RefreshTarget) =>
  * every refresh frame is a sign the gateway answers again, and an errored list
  * (the artifact library after an auth-expired window, #10867) would otherwise
  * stay empty until its own kind is pushed.
+ *
+ * A frame that names only `history` refreshes everything but the cron caches
+ * at once, and those once per `TURN_END_CRON_REFRESH_MS` (an errored one at
+ * once, as above). `onCronsStale` is called whenever the cron caches are
+ * re-read, now or when that window ends, for a reader that holds the job list
+ * outside React Query (the Schedule page).
  */
-export function invalidateRefreshQueries(qc: QueryClient, kinds?: readonly string[]): void {
+export function invalidateRefreshQueries(qc: QueryClient, kinds?: readonly string[], onCronsStale?: () => void): void {
   const narrow = !!kinds?.length && kinds.every(kind => Object.prototype.hasOwnProperty.call(NARROW_KINDS, kind))
   if (!narrow) {
-    for (const target of ALL_TARGETS) qc.invalidateQueries(target)
+    const turnEnd = isTurnEndOnly(kinds)
+    for (const target of ALL_TARGETS) {
+      if (turnEnd && CRON_TARGETS.includes(target)) {
+        qc.invalidateQueries({ ...target, predicate: query => query.state.status === 'error' })
+      } else {
+        qc.invalidateQueries(target)
+      }
+    }
+    if (turnEnd) scheduleTurnEndCronRefresh(qc, onCronsStale)
+    else onCronsStale?.()
     return
   }
+  // Every narrow kind names the cron caches.
   const named = kinds.flatMap(kind => NARROW_KINDS[kind])
   for (const target of ALL_TARGETS) {
     if (named.some(t => sameTarget(t, target))) qc.invalidateQueries(target)
     else qc.invalidateQueries({ ...target, predicate: query => query.state.status === 'error' })
   }
+  onCronsStale?.()
 }
 
 /** Reconnect: re-read the caches whose one-shot frames may have been missed

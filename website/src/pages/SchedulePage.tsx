@@ -472,10 +472,13 @@ export default function SchedulePage() {
   }, [])
   useEffect(() => { load() }, [load])
 
-  // Auto-reload when backend pushes a 'crons' refresh (e.g. job starts/ends,
-  // or a run is cancelled) — supersedes interval polling for is_running state.
-  const refreshTrigger = useAppSelector(s => s.dashboard.refreshTrigger)
-  useEffect(() => { if (refreshTrigger > 0) { load(); refreshFolders() } }, [refreshTrigger, load, refreshFolders])
+  // Auto-reload when the cron caches go stale: a 'crons' or 'cron_history'
+  // refresh (a job starts or ends, a run is cancelled, a job or folder is
+  // edited) at once, a turn-end 'history' frame at most once per
+  // TURN_END_CRON_REFRESH_MS. Keyed on the kind-blind refreshTrigger, every
+  // turn that ended on any session re-read the whole job list.
+  const cronRefreshTrigger = useAppSelector(s => s.dashboard.cronRefreshTrigger)
+  useEffect(() => { if (cronRefreshTrigger > 0) { load(); refreshFolders() } }, [cronRefreshTrigger, load, refreshFolders])
 
   const { running, actionError, setActionError, runNow, openInChat, cancelling, cancelRun } = useCronActions(load)
   // Measured overflow state for the jobs table's scroller — drives the fade cue
