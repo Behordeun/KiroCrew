@@ -645,6 +645,9 @@ BENIGN_PACKAGE_SPAWNS: frozenset[str] = frozenset(
         # in-process aiohttp sweep with asyncio.run.
         "connections/l1_smoke.py::main",
         "cloud/source.py::_git_tracked_files",
+        # `check-attr filter` over the same tracked list: reads attributes, runs
+        # no driver, fixed argv, the hardened env. Same classification.
+        "cloud/source.py::_tracked_attr_values",
         "cloud/source.py::_tracked_tree_is_dirty",
         "cloud/source.py::_use_git_archive",
         # Release-tag probe before a packaged install's cloud launch: `<trusted
@@ -716,6 +719,9 @@ BENIGN_PACKAGE_SPAWNS: frozenset[str] = frozenset(
         # (_venv_pip_install removed — it now delegates the install to
         # dep_sync.sync_or_reinstall and spawns nothing itself.)
         "dashboard/handlers/updates_apply.py::api_update_apply",
+        # Fixed argv `git config --global --path --get core.excludesFile`: reads the
+        # operator's own config file for an ignore-list path, runs no program.
+        "dashboard/handlers/updates_apply.py::_user_excludes_file",
         "dashboard/handlers_system.py::_collect_system_metrics",
         # Split out of _collect_system_metrics above so the whole-machine process
         # walk can be cached on its own (much longer) TTL instead of the live
@@ -833,6 +839,10 @@ BENIGN_PACKAGE_SPAWNS: frozenset[str] = frozenset(
         # It does carry `git_neutralizer_env()`, so repo config cannot make these
         # reads exec a program (`core.fsmonitor` and friends are pinned).
         "platform/update_governance.py::_git_probe",
+        # Same trusted (or caller's) git, fixed argv `check-attr -z --stdin filter
+        # diff` fed the tracked path list on stdin: reads attributes, runs no
+        # driver, the probe's env. Same classification as `_git_probe`.
+        "platform/update_governance.py::_bound_driver_names",
         # `git config --system|--global --includes -z --get-all safe.directory`,
         # run so `git_command_env` can forward those values after it stops git
         # reading the home's config files. Fixed list-argv (no shell=True), no
