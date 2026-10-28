@@ -847,9 +847,11 @@ if TYPE_CHECKING:  # every owner-defined name this module forwards, for type che
     )
     from kiro_crew.config.loader_locations import (  # noqa: F401
         WorkspaceDirUnusable,
+        _first_non_directory_on_path,
         _PinnedCreateRefusal,
         _resolve_workspace_root,
         _session_work_dir,
+        _workspace_blocker_message,
         _workspace_dir_file,
         aws_consent_path,
         computer_use_state_path,

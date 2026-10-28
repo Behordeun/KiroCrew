@@ -6,6 +6,7 @@ The pure primitives live in the leaf :mod:`kiro_crew.config.paths`. An owner of 
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -67,8 +68,46 @@ def _resolve_workspace_root(root: Path, *, create: bool = True) -> Path:
         logger.warning("workspace root %r is not absolute; using the default", str(root))
         root = _default_workspace_base() / _WORKSPACE_DIR_NAME
     if create:
-        root.mkdir(parents=True, exist_ok=True)
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+        except (FileExistsError, NotADirectoryError) as exc:
+            blocker = _first_non_directory_on_path(root)
+            if blocker is None:
+                raise
+            raise NotADirectoryError(
+                errno.ENOTDIR, _workspace_blocker_message(root, blocker), str(blocker)
+            ) from exc
     return Path(os.path.realpath(str(root)))
+
+
+def _first_non_directory_on_path(root: Path) -> Path | None:
+    """The outermost component of *root* that exists but is not a directory.
+
+    A dangling link (``~/workplace`` pointing at a volume that is not mounted yet)
+    or a plain file anywhere on the chain makes ``mkdir(parents=True)`` fail with
+    an error that names a pathlib internal. This finds the component to name.
+    """
+    for candidate in (*reversed(root.parents), root):
+        if os.path.lexists(candidate) and not candidate.is_dir():
+            return candidate
+    return None
+
+
+def _workspace_blocker_message(root: Path, blocker: Path) -> str:
+    """Name what blocks creating the workspace *root* and how to fix it."""
+    if os.path.islink(blocker) and not os.path.exists(blocker):
+        what = f"{blocker} is a link to {os.readlink(blocker)}, which does not exist"
+        fix = "mount or create the link's target, or repair the link"
+    elif os.path.islink(blocker):
+        what = f"{blocker} is a link to {os.readlink(blocker)}, which is not a directory"
+        fix = "repair the link"
+    else:
+        what = f"{blocker} exists but is not a directory"
+        fix = "move that file aside"
+    return (
+        f"cannot create the workspace root {root}: {what}. Fix: {fix}, or set "
+        "KIROCREW_WORKSPACE to another directory"
+    )
 
 
 def workspace_root(*, create: bool = True) -> Path:
