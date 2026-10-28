@@ -889,6 +889,12 @@ async def run(self: GatewayOrchestrator) -> None:
     self._init_mcp_discovery()
     self._init_subagents()
     self._init_task_runner()
+
+    async def _release_orphan_notices_once_rebuilt(tabs_rebuilt: asyncio.Event) -> None:
+        await tabs_rebuilt.wait()
+        if self.subagent_mgr is not None:
+            self.subagent_mgr.release_orphan_notices()
+
     try:
         if not self._no_dashboard:
             await self._init_dashboard()
@@ -896,12 +902,24 @@ async def run(self: GatewayOrchestrator) -> None:
         else:
             await self._init_api_server()
     finally:
-        # The surface the boot orphan sweep's notices go to is up: the dashboard
-        # has restored the parents' tabs, or the API-only server (no tabs) is
-        # listening. A start that failed releases them too, so the sweep can
-        # still send the owner DM digest; if the process exits first, the runs
-        # stay untombstoned and the next start announces them.
-        if self.subagent_mgr is not None:
+        # The boot orphan sweep's notices go to the tabs that show their parents.
+        # A started dashboard has restored its own chats, but a channel
+        # conversation's tab comes back with the channel reconciler's first
+        # complete pass, which runs in the background: the release waits for it
+        # on a tracked task, so the boot does not (``startup_tabs_rebuilt`` is
+        # already set when channel surfacing is off). The API-only server has no
+        # tabs, and a start that failed before the dashboard state existed
+        # releases at once too, so the sweep can still send the owner DM digest;
+        # if the process exits first, the runs stay untombstoned and the next
+        # start announces them.
+        state = None if self._no_dashboard else self.dashboard_state
+        if state is not None and not state.startup_tabs_rebuilt.is_set():
+            _release_task = asyncio.create_task(
+                _release_orphan_notices_once_rebuilt(state.startup_tabs_rebuilt)
+            )
+            self._background_tasks.add(_release_task)
+            _release_task.add_done_callback(self._background_tasks.discard)
+        elif self.subagent_mgr is not None:
             self.subagent_mgr.release_orphan_notices()
     # The socket is bound. Move the boot heap into the permanent generation so
     # later full collections stop re-scanning it (~150k objects, a 50 ms

@@ -550,6 +550,12 @@ class DashboardState:
         self._slot_list_channel_held_keys: set[str] = set()
         self._slot_list_released_keys: set[str] = set()
         self._slot_list_hold_channels = False
+        # Set by the first ``finish_slot_list_rebuild`` and never cleared, so a
+        # waiter that arrives after it still sees it. From then on, every tab the
+        # startup restore and the channel reconciler's first complete pass rebuilt
+        # is in ``_slots`` and published to the surface registry. The gateway
+        # holds the boot orphan sweep's notices until it is set (``run()``).
+        self.startup_tabs_rebuilt: asyncio.Event = asyncio.Event()
         # The slot each connected owner dashboard reports in the foreground, by
         # connection (``slot_retention.note_foreground``). The idle sweep never
         # archives a slot someone is looking at.

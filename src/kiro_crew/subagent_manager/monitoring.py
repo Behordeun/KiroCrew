@@ -563,7 +563,7 @@ class OrphanStallMonitor(ManagerComponent):
                 except asyncio.TimeoutError:
                     logger.warning(
                         "Orphan notices held %.0fs with no release from the gateway; "
-                        "sending them without the dashboard",
+                        "sending them to the tabs back so far and the owner DM",
                         _ORPHAN_NOTICE_HOLD_SECS,
                     )
 

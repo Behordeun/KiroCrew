@@ -314,7 +314,7 @@ class SubagentInfo:
     # loop writes no ``delivered`` tombstone while it is set.
     _report_undelivered: bool = False
     # True when the shutdown cancelled this run and left it for the next start:
-    # its parent is a dashboard chat, so no ``cancelled`` tombstone was written.
+    # its parent has a dashboard tab, so no ``cancelled`` tombstone was written.
     # The report skips ``_on_done`` and marks nothing delivered, so held wave
     # siblings and owed reports stay visible to the next start's orphan sweep,
     # which announces the run in that tab, with a resume hint while its

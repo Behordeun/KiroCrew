@@ -720,7 +720,8 @@ def _init_subagents(self: GatewayOrchestrator) -> None:
         defer_queue_dispatch=True,
         # The boot orphan sweep starts with the reaper below, before the dashboard
         # has restored the tabs its notices belong in. ``run()`` releases them
-        # once the dashboard or API server start has returned or failed.
+        # once the dashboard has rebuilt its tabs, channel ones included, and at
+        # once for the API-only server or a start that failed.
         hold_orphan_notices=True,
     )
     # A parent that ends takes its children with it, on every backend. The

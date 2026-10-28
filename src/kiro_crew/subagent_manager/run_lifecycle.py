@@ -49,6 +49,7 @@ if TYPE_CHECKING:
         acp_error_is_session_not_found,
         append_fallback_story,
         failure_name,
+        has_dashboard_surface,
         is_runtime_death,
         join_failures,
         kill_set,
@@ -440,26 +441,35 @@ async def _run_impl(self: RunEventCoordinator, info: SubagentInfo) -> None:
                 if not info.result and info.streaming_text:
                     info.result = info.streaming_text
                 Stats().inc_subagent_failed()
+                from kiro_crew.messaging.link import is_channel_session_key
+
+                parent_key = info.parent_session_key
                 if (
                     self._manager._shutting_down
                     and not info.user_stopped
                     and info.memory_mode == "persistent"
                     and info._folder_seeded
-                    and info.parent_session_key.startswith(("dashboard:", "dashboard_"))
+                    and (
+                        parent_key.startswith(("dashboard:", "dashboard_"))
+                        or is_channel_session_key(parent_key)
+                    )
+                    and has_dashboard_surface(parent_key)
                 ):
-                    # The shutdown stopped it and its parent is a dashboard chat.
+                    # The shutdown stopped it and its parent has a dashboard tab:
+                    # a dashboard chat, or a channel conversation open in one.
                     # The report this run makes now would be queued in that slot's
                     # memory or start a turn the shutdown refuses, and the
                     # tombstone would keep the next start's orphan sweep from
                     # announcing it. So none is written, the report skips the
                     # parent, and the sweep announces it in the tab as cut off
                     # by the restart, with a resume hint while its conversation
-                    # survives. Only a run whose folder was written is left to
-                    # the sweep, which finds runs by that folder. A channel-born
-                    # parent keeps the report even with its tab open: the next
-                    # start rebuilds channel tabs in a background pass that the
-                    # sweep's release does not wait for, so the sweep may not
-                    # find it.
+                    # survives; its notices wait for that start's channel tabs.
+                    # Only a run whose folder was written is left to the sweep,
+                    # which finds runs by that folder. It covers a dashboard chat
+                    # and a channel conversation, whose tabs the next start
+                    # rebuilds before the sweep's notices go out. Any other kind
+                    # of parent (cron, subagent, task review) keeps today's
+                    # tombstone and report.
                     info._left_for_next_start = True
                     logger.info("Subagent %s left for the next start's orphan sweep", info.id)
                 else:
