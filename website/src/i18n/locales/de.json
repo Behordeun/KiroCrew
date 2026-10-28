@@ -6513,7 +6513,9 @@
       "comment_thread_unread": "Kommentar-Thread ({{count}}, ungelesen)",
       "copied": "Kopiert!",
       "copy": "Kopieren",
-      "generating": "wird erstellt…"
+      "generating": "wird erstellt…",
+      "unwrap": "Zeilenumbruch aufheben",
+      "wrap": "Zeilen umbrechen"
     },
     "columnResizer": {
       "resize_column": "Spaltenbreite ändern: {{column}}",
