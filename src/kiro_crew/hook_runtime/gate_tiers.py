@@ -41,6 +41,7 @@ if TYPE_CHECKING:
         _is_first_party_read_only_mcp_tool,
         _is_harness_read_only_builtin,
         _is_host_read_only_builtin,
+        _is_host_search_builtin_call,
         _normalize_tool_name,
         _note_title_only_grant_pattern,
         _search_deny_target,
@@ -1268,6 +1269,25 @@ def _tier_read_only(facts: GateFacts, tier: GateTier) -> ToolHookResult | None:
         ):
             return ToolHookResult.auto_approve(read_only=True)
         return ToolHookResult.allow()
+    # kiro-cli's file searches (``grep``, ``glob``, a read-only ``code`` lookup),
+    # proven by the host-stamped identity and the call's own arguments
+    # (``_is_host_search_builtin_call``): the kind kiro-cli stamps on them is
+    # ``search`` (or ``read`` on any ``code`` call, a rewrite too), so the kind
+    # allow-list below cannot tell them apart from a mutator. A kind that names a
+    # mutation still refuses, and an operator confirm pattern naming the call asks
+    # first. Every deny tier above, the sensitive-path keystone and the file-search
+    # deny target included, has already run.
+    if (
+        kind in ("", "search", "read")
+        and _is_host_search_builtin_call(
+            call.mcp_tool,
+            call.mcp_server,
+            call.raw_params,
+            mcp_identity_trusted=call.identity_trusted,
+        )
+        and not _operator_confirms(facts, (call.title, facts.normalized, call.mcp_tool))
+    ):
+        return ToolHookResult.auto_approve(read_only=True)
     # Trust the SEMANTIC kind, as an ALLOW-list. ``kind`` is passed through
     # verbatim from the ACP ``kind`` field (``acp/_dispatch_parts/permission_requests.py``),
     # so it is an arbitrary agent-influenced string and a DENYLIST of mutating kinds can never

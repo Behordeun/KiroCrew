@@ -2270,6 +2270,36 @@ the confirm list and a deny outranking it) and the Reads-mode cases in
 no card; a Normal slot, the same name on another server, a core write tool and an
 untrusted identity all prompt).
 
+**kiro-cli's file searches.** kiro-cli asks for a `grep`, `glob` or `code` call
+only when it reaches outside the session's folder, and its permission request
+carries no `kind`; the kind its tool_call frame states is `search` for `grep` /
+`glob` and `read` for every `code` call, a `pattern_rewrite` included (captured
+live, 2.35.1). Neither proves what runs, so on the interactive path these calls
+reached the card even where an `fs_read` of the same file did not. The
+`read-only` row's interactive branch therefore takes one more proof, before the
+kind allow-list (`hook_runtime/tool_identity._is_host_search_builtin_call`), and
+all of it must hold: a host-trusted built-in identity (`mcp_identity_trusted`, no
+server); the tool is `grep` or `glob` (`hooks._HOST_SEARCH_BUILTIN_TOOLS`, a
+subset of `_HOST_READ_ONLY_BUILTIN_TOOLS`) or `code` with an `operation` in
+`hooks._CODE_READ_ONLY_OPERATIONS` (`search_symbols`, `lookup_symbols`,
+`get_document_symbols`, `pattern_search`: tree-sitter reads that start no
+language server); a kind of `search`, `read` or none; at least one path argument,
+every one absolute (`~` allowed, no `$VAR` that expands, a drive on Windows),
+because kiro-cli resolves a relative path against the session's folder and the
+keystone against the gateway's, and the keystone expands a variable kiro-cli walks
+literally; no path argument
+CONTAINS a sensitive location (`security.path_contains_sensitive`, fail-closed on
+a stall), because a search walks every folder below its root, hidden ones
+included, so a `grep` of the home folder reads `~/.ssh` while its root names no
+credential; a `glob` pattern that is not absolute, does not start with `~` and has
+no `..` segment; and no operator `hooks.confirm_tools` pattern names the call.
+Anything that fails keeps its card. The proof sits in the last row, so every deny
+row, the file-search deny target and governance run first. It does not change
+which `allowedTools` grants a spec keeps: `grep`, `glob` and `code` are still
+withheld from that list (`governance.may_skip_gate`), because a grant there skips
+this gate, and `code` granted there rewrites files with no request at all. Pinned
+by `test_hooks_search_builtin_proof.py`.
+
 Computer-use observation tools get their own **explicit** pair in that same
 branch (`_cu_read_only_auto_approve`), keyed on the code-owned
 `governance.computer_use_action_classes()` table rather than the

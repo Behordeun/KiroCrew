@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -19,9 +20,11 @@ if TYPE_CHECKING:
         _BUILTIN_APP_AGENTS,
         _BUILTIN_APP_MCP_SERVERS,
         _BUILTIN_APP_NAMES,
+        _CODE_READ_ONLY_OPERATIONS,
         _FIRST_PARTY_READ_ONLY_MCP_TOOLS,
         _GLOBAL_INLINE_FLAGS_RE,
         _HOST_READ_ONLY_BUILTIN_TOOLS,
+        _HOST_SEARCH_BUILTIN_TOOLS,
         _TITLE_ONLY_GRANT_NOTED,
         _TITLE_ONLY_GRANT_NOTED_CAP,
         _TITLE_TRUNCATION_MARKER,
@@ -34,6 +37,8 @@ if TYPE_CHECKING:
         _bounded_pattern_search,
         logger,
         policy_aliases,
+        security,
+        target_paths,
     )
 
 
@@ -363,6 +368,88 @@ def _is_host_read_only_builtin(
     if not kas_builtin_ids:
         return False
     return any(alias in _HOST_READ_ONLY_BUILTIN_TOOLS for alias in policy_aliases(mcp_tool_name))
+
+
+def _is_host_search_builtin_call(
+    mcp_tool_name: str,
+    mcp_server_name: str,
+    raw_params: object,
+    *,
+    mcp_identity_trusted: bool,
+) -> bool:
+    """True when a kiro-cli file-search call is proven to only read the files it names.
+
+    The interactive read-only tier's proof for the calls its kind allow-list cannot
+    take: kiro-cli stamps ``kind="search"`` on ``grep`` / ``glob`` and
+    ``kind="read"`` on every ``code`` call, a rewrite included, so neither kind says
+    what runs. What does is the identity kiro-cli stamped and the call's own
+    arguments, which are what the tool executes:
+
+    * the identity is host-trusted and names a built-in, by the same rule as
+      :func:`_is_host_read_only_builtin` (``mcp_identity_trusted``, no server);
+    * the tool is ``grep`` or ``glob`` (:data:`_HOST_SEARCH_BUILTIN_TOOLS`), or
+      ``code`` with an ``operation`` in :data:`_CODE_READ_ONLY_OPERATIONS`;
+    * every path argument is anchored (:func:`_search_root_anchored`: absolute,
+      ``~`` allowed, no ``$VAR`` that expands, a drive on Windows) and there is at
+      least one.
+      kiro-cli resolves a relative path, or none, against the session's folder,
+      while the sensitive-path keystone resolves it against the gateway's own, so
+      a ``../`` spelling of a guarded file could pass the keystone. kiro-cli asks
+      only for a search outside the session's folder, which names a path anyway;
+    * no path argument CONTAINS a sensitive location
+      (``security.path_contains_sensitive``). The keystone refuses a root that is
+      itself sensitive, but a search walks everything below its root, hidden
+      folders included (captured live, 2.35.1), so ``grep`` over the home folder
+      reads ``~/.ssh`` while its root names no credential. A check that stalls
+      counts as containing one;
+    * a ``glob`` pattern neither starts a new root nor climbs out of the one named
+      (absolute, ``~`` or a ``..`` segment), since kiro-cli joins it onto the root.
+
+    A call that fails any of these is not refused here; it reaches the prompt it
+    reached before.
+    """
+    if not mcp_identity_trusted or mcp_server_name or not isinstance(raw_params, Mapping):
+        return False
+    if mcp_tool_name == "code":
+        if raw_params.get("operation") not in _CODE_READ_ONLY_OPERATIONS:
+            return False
+    elif mcp_tool_name not in _HOST_SEARCH_BUILTIN_TOOLS:
+        return False
+    if mcp_tool_name == "glob":
+        pattern = raw_params.get("pattern")
+        if not isinstance(pattern, str) or _glob_pattern_leaves_root(pattern):
+            return False
+    paths = target_paths(raw_params)
+    if paths.truncated or not paths:
+        return False
+    return all(
+        _search_root_anchored(path) and not security.path_contains_sensitive(path) for path in paths
+    )
+
+
+def _search_root_anchored(path: str, pathmod: Any = os.path) -> bool:
+    """Whether a search root names one folder for kiro-cli and for the gate alike.
+
+    Absolute after ``~``. A ``$VAR`` that expands is refused: the sensitive-path
+    matcher expands variables and would judge a folder other than the literal one
+    the tool walks. On Windows the root must carry a drive, since ``\\x`` is
+    relative to each process's current drive. ``pathmod`` is ``os.path``; a test
+    passes ``ntpath`` to read a path the Windows way on any host.
+    """
+    if pathmod.expandvars(path) != path:
+        return False
+    expanded = pathmod.expanduser(path)
+    if not pathmod.isabs(expanded):
+        return False
+    return pathmod.__name__ != "ntpath" or bool(pathmod.splitdrive(expanded)[0])
+
+
+def _glob_pattern_leaves_root(pattern: str) -> bool:
+    """Whether a glob pattern names a root of its own or climbs out of the one given."""
+    if pattern.startswith("~") or os.path.isabs(pattern):
+        return True
+    # Both separators: kiro-cli on Windows reads either one.
+    return ".." in re.split(r"[\\/]", pattern)
 
 
 def _is_first_party_read_only_mcp_tool(

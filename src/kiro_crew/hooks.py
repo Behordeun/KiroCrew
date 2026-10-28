@@ -191,6 +191,7 @@ from kiro_crew.hook_runtime.tool_identity import (  # noqa: F401
     _app_owns_mcp_server,
     _builtin_app_for_agent,
     _context_matches,
+    _glob_pattern_leaves_root,
     _has_global_inline_flags,
     _host_builtin_alias,
     _is_declared_builtin_mcp_server,
@@ -199,8 +200,10 @@ from kiro_crew.hook_runtime.tool_identity import (  # noqa: F401
     _is_first_party_read_only_mcp_tool,
     _is_harness_read_only_builtin,
     _is_host_read_only_builtin,
+    _is_host_search_builtin_call,
     _normalize_tool_name,
     _note_title_only_grant_pattern,
+    _search_root_anchored,
     _tool_matches,
     event_is_spawn_run,
     hook_gate_kwargs,
@@ -860,6 +863,28 @@ _READ_ONLY_TOOL_KINDS: frozenset[str] = frozenset({"read", "fetch"})
 # unattended on a surface with no approver.
 _HOST_READ_ONLY_BUILTIN_TOOLS: frozenset[str] = frozenset(
     {"fs_read", "glob", "grep", "web_fetch", "web_search"}
+)
+
+# kiro-cli's file-search built-ins, which the interactive read-only tier approves
+# on their host-stamped identity (``_is_host_search_builtin_call``). kiro-cli stamps
+# them ``kind="search"``, a kind the tier's allow-list does not take, so without
+# this every grep or glob outside the session's folder asked, while ``fs_read`` of
+# the same file did not. A subset of ``_HOST_READ_ONLY_BUILTIN_TOOLS`` on purpose
+# (``test_host_search_builtins_are_host_read_only``): only file reads, never the
+# network built-ins.
+_HOST_SEARCH_BUILTIN_TOOLS: frozenset[str] = frozenset({"glob", "grep"})
+
+# The operations of kiro-cli's ``code`` built-in that only read: tree-sitter
+# lookups that need no language server. ``code`` as a whole can write
+# (``pattern_rewrite``, ``rename_symbol``, ``format``, ``apply_code_action``) and
+# starts language servers (``initialize_workspace``, and every LSP-backed
+# operation), so it is never a host read-only built-in; one of these operations,
+# named in the call's own arguments, is. kiro-cli stamps ``kind="read"`` on EVERY
+# ``code`` call, a rewrite included (captured live, 2.35.1), so the kind proves
+# nothing about which operation runs. Add only an operation that reads files and
+# runs nothing.
+_CODE_READ_ONLY_OPERATIONS: frozenset[str] = frozenset(
+    {"get_document_symbols", "lookup_symbols", "pattern_search", "search_symbols"}
 )
 
 # Kiro Crew's OWN read-only MCP tools, keyed by the ``(server, tool)`` pair the
