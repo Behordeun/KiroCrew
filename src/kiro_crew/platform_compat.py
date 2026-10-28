@@ -613,6 +613,7 @@ if TYPE_CHECKING:  # the forwarded names, visible to type checkers and IDEs
         _darwin_process_start_identity,
         _darwin_process_start_microtime,
         _darwin_sysctl_handle,
+        _darwin_tb_frequency,
         _DarwinLibprocUnavailable,
         _descriptors_on,
         _file_identity,

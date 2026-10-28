@@ -568,7 +568,13 @@ async def _dispatch_events(
                     if verdict == VERDICT_WORKING:
                         self._log_working_deferral(_stale_idle, evidence, timeout)
                         continue
-                    _flat_wait = evidence.startswith(EVIDENCE_ESTABLISHED_FLAT)
+                    # established_flat (a backend socket held, nothing
+                    # flowing) and platform_limited (macOS: a flat tree with
+                    # no socket evidence to tell a think from a wedge) both
+                    # get the model-silent window.
+                    _flat_wait = evidence.startswith(
+                        (EVIDENCE_ESTABLISHED_FLAT, EVIDENCE_PLATFORM_LIMITED)
+                    )
                     if verdict != VERDICT_DEAD:
                         # UNKNOWN: probe only past the window. An established-
                         # but-flat backend connection is probably a non-streamed

@@ -691,7 +691,8 @@ def proc_cpu_nanos_for_pid(pid: int) -> int | None:
 
     - Linux: ``_proc_cpu_jiffies`` scaled by ``SC_CLK_TCK``. Never None — an
       unreadable pid reads 0 there, which a delta correctly sees as flat.
-    - macOS: ``libproc.proc_pidinfo(PROC_PIDTASKINFO)``, already nanoseconds.
+    - macOS: ``libproc.proc_pidinfo(PROC_PIDTASKINFO)``, scaled from Mach
+      ticks to nanoseconds by ``hw.tbfrequency``.
     - Windows: ``GetProcessTimes`` kernel+user (100-ns units) over a query-only
       handle.
     - Any other platform: None.
