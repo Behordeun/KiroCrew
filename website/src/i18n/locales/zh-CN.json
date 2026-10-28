@@ -14492,6 +14492,8 @@
         "registry_help": "{{provider}} 由你所在组织的 MCP registry 管理，这里没有需要修复的地方。会话启动时由 Kiro CLI 加载它，本页无法显示它的状态。要检查它，请在终端中运行 kiro-cli mcp list。",
         "outdated": "已过时",
         "outdated_help": "最近 30 分钟内没有探测结果。点击右上角的刷新按钮（↻）重新检查。",
+        "routed": "经由网关",
+        "routed_help": "MCP 网关会启动此服务器并解析其 secret:// 引用，因此仪表板不会检测它，此徽章也不对其健康状况作任何判断。每个聊天会话都会在自己的 MCP 面板中报告其服务器。",
         "not_probed": "未探测",
         "not_probed_routing_guide": "如何通过 MCP 网关路由此服务器",
         "pending_change_other": "{{count}} 项待应用的更改",

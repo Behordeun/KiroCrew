@@ -14980,6 +14980,8 @@
         "registry_help": "{{provider}} est géré par le registre MCP de ton organisation, il n'y a donc rien à corriger ici. La CLI Kiro le charge au démarrage d'une session, et cette page ne peut pas afficher son état. Pour le vérifier, exécute kiro-cli mcp list dans un terminal.",
         "outdated": "Obsolète",
         "outdated_help": "Aucun résultat de sondage au cours des 30 dernières minutes. Sélectionne le bouton d'actualisation (↻, en haut à droite) pour vérifier à nouveau.",
+        "routed": "Routé via la passerelle",
+        "routed_help": "La passerelle MCP démarre ce serveur et résout sa référence secret://. Le tableau de bord ne le vérifie donc pas, et ce badge n’affirme rien sur son état. Chaque session de chat indique ses propres serveurs dans son panneau MCP.",
         "not_probed": "Non sondé",
         "not_probed_routing_guide": "Comment faire passer ce serveur par la passerelle MCP",
         "pending_change_many": "{{count}} modifications en attente",

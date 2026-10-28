@@ -25,6 +25,7 @@ from kiro_crew.agent import (
     _atomic_json_write,
     _declined_foreign_spec_write,
     entry_as_enabled,
+    gateway_routed_names,
     kiro_agents_dir_path,
     rebuild_agent_config_reporting,
 )
@@ -1061,6 +1062,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
         _probe_currency,
         _quarantine_verdicts,
         _read_global_mcps,
+        _recheck_routed,
         _record_probe_verdicts,
         _run_mcp_probe,
         _stamp_config_state,

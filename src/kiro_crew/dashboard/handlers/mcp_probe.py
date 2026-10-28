@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from kiro_crew import mcp_quarantine
-from kiro_crew.agent import kiro_agents_dir_path
+from kiro_crew.agent import gateway_routed_names, kiro_agents_dir_path
 from kiro_crew.agent_discovery import _read_agent_spec
 from kiro_crew.agent_spec_format import iter_agent_spec_files
 from kiro_crew.config.loader import KiroCrewConfig
@@ -158,6 +158,38 @@ def _probe_currency() -> dict[str, bool]:
     from kiro_crew.mcp_discovery import list_servers
 
     return {s.name: cached_probe_is_current(s) for s in list_servers()}
+
+
+def _recheck_routed(rows: list[dict[str, Any]], servers: list[McpServerInfo]) -> None:
+    """Re-ask the gateway routing for every ``routed`` row; blocking.
+
+    A ``routed`` row reaches this table from ``_mcp_probe_cache``, which holds
+    for ``_MCP_PROBE_CACHE_SECS``, while routing can be turned off at any time
+    and nothing re-probes on that. So the answer is read again here, once per
+    request and only when a row reads ``routed``: a server the gateway does not
+    serve at read time goes back to the not-probed row (``outdated`` with its
+    reason), the same row the probe gives it. Reads config and the overlay,
+    never a secret.
+    """
+    from kiro_crew.mcp_discovery_probe import secret_reference_refusal
+    from kiro_crew.mcp_gateway.secret_uri import (
+        routed_for_secret_reference,
+        secret_reference_keys,
+    )
+
+    try:
+        routed = gateway_routed_names()
+    except Exception:  # noqa: BLE001 -- cannot tell means not routed
+        logger.debug("Could not read MCP gateway routing", exc_info=True)
+        routed = frozenset()
+    env_by_name = {s.name: s.env for s in servers}
+    for d in rows:
+        name = str(d.get("name") or "")
+        if d.get("status") != "routed" or routed_for_secret_reference(name, routed):
+            continue
+        keys = secret_reference_keys(env_by_name.get(name))
+        d["status"] = "outdated" if keys else "unknown"
+        d["error"] = secret_reference_refusal(keys) if keys else ""
 
 
 def _annotate_quarantine(rows: list[dict[str, Any]]) -> None:
@@ -511,6 +543,8 @@ async def api_mcp_servers(request: web.Request) -> web.Response:
             err = redact(err)
             d["error"] = err
         result.append(d)
+    if any(d.get("status") == "routed" for d in result):
+        await asyncio.to_thread(_recheck_routed, result, servers)
     # Annotated HERE too, not only on the probe endpoints. This is the endpoint
     # the MCP table loads from, so without it a quarantined server rendered as a
     # plain failing row until the user happened to press Probe -- the badge
