@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import re
 import sys
 import threading
@@ -81,11 +82,15 @@ class TestHelpers:
         assert resp.status == 502
         assert _payload(resp)["code"] == "aws_call_failed"
 
-    def test_audit_swallows_a_failing_sel_backend(self):
+    def test_audit_swallows_a_failing_sel_backend(self, caplog):
         # The audit is best-effort: a broken SEL sink must never propagate into
         # the response path, so a raising backend is logged and swallowed.
+        caplog.set_level(logging.DEBUG, logger=routes_mod.logger.name)
         with mock.patch.object(routes_mod, "sel", side_effect=RuntimeError("no sel")):
             routes_mod._audit_sync("op", "res", "denied")  # must not raise
+        logged = [r for r in caplog.records if r.name == routes_mod.logger.name]
+        assert [r.getMessage() for r in logged] == ["aws-control SEL audit failed"]
+        assert str(logged[0].exc_info[1]) == "no sel"
 
     def test_audit_routes_the_sel_write_off_the_event_loop(self):
         # The SEL write's first touch pays log construction, so the async
@@ -110,15 +115,19 @@ class TestHelpers:
         # ran on the loop would report this thread.
         assert seen["thread"] is not threading.current_thread()
 
-    def test_audit_swallows_a_failing_thread_dispatch(self):
+    def test_audit_swallows_a_failing_thread_dispatch(self, caplog):
         # The wrapper keeps the sync body's never-raises contract even when
         # the dispatched call raises out of the worker (the real _audit_sync
         # swallows its own errors; this pins the wrapper's guard for anything
         # that escapes thread dispatch itself).
+        caplog.set_level(logging.DEBUG, logger=routes_mod.logger.name)
         with mock.patch.object(
             routes_mod, "_audit_sync", side_effect=RuntimeError("executor down")
         ):
             asyncio.run(routes_mod._audit("op", "res", "denied"))  # must not raise
+        logged = [r for r in caplog.records if r.name == routes_mod.logger.name]
+        assert [r.getMessage() for r in logged] == ["aws-control SEL audit dispatch failed"]
+        assert str(logged[0].exc_info[1]) == "executor down"
 
     def test_every_audit_call_site_awaits_the_wrapper(self):
         # Wiring pin: with _audit patched as an AsyncMock, an UNAWAITED

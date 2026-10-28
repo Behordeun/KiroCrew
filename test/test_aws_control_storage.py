@@ -570,10 +570,12 @@ class TestObjectIO:
         # chokepoint rather than a hardcoded default.
         local = tmp_path / "a.txt"
         local.write_bytes(b"x")
-        with mock.patch.object(storage, "_checked", return_value="{}") as checked:
-            storage.put_file(
+        payload = json.dumps({"VersionId": "v-999"})
+        with mock.patch.object(storage, "_checked", return_value=payload) as checked:
+            version = storage.put_file(
                 "p", "r", "b", "drive", "a.txt", str(local), timeout=999, account="111122223333"
             )
+        assert version == "v-999"
         assert checked.call_args.kwargs["timeout"] == 999
 
     def test_put_file_refuses_a_body_too_large_to_pin(self, tmp_path, monkeypatch):
