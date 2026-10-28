@@ -1113,6 +1113,9 @@ class TestDriveIamTier:
             "arn:*:s3:::kirocrew-drive-*/drive/*",
             "arn:*:s3:::kirocrew-drive-*/artifacts/*",
         ]
+        # No bucket-policy write: with it, this principal could grant itself
+        # backup reads and undo the write-only rule above.
+        assert "s3:PutBucketPolicy" not in json.dumps(doc)
         # No deploy-web statements leak into the drive tier.
         assert not any("kirocrew-web" in json.dumps(s) for s in doc["Statement"])
         assert not any("cloudfront" in json.dumps(s).lower() for s in doc["Statement"])
