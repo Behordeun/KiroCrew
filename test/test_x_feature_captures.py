@@ -180,6 +180,24 @@ def test_a_kas_capture_relabeled_kiro_fails(tmp_path) -> None:
     assert "holds no kiro-cli initialize" in gaps[("ACP_BACKENDS_STEER", "kiro")]
 
 
+def test_another_adapters_capture_in_copilot_fails(tmp_path) -> None:
+    """The copilot compact capture, renamed to another adapter, cited for copilot."""
+    import shutil
+
+    name = "ACP_BACKENDS_COMPACT"
+    assert "acp_frames/copilot/compact-live.jsonl" in gate.set_comments()[name]
+    src = os.path.join(gate.REPO_ROOT, gate._FIXTURES, "copilot", "compact-live")
+    dst = tmp_path / gate._FIXTURES / "copilot"
+    dst.mkdir(parents=True)
+    with open(src + ".jsonl", encoding="utf-8") as fh:
+        text = fh.read()
+    assert '"Copilot"' in text
+    (dst / "compact-live.jsonl").write_text(text.replace('"Copilot"', '"OpenCode"'))
+    shutil.copy(src + ".expected.json", dst / "compact-live.expected.json")
+    gaps = gate.check_x_captures(gate.live_sets(), gate.set_comments(), root=str(tmp_path))
+    assert "is a capture of 'OpenCode', not ['Copilot']" in gaps[(name, "copilot")]
+
+
 def test_every_cited_kiro_and_kas_capture_carries_its_own_handshake() -> None:
     comments = gate.set_comments()
     cited = {

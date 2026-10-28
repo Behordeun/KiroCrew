@@ -486,6 +486,7 @@ EXPECTED_AGENT_NAMES: dict[str, frozenset[str]] = {
     "goose": frozenset({"goose"}),
     "pi": frozenset({"pi-acp"}),
     "deepseek": frozenset({"deepseek-harness-acp"}),
+    "copilot": frozenset({"Copilot"}),
 }
 
 # kiro-cli and KAS are one binary speaking one ``_kiro`` dialect, and KAS's
