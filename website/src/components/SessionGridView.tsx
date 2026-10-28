@@ -55,8 +55,10 @@ export default function SessionGridView({
   /** Leave split mode entirely (everything closed, or a lone empty placeholder). */
   onClose: () => void
   /** Down to a single session pane → return to the native single-chat surface on
-   *  that session (the grid never shows a 1-pane chrome). */
-  onCollapse: (slot: string, anchorTs?: string, anchorMid?: string) => void
+   *  that session (the grid never shows a 1-pane chrome). `gesture` is true only
+   *  for a pane's own open-full click; the grid collapsing itself after a close or
+   *  a prune is not the user opening that chat (#23564). */
+  onCollapse: (slot: string, anchorTs?: string, anchorMid?: string, gesture?: boolean) => void
   seedSlot?: string | null
   /** Bring the host's Side Chat surface on screen for a pane's slot — what the
    *  selection toolbar's Ask needs. The grid owns no Side Chat of its own
@@ -176,7 +178,7 @@ export default function SessionGridView({
           onRemove={() => grid.closeLeaf(leaf.id)}
           onSplitRight={() => grid.splitLeaf(leaf.id, 'right')}
           onSplitDown={() => grid.splitLeaf(leaf.id, 'down')}
-          onOpenFull={onCollapse}
+          onOpenFull={(slot, anchorTs, anchorMid) => onCollapse(slot, anchorTs, anchorMid, true)}
           openSideChat={openSideChat}
           leading={paneLeading}
           onFileOpen={openFileForPane}

@@ -43,6 +43,7 @@ vi.mock('../components/ChatPane', () => ({
     onRemove,
     onSplitRight,
     onSplitDown,
+    onOpenFull,
     leading,
     onFileOpen,
   }: {
@@ -52,6 +53,7 @@ vi.mock('../components/ChatPane', () => ({
     onRemove?: () => void
     onSplitRight?: () => void
     onSplitDown?: () => void
+    onOpenFull?: (slot: string, anchorTs?: string, anchorMid?: string) => void
     leading?: { inset?: boolean; control?: React.ReactNode }
     onFileOpen?: (path: string, opts?: { line?: number; endLine?: number }) => void
   }) => (
@@ -62,6 +64,7 @@ vi.mock('../components/ChatPane', () => ({
       <button type="button" aria-label={`remove ${slotKey}`} onClick={onRemove} />
       <button type="button" aria-label={`right ${slotKey}`} onClick={onSplitRight} />
       <button type="button" aria-label={`down ${slotKey}`} onClick={onSplitDown} />
+      <button type="button" aria-label={`open full ${slotKey}`} onClick={() => onOpenFull?.(slotKey, 'ts-1', 'mid-1')} />
       <button type="button" aria-label={`open file ${slotKey}`} onClick={() => onFileOpen?.('/tmp/report.pdf')} />
     </div>
   ),
@@ -294,7 +297,17 @@ describe('SessionGridView — collapse rules', () => {
 
     fireEvent.click(within(onlyPicker()).getByLabelText('Close cell'))
 
+    // The grid collapsing itself is not the user opening the chat (#23564):
+    // no anchor and no gesture flag.
     await waitFor(() => expect(onCollapse).toHaveBeenCalledWith('a'))
+  })
+
+  it('a pane\'s open-full click collapses as a gesture, keeping its anchor', async () => {
+    const { onCollapse } = renderGrid('a')
+
+    fireEvent.click(screen.getByLabelText('open full a'))
+
+    expect(onCollapse).toHaveBeenCalledWith('a', 'ts-1', 'mid-1', true)
   })
 
   it('falls back to the loading surface once every pane is closed', async () => {

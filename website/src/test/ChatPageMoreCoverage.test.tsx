@@ -137,7 +137,10 @@ vi.mock('../components/FlyingQuote', async () => {
 // The split grid is stubbed to a prop recorder: what matters here is the
 // `openSideChat` capability ChatPage hands its panes (and when it withholds
 // it), not the grid's own layout, which SessionGridView's suite covers.
-interface GridProps { openSideChat?: (slot: string) => boolean | void | Promise<boolean | void> }
+interface GridProps {
+  openSideChat?: (slot: string) => boolean | void | Promise<boolean | void>
+  onCollapse?: (slot: string, anchorTs?: string, anchorMid?: string, gesture?: boolean) => void
+}
 let gridProps: GridProps | null = null
 vi.mock('../components/SessionGridView', async () => {
   const React = await import('react')
@@ -698,6 +701,22 @@ describe('ChatPage row callbacks — quote and ask', () => {
     await expect(verdict!).resolves.toBe(false)
     expect(store.getState().chat.activeSlot).toBe('chat-1')
     expect(store.getState().chat.activityTab).not.toBe('side')
+  })
+
+  // #23564: a recorded open marks that chat's cron notes read, so only the
+  // pane's own open-full click may record one. The grid collapsing itself after
+  // the other pane closes leaves the survivor on screen but is not an open.
+  it('a split collapsing on its own records no chat open', async () => {
+    const { store } = await renderSplit()
+    await act(async () => { gridProps!.onCollapse!('chat-2') })
+    await waitFor(() => expect(store.getState().chat.activeSlot).toBe('chat-2'))
+    expect(store.getState().chat.userOpen?.key).not.toBe('chat-2')
+  })
+
+  it('a pane\'s open-full click records the chat open', async () => {
+    const { store } = await renderSplit()
+    await act(async () => { gridProps!.onCollapse!('chat-2', undefined, undefined, true) })
+    await waitFor(() => expect(store.getState().chat.userOpen?.key).toBe('chat-2'))
   })
 
   it('withholds Ask from the panes while disconnected instead of switching slots offline', async () => {
