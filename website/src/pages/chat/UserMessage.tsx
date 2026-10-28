@@ -1,6 +1,6 @@
 import { memo, useState, useRef, useEffect, useCallback, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { Pencil, Send, Copy, Check, Link2, MessageSquare, Target, Pin, PinOff, X, Clock, Quote, MoreHorizontal, Undo2, ArrowUpFromLine } from 'lucide-react'
+import { Pencil, Send, Copy, Check, Link2, MessageSquare, Target, Pin, PinOff, X, Clock, Quote, MoreHorizontal, Undo2, ArrowUpFromLine, type LucideIcon } from 'lucide-react'
 import { copyToClipboard } from '../../utils/clipboard'
 import { copySessionLink } from '../../utils/shareUrl'
 import { ICON_ACTION_ROW_CLS, HOVER_NONE_ACTIONS_ROW_CLS } from '../../utils/touchActions'
@@ -53,6 +53,25 @@ const STEER_UNCONFIRMED_KEY: Record<SteerRetractAction, string> = {
   unsend: 'pages.chat.userMessage.steer_unsend_unconfirmed',
   edit: 'pages.chat.userMessage.steer_edit_unconfirmed',
   queue: 'pages.chat.userMessage.steer_queue_unconfirmed',
+}
+
+// One icon per take-back action, shared by the in-flight line and the settled
+// note, so a person sees the same mark from the click to the result.
+const STEER_ACTION_ICON: Record<SteerRetractAction, LucideIcon> = {
+  unsend: Undo2,
+  edit: Pencil,
+  queue: ArrowUpFromLine,
+}
+
+const STEER_IN_FLIGHT_KEY = {
+  unsend: 'pages.chat.userMessage.steer_unsend_in_flight',
+  edit: 'pages.chat.userMessage.steer_edit_in_flight',
+  queue: 'pages.chat.userMessage.steer_queue_in_flight',
+} as const satisfies Record<SteerRetractAction, string>
+
+function SteerActionIcon({ action }: { action: SteerRetractAction }) {
+  const Icon = STEER_ACTION_ICON[action]
+  return <Icon size={12} className="shrink-0" aria-hidden="true" />
 }
 
 interface UserMessageProps {
@@ -427,11 +446,10 @@ const UserMessage = memo(function UserMessage({ content, meta, timestamp, timest
 
   if (retractedAction) {
     const settleAnimated = !mountedRetracted && !reducedMotion
-    const retractedIcon = retractedAction === 'queue'
-      ? <ArrowUpFromLine size={12} className="shrink-0" aria-hidden="true" />
-      : retractedAction === 'edit'
-        ? <Pencil size={12} className="shrink-0" aria-hidden="true" />
-        : <Undo2 size={12} className="shrink-0" aria-hidden="true" />
+    // The meta field is free text from the transcript; anything unknown reads as
+    // an unsend, the same fallback the label below takes.
+    const retractedKind: SteerRetractAction = retractedAction === 'edit' || retractedAction === 'queue' ? retractedAction : 'unsend'
+    const retractedIcon = <SteerActionIcon action={retractedKind} />
     const retractedLabel = retractedAction === 'edit'
       ? i18nT('pages.chat.userMessage.steer_retracted_edit')
       : retractedAction === 'queue'
@@ -722,7 +740,7 @@ const UserMessage = memo(function UserMessage({ content, meta, timestamp, timest
                 <span className="inline-flex items-center gap-1" data-testid="steer-pending-status">
                   <span className="inline-flex items-center gap-1 animate-pulse" role={steerActionPending ? 'status' : undefined}>
                     {steerActionPending
-                      ? <><Undo2 size={12} className="shrink-0" aria-hidden="true" /> {i18nT('pages.chat.userMessage.steer_taking_back')}</>
+                      ? <><SteerActionIcon action={steerActionPending} /> {i18nT(STEER_IN_FLIGHT_KEY[steerActionPending])}</>
                       : <><Target size={12} className="shrink-0" /> {i18nT('pages.chat.userMessage.steering')}</>}
                   </span>
                   {!steerActionPending && <InfoTip text={i18nT('pages.chat.userMessage.redirecting_the_running_turn_not_yet_confirmed')} />}
