@@ -244,6 +244,7 @@ _AUDITABLE_REJECT_CODES = {
     SemanticRejectCode.INJECTION,
     SemanticRejectCode.RESERVED_PREFIX,
     SemanticRejectCode.VALUE_EMPTY,
+    SemanticRejectCode.WORK_STATE,
 }
 
 _SECURITY_REJECT_CODES = {

@@ -21,6 +21,9 @@ logger = logging.getLogger("kiro_crew.config.loader")
 #: keeps its own allowance above it, so a build never outwaits the embed it joined.
 STARTUP_RECALL_TIMEOUT_MAX_SECS = 10.0
 
+#: ``memory.kind_routing`` values; :mod:`kiro_crew.memory_kind_routing` says what each does.
+KIND_ROUTING_MODES = ("off", "shadow", "enforce")
+
 
 @dataclass
 class MemoryConfig:
@@ -274,6 +277,20 @@ class MemoryConfig:
             "lessons; every other memory write, learn_add and injection carry on.",
         ),
     )
+    kind_routing: str = field(
+        default="off",
+        metadata=_meta(
+            "Consolidation Kind Routing",
+            "Whether consolidation tags each project.* fact with a kind (fact, event "
+            "or state) and what it does with it. 'off' (default) keeps today's "
+            "prompt and writes. 'shadow' writes every fact as before and only "
+            "logs, within fixed size caps, what routing would do. 'enforce' skips a "
+            "state item (a PR, CI or branch status that GitHub, git or the work "
+            "ledger already holds) and writes facts and events as before. Stored "
+            "facts are never changed.",
+            enum=list(KIND_ROUTING_MODES),
+        ),
+    )
     inject_memory: bool = field(
         default=True,
         metadata=_meta(
@@ -355,6 +372,13 @@ def memory_writes_off_key(memory: object) -> str | None:
     if not getattr(memory, "writes_enabled", True):
         return "memory.writes_enabled"
     return None
+
+
+def kind_routing_mode_from(raw: object) -> str:
+    """A stored ``memory.kind_routing``, or the field default for anything unknown."""
+    if isinstance(raw, str) and raw in KIND_ROUTING_MODES:
+        return raw
+    return str(field_default(MemoryConfig, "kind_routing"))
 
 
 def lesson_extraction_enabled(memory: object) -> bool:
