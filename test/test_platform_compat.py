@@ -27,12 +27,14 @@ import os
 import socket
 import subprocess
 import sys
+import time
 import types
 from pathlib import Path
 
 import pytest
 
 from kiro_crew import platform_compat as pc
+from kiro_crew.testing.wait import default_timeout
 
 # Tests here read or build the macOS libc and libproc handles, so each one starts
 # with both caches unbuilt and puts them back after (see conftest.py).
@@ -50,8 +52,16 @@ pytestmark = pytest.mark.usefixtures("fresh_darwin_libc_handles")
     ],
 )
 def test_native_tcp_peer_identifies_client_process_not_server(family, host):
+    # One lost-run deadline for the whole exchange (D1/D8), not 10 s per call: a
+    # fresh interpreter can take longer than that to start and connect on a loaded
+    # runner, which is how the IPv6 lane lost this test.
+    deadline = time.monotonic() + default_timeout()
+
+    def remaining() -> float:
+        return max(deadline - time.monotonic(), 0.1)
+
     with socket.socket(family) as listener:
-        listener.settimeout(10)
+        listener.settimeout(remaining())
         listener.bind((host, 0))
         listener.listen()
         child = subprocess.Popen(
@@ -70,7 +80,13 @@ def test_native_tcp_peer_identifies_client_process_not_server(family, host):
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         try:
-            accepted, _ = listener.accept()
+            try:
+                accepted, _ = listener.accept()
+            except TimeoutError:
+                pytest.fail(
+                    f"the client child never connected to {host} before the deadline "
+                    f"(child exit code: {child.poll()})"
+                )
             # A Windows venv launcher may exec a different interpreter PID.
             assert child.stdout is not None
             client_pid = int(child.stdout.readline())
@@ -84,7 +100,12 @@ def test_native_tcp_peer_identifies_client_process_not_server(family, host):
                 assert pc.get_tcp_peer_pid((server[0], server[1] % 65535 + 1), client) is None
                 assert pc.get_tcp_peer_pid(("203.0.113.1", server[1]), client) is None
         finally:
-            child.communicate(b"x", timeout=10)
+            try:
+                child.communicate(b"x", timeout=remaining())
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.communicate()
+                raise
 
 
 def test_tcp_peer_identity_unavailable_on_unknown_platform(monkeypatch):
