@@ -105,6 +105,8 @@ const NOTICE_FAMILIES = {
   crew_name_undispatchable: { role: 'error', card: 'error' },
   remote_crew_read_only: { role: 'error', card: 'error' },
   archive_failed_turn_cancelled: { role: 'error', card: 'error' },
+  kiro_cli_open: { role: 'error', card: 'error' },
+  kiro_cli_import_pending: { role: 'error', card: 'error' },
 } as const satisfies Record<string, Family>
 
 export type GatewayNoticeToken = keyof typeof NOTICE_FAMILIES
@@ -175,6 +177,8 @@ const COPY_KEY = {
   crew_name_undispatchable: 'pages.chat.gatewayNotice.crew_name_undispatchable',
   remote_crew_read_only: 'pages.chat.gatewayNotice.remote_crew_read_only',
   archive_failed_turn_cancelled: 'pages.chat.gatewayNotice.archive_failed_turn_cancelled',
+  kiro_cli_open: 'pages.chat.gatewayNotice.kiro_cli_open',
+  kiro_cli_import_pending: 'pages.chat.gatewayNotice.kiro_cli_import_pending',
 } as const satisfies Record<GatewayNoticeToken, string>
 
 /** Copy for a row whose args carry a recovery ordinal (`n` of `max`). */

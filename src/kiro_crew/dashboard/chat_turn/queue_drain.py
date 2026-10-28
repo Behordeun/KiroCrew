@@ -298,6 +298,29 @@ def _arm_parked_queue_drain(state: DashboardState, slot: _ChatSlot, *, notice: b
         state.push_slots_update()
 
 
+def _queue_held_in_kiro_cli(slot: _ChatSlot) -> bool:
+    """Whether a terminal runs *slot*'s conversation in kiro-cli now."""
+    from kiro_crew.dashboard.chat_utils import effective_session_key
+    from kiro_crew.kiro_cli_handoff import is_held_any_spelling
+
+    return is_held_any_spelling(effective_session_key(slot))
+
+
+async def _queue_awaits_kiro_cli_import(state: DashboardState, slot: _ChatSlot) -> bool:
+    """Whether an "Open in kiro-cli" left turns that are still not in *slot*'s
+    transcript, after one more try at bringing them in. The chat's next send,
+    turn or pre-spawn tries again, and a drain after it finds the queue as it was."""
+    from kiro_crew.dashboard.chat_utils import effective_session_key
+    from kiro_crew.dashboard.handlers.kiro_cli_launch import recover_left_open
+    from kiro_crew.kiro_cli_handoff import has_left_open
+
+    key = effective_session_key(slot)
+    if not await asyncio.to_thread(has_left_open, key):
+        return False
+    await recover_left_open(state, slot, key)
+    return await asyncio.to_thread(has_left_open, key)
+
+
 def _parked_queue_drain_admitted() -> bool:
     """Whether a parked queue may be dequeued now that preparation has ended.
 
@@ -559,6 +582,17 @@ async def _start_next_queued_turn(
     # completion drain it (`_arm_parked_queue_drain`).
     if slot._queue and _memory_preparation_pending(state):
         _arm_parked_queue_drain(state, slot, notice=True)
+        return False
+
+    # The same for a conversation a terminal runs in kiro-cli: admission refuses
+    # the turn, so popping its entry first would lose the input. The queue stays
+    # as it is and the hold's release drains it (KiroCliLaunch.on_released).
+    if slot._queue and _queue_held_in_kiro_cli(slot):
+        return False
+    # An open's record a failed recovery kept: its turns from kiro-cli are older
+    # than every queued entry, so the queue waits until they are in rather than
+    # writing its rows ahead of them.
+    if slot._queue and await _queue_awaits_kiro_cli_import(state, slot):
         return False
 
     # FIRST, before anything reads the queue: re-assert each entry's

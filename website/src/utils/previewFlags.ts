@@ -198,6 +198,20 @@ export const PREVIEW_CREW_MODE = `${PREVIEW_FLAG_PREFIX}crew-mode`
 export const PREVIEW_EXPLORE = `${PREVIEW_FLAG_PREFIX}explore`
 
 /**
+ * "Open in kiro-cli": the session menu row that continues a chat's own
+ * conversation in kiro-cli in the docked terminal panel.
+ *
+ * Read it through `useOpenInKiroCliPreview()` (`hooks/usePreviewFlag.ts`).
+ *
+ * Default OFF, because kiro-cli in the terminal runs outside Crew's agent
+ * sandbox. Unlike most flags here this one is not ingress-only: the gateway
+ * reads the same `dashboard.feature_previews.open_in_kiro_cli` switch and
+ * refuses a new handover while it is off (`kiro_cli_preview_off`). A chat a
+ * terminal already holds still returns to Crew when kiro-cli exits.
+ */
+export const PREVIEW_OPEN_IN_KIRO_CLI = `${PREVIEW_FLAG_PREFIX}open-in-kiro-cli`
+
+/**
  * Every live preview-flag key, the ones the gateway keeps. Each one's name (see
  * {@link previewFlagName}) is a writable `dashboard.feature_previews.<name>` path
  * in the gateway config; `test_feature_previews_config.py` pins this list equal
@@ -216,6 +230,7 @@ export const PREVIEW_FLAGS: readonly string[] = [
   PREVIEW_CREWMATE_HARNESS,
   PREVIEW_CREW_MODE,
   PREVIEW_EXPLORE,
+  PREVIEW_OPEN_IN_KIRO_CLI,
 ]
 
 /**

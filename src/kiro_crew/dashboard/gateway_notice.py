@@ -111,6 +111,8 @@ GATEWAY_NOTICE_CHANNEL_MESSAGE_NOT_RUN = "channel_message_not_run"
 GATEWAY_NOTICE_CREW_NAME_UNDISPATCHABLE = "crew_name_undispatchable"
 GATEWAY_NOTICE_REMOTE_CREW_READ_ONLY = "remote_crew_read_only"
 GATEWAY_NOTICE_ARCHIVE_FAILED_TURN_CANCELLED = "archive_failed_turn_cancelled"
+GATEWAY_NOTICE_KIRO_CLI_OPEN = "kiro_cli_open"
+GATEWAY_NOTICE_KIRO_CLI_IMPORT_PENDING = "kiro_cli_import_pending"
 
 #: English fallback ``content`` for the recovery rows above. Plain language: no
 #: "backend", no "hiccup" (the parity test lints every ``GATEWAY_*_TEXT``).
