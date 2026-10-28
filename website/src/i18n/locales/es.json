@@ -7798,6 +7798,8 @@
       "generating_diagram": "generando el diagrama…",
       "image_failed_to_load": "No se pudo cargar la imagen",
       "image_file_no_longer_exists": "El archivo de imagen ya no existe",
+      "media_failed_to_load": "No se pudo cargar el contenido multimedia",
+      "media_file_no_longer_exists": "El archivo multimedia ya no existe",
       "remote_image_click_to_load": "Imagen externa bloqueada: haz clic para cargar",
       "remote_media_loads_once": "Por privacidad, carga solo este archivo desde el sitio indicado, una sola vez.",
       "remote_media_loads_once_plural": "Por privacidad, carga solo estos archivos desde los sitios indicados, una sola vez.",

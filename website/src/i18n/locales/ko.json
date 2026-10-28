@@ -7546,6 +7546,8 @@
       "generating_diagram": "다이어그램을 생성하는 중…",
       "image_failed_to_load": "이미지를 불러오지 못했습니다",
       "image_file_no_longer_exists": "이미지 파일이 더 이상 존재하지 않습니다",
+      "media_failed_to_load": "미디어를 불러오지 못했습니다",
+      "media_file_no_longer_exists": "미디어 파일이 더 이상 존재하지 않습니다",
       "remote_image_click_to_load": "외부 이미지 차단됨 — 클릭하여 불러오기",
       "remote_media_loads_once": "개인정보 보호를 위해 표시된 사이트에서 이 파일만 한 번 불러옵니다.",
       "remote_media_loads_once_plural": "개인정보 보호를 위해 표시된 사이트들에서 이 파일들만 한 번 불러옵니다.",

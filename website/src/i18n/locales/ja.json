@@ -7546,6 +7546,8 @@
       "generating_diagram": "ダイアグラムを生成中…",
       "image_failed_to_load": "画像を読み込めませんでした",
       "image_file_no_longer_exists": "画像ファイルはもう存在しません",
+      "media_failed_to_load": "メディアを読み込めませんでした",
+      "media_file_no_longer_exists": "メディアファイルはもう存在しません",
       "remote_image_click_to_load": "外部画像をブロック — クリックして読み込み",
       "remote_media_loads_once": "プライバシー保護のため、表示中のサイトからこのファイルのみを 1 回だけ読み込みます。",
       "remote_media_loads_once_plural": "プライバシー保護のため、表示中のサイトからこれらのファイルのみを 1 回だけ読み込みます。",

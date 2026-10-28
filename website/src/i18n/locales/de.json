@@ -7672,6 +7672,8 @@
       "generating_diagram": "Diagramm wird erstellt…",
       "image_failed_to_load": "Bild konnte nicht geladen werden",
       "image_file_no_longer_exists": "Bilddatei existiert nicht mehr",
+      "media_failed_to_load": "Medien konnten nicht geladen werden",
+      "media_file_no_longer_exists": "Mediendatei existiert nicht mehr",
       "remote_image_click_to_load": "Externes Bild blockiert — zum Laden klicken",
       "remote_media_loads_once": "Aus Datenschutzgründen wird nur diese Datei von der angezeigten Website geladen, einmalig.",
       "remote_media_loads_once_plural": "Aus Datenschutzgründen werden nur diese Dateien von den angezeigten Websites geladen, einmalig.",

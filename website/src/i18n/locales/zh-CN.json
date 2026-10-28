@@ -7546,6 +7546,8 @@
       "generating_diagram": "正在生成图表…",
       "image_failed_to_load": "图片加载失败",
       "image_file_no_longer_exists": "图片文件已不存在",
+      "media_failed_to_load": "媒体加载失败",
+      "media_file_no_longer_exists": "媒体文件已不存在",
       "remote_image_click_to_load": "外部图片已拦截——点击加载",
       "remote_media_loads_once": "为保护隐私，仅从所示站点加载这一个文件，仅此一次。",
       "remote_media_loads_once_plural": "为保护隐私，仅从所示站点加载这些文件，仅此一次。",

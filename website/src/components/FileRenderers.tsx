@@ -12,6 +12,7 @@ import { fileStreamUrl, fileOfficePreviewUrl, fileOfficeSlidesUrl, fileOfficeSli
 import { sendErrorToChat } from '../utils/errorReport'
 import { useLanguageGeneration } from '../i18n/useLanguageGeneration'
 import { pathBasename } from '../utils/pathBasename'
+import { AUDIO_EXTS, VIDEO_EXTS } from '../utils/mediaExts'
 import { guideUntrusted, stripGuideMarkers } from '../guide/untrustedContent'
 import {
   MD_EM_CLS,
@@ -26,13 +27,9 @@ import {
 /* ── extension helpers ── */
 const IMG_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.avif', '.svg', '.ico'])
 const CSV_EXTS = new Set(['.csv', '.tsv'])
-// Media served through /api/file-stream (Range-capable). Split decides the
-// element: <video> renders a picture surface, <audio> a compact control bar.
-// .ogg goes to audio -- the extension is overwhelmingly audio in practice and
-// the .ogv variant exists for video. .opus is an audio-only Ogg mapping, so it
-// follows the same compact-player route.
-const VIDEO_EXTS = new Set(['.mp4', '.m4v', '.webm', '.mov', '.mkv', '.ogv'])
-const AUDIO_EXTS = new Set(['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.oga', '.opus'])
+// Media served through /api/file-stream (Range-capable): VIDEO_EXTS and
+// AUDIO_EXTS (utils/mediaExts) decide the element. <video> renders a picture
+// surface, <audio> a compact control bar.
 const JSON_EXTS = new Set(['.json'])
 const JSONL_EXTS = new Set(['.jsonl'])
 const HTML_EXTS = new Set(['.html', '.htm'])

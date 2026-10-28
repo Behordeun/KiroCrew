@@ -7798,6 +7798,8 @@
       "generating_diagram": "génération du diagramme…",
       "image_failed_to_load": "Échec du chargement de l'image",
       "image_file_no_longer_exists": "Le fichier image n'existe plus",
+      "media_failed_to_load": "Échec du chargement du média",
+      "media_file_no_longer_exists": "Le fichier média n'existe plus",
       "remote_image_click_to_load": "Image externe bloquée — cliquer pour charger",
       "remote_media_loads_once": "Par confidentialité, charge uniquement ce fichier depuis le site indiqué, une seule fois.",
       "remote_media_loads_once_plural": "Par confidentialité, charge uniquement ces fichiers depuis les sites indiqués, une seule fois.",

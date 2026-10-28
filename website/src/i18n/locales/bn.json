@@ -7672,6 +7672,8 @@
       "generating_diagram": "ডায়াগ্রাম তৈরি হচ্ছে…",
       "image_failed_to_load": "ছবি লোড করা যায়নি",
       "image_file_no_longer_exists": "ছবির ফাইলটি আর নেই",
+      "media_failed_to_load": "মিডিয়া লোড করা যায়নি",
+      "media_file_no_longer_exists": "মিডিয়া ফাইলটি আর নেই",
       "remote_image_click_to_load": "বাহ্যিক ছবি ব্লক করা হয়েছে — লোড করতে ক্লিক করো",
       "remote_media_loads_once": "গোপনীয়তার জন্য দেখানো সাইট থেকে শুধু এই ফাইলটি একবারই লোড করো।",
       "remote_media_loads_once_plural": "গোপনীয়তার জন্য দেখানো সাইটগুলো থেকে শুধু এই ফাইলগুলো একবারই লোড করো।",

@@ -4945,6 +4945,8 @@
       "generating_diagram": "generating diagram…",
       "image_failed_to_load": "Image failed to load",
       "image_file_no_longer_exists": "Image file no longer exists",
+      "media_failed_to_load": "Media failed to load",
+      "media_file_no_longer_exists": "Media file no longer exists",
       "remote_image_click_to_load": "External image blocked — click to load",
       "remote_media_loads_once": "For privacy, loads only this file from the site shown, one time.",
       "remote_media_loads_once_plural": "For privacy, loads only these files from the sites shown, one time.",

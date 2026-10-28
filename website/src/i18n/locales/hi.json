@@ -7672,6 +7672,8 @@
       "generating_diagram": "डायग्राम बन रहा है…",
       "image_failed_to_load": "छवि लोड नहीं हो सकी",
       "image_file_no_longer_exists": "छवि फ़ाइल अब मौजूद नहीं है",
+      "media_failed_to_load": "मीडिया लोड नहीं हो सका",
+      "media_file_no_longer_exists": "मीडिया फ़ाइल अब मौजूद नहीं है",
       "remote_image_click_to_load": "बाहरी छवि अवरोधित — लोड करने के लिए क्लिक करो",
       "remote_media_loads_once": "निजता के लिए, दिखाई गई साइट से केवल यह फ़ाइल एक ही बार लोड होती है।",
       "remote_media_loads_once_plural": "निजता के लिए, दिखाई गई साइटों से केवल ये फ़ाइलें एक ही बार लोड होती हैं।",
