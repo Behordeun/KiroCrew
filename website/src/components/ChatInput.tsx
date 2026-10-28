@@ -50,6 +50,7 @@ import { useStopEscapeHatch } from '../hooks/useStopEscapeHatch'
 import { useStopDeclinedHint } from '../hooks/useStopDeclinedHint'
 import { useScrollEdges } from '../hooks/useScrollEdges'
 import { useMenuOpensDialog } from '../hooks/useMenuOpensDialog'
+import { useKeyboardLift } from '../hooks/useKeyboardLift'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from './ui/dropdown-menu'
 import { i18nT } from '../i18n/t'
 import { uiLocation } from '../uiLocations/uiLocation'
@@ -486,6 +487,14 @@ function ChatInput({
     voiceRecording, voiceDrainCancellable, voiceError, voiceSampleRef, voiceTranscribing, onVoiceCancel, onVoiceToggle,
   })
   const wrapperRef = useRef<HTMLDivElement>(null)
+  // The composer root sits at the bottom of the height-locked shell, so an
+  // on-screen keyboard covers it on iPadOS, where Safari's focus pan does not
+  // clear it. While the composer holds focus it grows by whatever part of the
+  // keyboard the pan has not covered (0 on desktop), as bottom padding: the
+  // controls rise and the dock's measured height grows, so the transcript
+  // keeps its newest lines above the composer -- see useKeyboardLift.
+  const inputAreaRef = useRef<HTMLDivElement>(null)
+  const keyboardLift = useKeyboardLift(inputAreaRef, true)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const fileInputId = useId()
   const listIndentHintId = useId()
@@ -1006,8 +1015,8 @@ function ChatInput({
 
   return (
     // 'input-area' is a stable theming hook — see website/docs/theming-contract.md
-    <div className={`input-area px-4 pb-1 ${hasApproval ? 'pt-0' : 'pt-1'} mx-auto w-full flex flex-col`}
-      style={{ maxWidth: 'var(--mc-input-width, 900px)', ...(manualHeight !== null ? { minHeight: (INPUT_DRAG_MIN_H + stripH) + 'px' } : {}) }}>
+    <div ref={inputAreaRef} className={`input-area px-4 pb-1 ${hasApproval ? 'pt-0' : 'pt-1'} mx-auto w-full flex flex-col`}
+      style={{ maxWidth: 'var(--mc-input-width, 900px)', ...(manualHeight !== null ? { minHeight: (INPUT_DRAG_MIN_H + stripH + keyboardLift) + 'px' } : {}), ...(keyboardLift > 0 ? { paddingBottom: `calc(0.25rem + ${keyboardLift}px)` } : {}) }}>
 
       {/* Knowledge context chip */}
       {!showGhost && knowledgeChip}
