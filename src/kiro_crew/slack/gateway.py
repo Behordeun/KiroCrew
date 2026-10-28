@@ -762,6 +762,7 @@ class GatewayOrchestrator:
     _pending_update_respawn: Callable[[], str] | None
     _pending_update_mandatory: bool
     _pending_update_mandatory_key: str
+    _pending_update_version: str
     _mandatory_update_deferred_at: float | None
     _mandatory_update_deferred_key: str | None
     _wheel_update_noticed: set[str]

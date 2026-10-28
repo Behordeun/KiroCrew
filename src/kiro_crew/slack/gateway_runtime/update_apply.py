@@ -8,7 +8,7 @@ Orchestrator fields read: ``_REQUIRED_DEPS``, ``_wheel_update_noticed``,
 ``dashboard_state``.
 Orchestrator fields written: ``_pending_update_mandatory``,
 ``_pending_update_mandatory_key``, ``_pending_update_respawn``,
-``_update_apply_deferred``.
+``_pending_update_version``, ``_update_apply_deferred``.
 
 Composed by :mod:`kiro_crew.slack.gateway`, whose globals its functions run on;
 see :mod:`kiro_crew.slack.gateway_runtime`.
@@ -1037,6 +1037,7 @@ async def _auto_apply_wheel_update(
         self._pending_update_respawn = respawn_executable
         self._pending_update_mandatory = mandatory
         self._pending_update_mandatory_key = mandatory_key
+        self._pending_update_version = "" if mandatory else version
         await self._retry_pending_update_restart()
         return
 
@@ -1069,6 +1070,7 @@ async def _auto_apply_wheel_update(
         self._pending_update_respawn = respawn_executable
         self._pending_update_mandatory = mandatory
         self._pending_update_mandatory_key = mandatory_key
+        self._pending_update_version = "" if mandatory else version
         await self._retry_pending_update_restart()
     elif outcome.status in wheel_apply.RETRY_SOON:
         # Another apply holds the lock, memory is still preparing, or the

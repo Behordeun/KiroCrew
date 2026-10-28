@@ -2561,7 +2561,24 @@ will not apply (a provider with no `apply_command`, a feature-branch checkout).
 `notify` is also what a source pin produces, and no badge then points at a
 `kirocrew update` the same pin refuses.
 Dynamic conditions stay with the update itself: the git route still requires
-`version_newer`, the managed-venv route a newer build. The managed-venv route
+`version_newer`, the managed-venv route a newer build. A voluntary `install` is
+also withheld for a version the user put off: the update prompt's "Remind me
+tomorrow" (or any dismissal) and "Skip this version" write `dashboard.update_nudge`,
+and `update_deferral.user_deferred_update` reads it for the version the check
+found, so that version notifies instead of being installed and restarted
+unattended. When the snooze runs out the prompt opens again, and the deferral
+holds for one more window (`REPROMPT_WINDOW_SECS`, the snooze's own 24 h) so
+"Later" never becomes a silent install; only a prompt left unanswered for that
+window lets it install. A managed-venv restart already queued (`_pending_update_respawn`)
+reads the same record for `_pending_update_version` on every retry and waits
+while it holds (the git and provider routes leave that field empty: their code
+is already replaced on disk, and the git route reloads `kiro_crew`, so their
+queued restart is never held); a held cycle still runs the update check, so a policy floor
+raised meanwhile or a newer release is applied and replaces the held respawn.
+The record names one version, so a newer release is offered
+again; `mandatory` ignores it. With `auto_update` on, the managed-venv route
+still builds on first detection, before the user has seen a prompt; only its
+restart waits for an answer. The managed-venv route
 does not pause admission before it builds; only its restart does, through
 `_retry_pending_update_restart`, which calls `_prepare_auto_update_apply`.
 `_auto_apply_wheel_update` makes the first attempt, and while
