@@ -1794,7 +1794,6 @@ _sys.modules[__name__].__class__ = _facade_mirror.MirroredModule
 __all__ = sorted(n for n in set(globals()) | set(_EXPORTS) if not n.startswith("_"))
 if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and IDEs
     from kiro_crew.security.exfil_bash import (  # noqa: F401
-        _BASH_BLANKS_RE,
         _BASH_EXFIL_PATTERNS,
         _BASH_EXFIL_RES,
         _BASH_EXFIL_ROW_DISCRIMINATORS,
@@ -1849,6 +1848,7 @@ if TYPE_CHECKING:  # project names it serves from outside its owners, from their
         _INERT_SEARCH_VERBS,
         _exception_eligible,
     )
+    from kiro_crew.security.shell_commands import read_commands as _read_commands  # noqa: F401
     from kiro_crew.sel import (  # noqa: F401
         SecurityEvent,
         SecurityEventLog,

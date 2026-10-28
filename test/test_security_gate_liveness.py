@@ -542,7 +542,11 @@ def _url_payload_command(n: int) -> str:
 #: every address put back must be the whole URL match that starts where it lands;
 #: plus the redactor's ``_ordered_out`` flag for a link rewritten inside a longer one.
 #: Display-time only; no redaction rule, pattern or threshold moved.
-_PACKAGE_LINE_BUDGET = 32_668
+#: Raised by 125, from 32,668, for ``shell_commands``: the shared quote-aware command
+#: reader (words with quote state and raw offsets, redirections, the live separator)
+#: that the ``rm`` floor's segment walk moved into, net of the walk it replaced, and
+#: the carve-out's first word in ``exfil_bash``. No rule, pattern or verdict moved.
+_PACKAGE_LINE_BUDGET = 32_793
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
