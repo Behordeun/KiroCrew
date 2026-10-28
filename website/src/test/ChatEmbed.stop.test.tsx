@@ -158,6 +158,35 @@ describe('ChatEmbed Stop', () => {
     expect(screen.getByTestId('stop-button-armed')).toBeInTheDocument()
   })
 
+  // #25064: the embed's scoped API rejects with an ApiError shaped like its
+  // ScopedApiError (`API <status>: <body>`), and sets authRequired only for the
+  // gateway's own 403 + X-Auth-Required. It never sets edgeChallenge.
+  it('says the reader is signed out when the gateway refuses the stop for auth', async () => {
+    const { ApiError } = await import('../api/apiError')
+    const body = '{"error":"auth required"}'
+    mockGet.mockResolvedValue({ messages: [{ role: 'user', content: 'hi', ts: 1 }], running: true, title: '', stop_state: 'idle' })
+    mockPost.mockRejectedValueOnce(new ApiError(403, `API 403: ${body}`, body, true))
+    await mount()
+    await act(async () => { fireEvent.click(screen.getByTestId('stop-button-armed')) })
+    const notice = screen.getByTestId('chat-embed-stop-error')
+    expect(notice).toHaveTextContent("You're signed out, so nothing was stopped. Sign in again, then press Stop.")
+    expect(notice).not.toHaveTextContent('API 403')
+    expect(screen.getByTestId('stop-button-armed')).toBeInTheDocument()
+  })
+
+  it('shows the generic stop message, with the raw reply as detail, for a proxy sign-in page', async () => {
+    const { ApiError } = await import('../api/apiError')
+    const body = '<html>Sign in to your access proxy</html>'
+    mockGet.mockResolvedValue({ messages: [{ role: 'user', content: 'hi', ts: 1 }], running: true, title: '', stop_state: 'idle' })
+    mockPost.mockRejectedValueOnce(new ApiError(403, `API 403: ${body}`, body))
+    await mount()
+    await act(async () => { fireEvent.click(screen.getByTestId('stop-button-armed')) })
+    const notice = screen.getByTestId('chat-embed-stop-error')
+    expect(notice).toHaveTextContent("Couldn't stop this turn. Press Stop again.")
+    expect(notice).toHaveTextContent('API 403')
+    expect(notice).not.toHaveTextContent('signed out')
+  })
+
   it('after a compaction decline, reads as not stopping and warns that the next press resets the session', async () => {
     mockGet.mockResolvedValue({ messages: [{ role: 'user', content: 'hi', ts: 1 }], running: true, title: '', stop_state: 'idle' })
     mockPost.mockResolvedValueOnce({ ok: true, info: 'compacting', compacting: true })

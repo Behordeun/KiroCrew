@@ -2453,7 +2453,7 @@ Refusal hints appear eagerly and disable the review action while a refusal
 applies. The terminal-mode region above the editor shows the workspace or
 refusal hint, followed by “Review terminal command” on its own row. Review
 follows the composer's expanded visibility. The bottom action group retains
-the mic and Stop, Force stop, or Force reset, with at most two peer buttons.
+the mic and Stop, Force stop, or Force stop again, with at most two peer buttons.
 Below 400px of composer width, the force-stop control shows “Stop agent”.
 The full force-stop helper remains available to screen readers and appears
 visibly at wider widths. The existing delayed-stop control keeps its square icon,

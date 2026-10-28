@@ -413,7 +413,7 @@ turn's armed time would let a double-tap inside the window force-stop it. A soft
 with a message queued is why: the queue drain hands the floor straight to the
 next turn, so a 1-second poll can read the successor without ever seeing
 `running: false` or a stop phase, and the new, unpressed turn would otherwise
-show "Stopping" and spend its first press as a force kill. A read without the
+show "Stopping" and spend its first press as a force stop. A read without the
 pair (the admission-only reservation before a turn is numbered) neither changes
 the turn nor forgets the last one, so a press made during admission survives the
 numbering of the turn it was aimed at; a new `turn_gen` with the same `turn`
@@ -432,7 +432,7 @@ history) apart from what is dropped (work in progress and queued messages), the
 same loss the force-stop hint names. When a press fails while the warning
 shows, the failure reads `appSdk.chatEmbed.stop_did_not_go_through`, without the
 generic "press Stop again", so one instruction remains. The header and the
-footer carry "Stopping…"/"Killing…"; the placeholder stays neutral. The next press is debounced
+footer carry "Stopping…"/"Force stopping…"; the placeholder stays neutral. The next press is debounced
 against the declined one and sent as a plain stop: the backend's marker is what
 makes it the hard kill while the compaction lasts, and once the compaction has
 ended the backend drops the marker and the same press is an ordinary soft stop.
@@ -455,6 +455,27 @@ not withdrawn when the poll reports the marker gone, because a poll issued
 before the decline can answer after it; so if the compaction ends inside the
 window the embed keeps warning of a reset that the next press will not perform
 (an over-warning, never a silent reset).
+
+A refused press shows one plain sentence, chosen by `stopRefusalCopy` in
+`useStopPress.ts` from the transport's `StopRefusal`, checked in this order
+(#20398, #24940):
+
+| Reason | Read from | Message (`components.chatPane.*`) | Detail line |
+|---|---|---|---|
+| proxy sign-in | `edgeChallenge` | the proxy's own remedy text (`r.error`) | none |
+| signed out | `authRequired` | `stop_failed_signed_out`: "You're signed out, so nothing was stopped. Sign in again, then press Stop." | none |
+| not found | `code: slot_not_found` or HTTP 404 | `stop_failed_not_found`: "This chat wasn't found, so nothing was stopped. Reload the page." | none |
+| server error | HTTP 5xx | `stop_failed_server`: "The server hit a problem and couldn't stop this turn. Press Stop again." | backend text |
+| other | anything else | `stop_failed`: "Couldn't stop this turn. Press Stop again." | backend text |
+
+A press with no answer is not a refusal: it reads `stop_failed_network`
+("Couldn't reach the server to stop this turn. Press Stop again."). The proxy
+sign-in row applies only in the dashboard pane. The embed's scoped API
+(`ScopedApiError` in `website/src/app-sdk/scopedApi.ts`) never sets
+`edgeChallenge`, and it sets `authRequired` only for the gateway's own 403 with
+`X-Auth-Required: true`. So a proxy sign-in page answering the embed shows the
+generic `stop_failed` message, with the raw `API <status>: <body>` text as its
+detail.
 Writers: `website/src/chat-core/stop/useStopPress.ts`, `website/src/app-sdk/embedStopTransport.ts`,
 `website/src/app-sdk/ChatEmbed.tsx`, `website/src/components/useChatPaneTurnControl.ts`,
 `src/kiro_crew/dashboard/chat_api/slot_detail.py` (`stop_declined`).
