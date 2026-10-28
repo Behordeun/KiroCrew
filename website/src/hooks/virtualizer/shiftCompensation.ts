@@ -815,7 +815,7 @@ export function useShiftCompensation<T>(ctx: {
   follow: Pick<FollowState, 'stickRef' | 'writeScrollTop'>
   pinning: Pick<Pinning, 'prePaintRepin'>
   reading: Pick<ReadingPositionEntry, 'settleMeasuringRef'>
-  ops: Pick<WindowOperations, 'recomputeWindow'>
+  ops: Pick<WindowOperations, 'recomputeWindow' | 'stageLeadingOverscan'>
 }): ShiftCompensation {
   const {
     itemCount, windowRange, heightCommit, offsetIndex, scrollerRef, elIndexRef, itemsRef, anchorIdOf, setWindowRange,
@@ -827,7 +827,7 @@ export function useShiftCompensation<T>(ctx: {
   const { stickRef, writeScrollTop } = ctx.follow
   const { prePaintRepin } = ctx.pinning
   const { settleMeasuringRef } = ctx.reading
-  const { recomputeWindow } = ctx.ops
+  const { recomputeWindow, stageLeadingOverscan } = ctx.ops
 
   /** The owner whose announcements the height-sync consumer is paying -- an
    *  identity change there is the width-scope swap, not a reprice. */
@@ -870,6 +870,11 @@ export function useShiftCompensation<T>(ctx: {
     const net = prependNetRef.current
     prependNetRef.current = 0
     if (!armed && net <= 0) return
+    // A reader landing an older page: every window write until the stages
+    // finish mounts the rows above them a few per frame (LANDING_LEADING_STEPS),
+    // armed BEFORE this commit's recomputes so none of them takes the whole
+    // overscan in this task. A followed reader is at the tail, nowhere near.
+    if (net > 0 && !stickRef.current) stageLeadingOverscan()
     const shift = prependCountRef.current
     prependCountRef.current = 0
     const rebasedInRender = rebasedInRenderRef.current
