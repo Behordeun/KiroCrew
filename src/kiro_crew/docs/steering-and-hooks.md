@@ -83,7 +83,10 @@ declares nothing) and lives in a root that session loads.
 The Steering files tab reads, creates, edits and deletes these documents. The
 inclusion mode is a segmented control in the editor, and the rewrite happens
 server-side so your body text is preserved byte for byte. An entry that is a
-symlink is listed and readable but never editable, and a workspace write must
+symlink is listed and readable but never editable. A symlink that points
+outside the folders the dashboard may read (for global steering, outside your
+home folder) is listed as "linked, not shown": sessions can still load it, but
+the dashboard never opens it or shows where it points. A workspace write must
 echo the project it was listed under — a chat slot's project can move, and a
 delete issued from a stale listing would otherwise unlink the same-named file in
 a different project.

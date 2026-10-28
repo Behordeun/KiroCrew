@@ -15432,6 +15432,7 @@
         "inclusion_mode": "Modo de inclusão: {{mode}}",
         "inclusion_unrecognized": "{{declared}} não é um modo de inclusão conhecido; é interpretado como {{fallback}}",
         "linked_read_only": "Vinculado de {{target}} — somente leitura. Edite o arquivo de destino.",
+        "linked_not_shown": "Vinculado, não exibido. Este link aponta para fora das pastas que o painel pode ler, então seu conteúdo não é aberto aqui. As sessões ainda podem carregá-lo.",
         "loading": "Carregando…",
         "new_steering_file": "Novo arquivo de steering",
         "new_steering_file_2": "Novo arquivo de steering",

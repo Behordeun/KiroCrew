@@ -15432,6 +15432,7 @@
         "inclusion_mode": "Modalità di inclusione: {{mode}}",
         "inclusion_unrecognized": "{{declared}} non è una modalità di inclusione riconosciuta; viene interpretata come {{fallback}}",
         "linked_read_only": "Collegato a {{target}} — sola lettura. Modifica il file di destinazione.",
+        "linked_not_shown": "Collegato, non mostrato. Questo collegamento punta fuori dalle cartelle che la dashboard può leggere, quindi il suo contenuto non viene aperto qui. Le sessioni possono comunque caricarlo.",
         "loading": "Caricamento…",
         "new_steering_file": "Nuovo file di steering",
         "new_steering_file_2": "Nuovo file di steering",

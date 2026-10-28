@@ -15432,6 +15432,7 @@
         "inclusion_mode": "Mode d'inclusion : {{mode}}",
         "inclusion_unrecognized": "{{declared}} n'est pas un mode d'inclusion connu ; il est interprété comme {{fallback}}",
         "linked_read_only": "Lié depuis {{target}} — lecture seule. Modifiez le fichier cible.",
+        "linked_not_shown": "Lié, non affiché. Ce lien pointe hors des dossiers que le tableau de bord peut lire, son contenu n'est donc pas ouvert ici. Les sessions peuvent quand même le charger.",
         "loading": "Chargement…",
         "new_steering_file": "Nouveau fichier de pilotage",
         "new_steering_file_2": "Nouveau fichier de pilotage",

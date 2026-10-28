@@ -142,6 +142,19 @@ function InclusionChip({ file, showDefault = false }: { file: SteeringFile; show
   )
 }
 
+/** A linked entry the server lists by name only: its target is outside the
+ *  folders the dashboard may read, so there is no body to fetch or show.
+ *  `=== false` keeps a listing that predates the field readable. */
+const notShown = (file: SteeringFile | null | undefined) => file?.linked === true && file.readable === false
+
+/** Why a linked entry is read-only, as one sentence: the target to edit when
+ *  the dashboard can read it, or that it is not shown when it cannot. */
+function linkedReason(file: SteeringFile): string {
+  return notShown(file)
+    ? i18nT('pages.overview.steeringTab.linked_not_shown')
+    : i18nT('pages.overview.steeringTab.linked_read_only', { target: file.target })
+}
+
 /** Icon-only marker on a linked row.
  *
  *  A linked document loads into every session like any other steering file, but
@@ -158,7 +171,7 @@ function LinkedChip({ file }: { file: SteeringFile }) {
   return (
     <span
       data-testid="steering-linked-chip"
-      title={i18nT('pages.overview.steeringTab.linked_read_only', { target: file.target })}
+      title={linkedReason(file)}
       className="text-muted shrink-0 inline-flex items-center"
     >
       <Link2 className="lucide-inline" aria-hidden />
@@ -432,13 +445,15 @@ export default function SteeringTab() {
    *  project when the chat slot has been re-pointed since the list was drawn. */
   const projectKey = data?.project_key
 
-  const { data: detail } = useQuery({
+  const { data: detail, error: detailError } = useQuery({
     // projectKey is part of the identity, not decoration: `workspace/api.md`
     // names a DIFFERENT file in a different project, so a key without it serves
     // project A's cached body as project B's file.
     queryKey: ['steering-file', selectedKey, slotKey ?? null, projectKey ?? null],
     queryFn: () => api.steeringFile(selectedKey!, slotKey),
-    enabled: !!selectedKey,
+    // A not-shown link has no body the server will serve; asking would only
+    // manufacture a 404.
+    enabled: !!selectedKey && !notShown(files.find(f => f.key === selectedKey)),
   })
 
   const createFile = useMutation({
@@ -646,7 +661,7 @@ export default function SteeringTab() {
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-[13px] font-semibold text-text truncate flex-1">{f.rel}</span>
           <LinkedChip file={f} />
-          <InclusionChip file={f} />
+          {!notShown(f) && <InclusionChip file={f} />}
           <span className="text-[10px] px-1.5 py-[1px] rounded-full bg-bg-elevated text-muted border border-border font-bold shrink-0">
             {sourceLabel(f.source)}
           </span>
@@ -847,7 +862,9 @@ export default function SteeringTab() {
                     {/* No LinkedChip here: the read-only banner directly below
                       * states the full sentence, and a header chip is what
                       * pushed Edit/Delete onto a second line. */}
-                    <InclusionChip file={selected} showDefault />
+                    {/* A not-shown link's mode is unknown: its front matter is
+                      * never read, so the default would be a guess. */}
+                    {!notShown(selected) && <InclusionChip file={selected} showDefault />}
                     {/* The absolute path is reference detail, not identity: it
                         never fits beside the name on a phone and would push the
                         actions off the row. */}
@@ -863,9 +880,7 @@ export default function SteeringTab() {
                         * title says why, naming the target file to edit instead. */}
                       <Btn
                         disabled={detail === undefined || selectedReadOnly}
-                        title={selectedReadOnly
-                          ? i18nT('pages.overview.steeringTab.linked_read_only', { target: selected.target })
-                          : undefined}
+                        title={selectedReadOnly ? linkedReason(selected) : undefined}
                         onClick={() => { setDraft(detail?.content ?? ''); setDraftProjectKey(projectKey); setDraftMode(unrecognizedMode(selected) ? '' : (selected.inclusion || 'always')); setDraftPattern(selected.file_match_pattern || ''); /* An unrecognised declaration resolves to `always`, so seeding either
    side from it is wrong, and the two failures are opposite. Seeding the
    BASE from it makes picking `always` a no-op, leaving the warning chip
@@ -878,9 +893,7 @@ export default function SteeringTab() {
                       <Btn
                         danger
                         disabled={selectedReadOnly}
-                        title={selectedReadOnly
-                          ? i18nT('pages.overview.steeringTab.linked_read_only', { target: selected.target })
-                          : undefined}
+                        title={selectedReadOnly ? linkedReason(selected) : undefined}
                         onClick={() => { if (confirm(i18nT('pages.overview.steeringTab.delete_confirm', { path: selected.rel }))) deleteFile.mutate(selected.key) }}>{i18nT('pages.overview.steeringTab.delete')}</Btn>
                     </>)}
                   </div>
@@ -896,7 +909,7 @@ export default function SteeringTab() {
                     <div className="mb-3 rounded-md border border-border bg-bg-elevated p-3">
                       <p className="text-[12px] leading-relaxed text-muted">
                         <Link2 className="lucide-inline" aria-hidden />{' '}
-                        {i18nT('pages.overview.steeringTab.linked_read_only', { target: selected.target })}
+                        {linkedReason(selected)}
                       </p>
                     </div>
                   )}
@@ -932,7 +945,14 @@ export default function SteeringTab() {
                   <div className="flex-1 min-h-0">
                     {editing
                       ? <textarea className={EDITOR_CLASS} aria-label={i18nT('pages.overview.steeringTab.edit_2', { path: selected.rel })} value={draft} onChange={e => setDraft(e.target.value)} />
-                      : detail === undefined
+                      : notShown(selected)
+                        ? null
+                        // A refused read (413 too large, 404 gone) is said, not
+                        // left as an endless "Loading…". View mode only, so
+                        // no draft is in play and the hand-off is safe.
+                        : detailError && detail === undefined
+                          ? <ErrorNotice message={(detailError as Error).message} askAgent />
+                          : detail === undefined
                         ? <div className="text-muted text-[13px]">{i18nT('pages.overview.steeringTab.loading')}</div>
                         : <div className="text-sm leading-relaxed"><MarkdownRenderer content={steeringBody(detail.content)} /></div>}
                   </div>

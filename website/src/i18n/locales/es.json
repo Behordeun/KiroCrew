@@ -15432,6 +15432,7 @@
         "inclusion_mode": "Modo de inclusión: {{mode}}",
         "inclusion_unrecognized": "{{declared}} no es un modo de inclusión conocido; se interpreta como {{fallback}}",
         "linked_read_only": "Enlazado desde {{target}} — solo lectura. Edita el archivo de destino.",
+        "linked_not_shown": "Enlazado, no se muestra. Este enlace apunta fuera de las carpetas que el panel puede leer, así que su contenido no se abre aquí. Las sesiones aún pueden cargarlo.",
         "loading": "Cargando…",
         "new_steering_file": "Nuevo archivo de guía",
         "new_steering_file_2": "Nuevo archivo de guía",
