@@ -873,10 +873,10 @@ def test_an_unreadable_enabled_flag_cannot_clear_a_stored_notice(monkeypatch, pa
     provider = pd.PersonalDriveProvider()
     real = pd.engine._checked
 
-    def _checked(args, profile, action="", timeout=0):
+    def _checked(args, profile, action="", timeout=0, **kw):
         if args[:2] == ["cloudfront", "get-distribution-config"]:
             raise pd.engine.AWSError("Throttling: rate exceeded")
-        return real(args, profile, action=action, timeout=timeout)
+        return real(args, profile, action=action, timeout=timeout, **kw)
 
     monkeypatch.setattr(pd.engine, "_checked", _checked)
     # Deployed status, so the rollout branch is not what produces the answer.
@@ -891,10 +891,10 @@ def test_unreadable_distribution_config_does_not_block_publishing(monkeypatch, p
     spy.install(monkeypatch)
     real = pd.engine._checked
 
-    def _checked(args, profile, action="", timeout=0):
+    def _checked(args, profile, action="", timeout=0, **kw):
         if args[:2] == ["cloudfront", "get-distribution-config"]:
             raise pd.engine.AWSError("AccessDenied")
-        return real(args, profile, action=action, timeout=timeout)
+        return real(args, profile, action=action, timeout=timeout, **kw)
 
     monkeypatch.setattr(pd.engine, "_checked", _checked)
     assert _publish(pd.PersonalDriveProvider(), payload).view_url
@@ -940,10 +940,10 @@ def test_an_unreadable_attachment_does_not_block_publishing(monkeypatch, payload
     spy.install(monkeypatch)
     real = pd.engine._checked
 
-    def _checked(args, profile, action="", timeout=0):
+    def _checked(args, profile, action="", timeout=0, **kw):
         if args[:2] == ["cloudfront", "get-distribution-config"]:
             raise pd.engine.AWSError("AccessDenied")
-        return real(args, profile, action=action, timeout=timeout)
+        return real(args, profile, action=action, timeout=timeout, **kw)
 
     monkeypatch.setattr(pd.engine, "_checked", _checked)
     assert _publish(pd.PersonalDriveProvider(), payload).view_url

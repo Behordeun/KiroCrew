@@ -55,15 +55,19 @@ implemented and is refused explicitly rather than silently downgraded to public.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
+import os
 import re
 import secrets
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
 
+from kiro_crew import platform_compat
 from kiro_crew.deploy import engine, profiles
 from kiro_crew.publish_provider import (
     NON_TEXT_KINDS,
@@ -166,6 +170,7 @@ _SHA_META = "sha256"
 #: could keep serving it for a day after the user withdrew it and was told it was gone.
 #: Five minutes still absorbs a burst of readers on one link while capping that exposure.
 _EDGE_MAX_AGE_SECONDS = 300
+
 
 #: Serializes drive CREATION within this process. Two first publishes racing would each
 #: see no drive and each build one, leaving two tagged drives for discovery to reject.
@@ -1379,7 +1384,7 @@ class PersonalDriveProvider(PublishProvider):
         profile: str,
         bucket: str,
         key: str,
-        path: str,
+        payload: bytes,
         content_type: str,
         digest: str,
     ) -> None:
@@ -1393,28 +1398,107 @@ class PersonalDriveProvider(PublishProvider):
         The digest is stored as object metadata so a later push can tell that the
         object changed out of band, which is the whole content of the concurrency
         guarantee this provider declares in :meth:`sync_model`.
+
+        The body uploaded is *payload* -- the bytes the caller already read, digested
+        and size-checked -- never a re-read of the artifact's name. :meth:`publish` and
+        :meth:`push_version` read the file once (``_read_payload``), take its sha256 and
+        enforce the size limit, and then make several AWS round trips (``_live_account``,
+        ``_ensure_drive`` / ``_require_drive``, ``_head``) before the upload. Re-opening
+        the name here would reach whatever that name points at AFTER all of that, so a
+        same-user process that replaced the file during those round trips would have its
+        bytes uploaded under the original's digest and token. Uploading the in-memory
+        ``payload`` removes the second open entirely: there is no name left for the CLI,
+        or for this method, to resolve a second time.
+
+        On POSIX the bytes are placed in an anonymous temp file (``tempfile.TemporaryFile``,
+        which is unlinked the moment it is created, so there is no name on the filesystem
+        for anything to swap) and handed to the merged ``engine`` seam as the child's
+        stdin, read as ``--body /dev/stdin``. Windows has no ``/dev/stdin``: the bytes are
+        written to a freshly created private temp this method owns, uploaded by that name,
+        and removed -- the temp is minted here from ``payload`` and never handed to another
+        process, so it carries the same no-second-resolution guarantee as the descriptor.
         """
-        engine._checked(
-            [
-                "s3api",
-                "put-object",
-                "--bucket",
-                bucket,
-                "--key",
-                key,
-                "--body",
-                path,
-                "--content-type",
-                content_type or "application/octet-stream",
-                "--cache-control",
-                f"max-age={_EDGE_MAX_AGE_SECONDS}",
-                "--metadata",
-                f"{_SHA_META}={digest}",
-            ],
-            profile,
-            action="s3:PutObject",
-            timeout=300,
+        if platform_compat.IS_POSIX:
+            # TemporaryFile is anonymous and portable (Linux AND macOS) -- unlike
+            # os.memfd_create, which is Linux-only. It is unlinked at creation, so the
+            # bytes live only behind this descriptor and there is no path to re-resolve.
+            with tempfile.TemporaryFile() as body:
+                body.write(payload)
+                body.flush()
+                body.seek(0)
+                engine._checked(
+                    self._put_args(bucket, key, "/dev/stdin", content_type, digest),
+                    profile,
+                    action="s3:PutObject",
+                    timeout=300,
+                    stdin_fd=body.fileno(),
+                )
+            return
+
+        # Windows: no /dev/stdin, so the body must be named. Write the already-read bytes
+        # to a private temp this method creates and owns, upload it by name, then remove
+        # it. The name is minted here from `payload` and never handed to another process.
+        # Because a named body is still re-opened by the CLI, pin the bytes with
+        # `--checksum-sha256` (base64 of the payload's digest): S3 compares it against what
+        # it actually received and rejects a body a same-user process swapped in the window
+        # between the close and the CLI's open -- the check lands downstream of that open,
+        # where a pre-flight inspection cannot reach. The hex `digest` stays in metadata for
+        # the out-of-band-change signal a later push reads; the base64 form is S3's wire
+        # format for the pin.
+        checksum_b64 = base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii")
+        tmp = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed explicitly below
+            prefix="kirocrew-drive-body-", delete=False
         )
+        try:
+            tmp.write(payload)
+            tmp.flush()
+            tmp.close()
+            engine._checked(
+                self._put_args(
+                    bucket, key, tmp.name, content_type, digest, checksum_sha256=checksum_b64
+                ),
+                profile,
+                action="s3:PutObject",
+                timeout=300,
+            )
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _put_args(
+        bucket: str,
+        key: str,
+        body: str,
+        content_type: str,
+        digest: str,
+        *,
+        checksum_sha256: str = "",
+    ) -> list[str]:
+        args = [
+            "s3api",
+            "put-object",
+            "--bucket",
+            bucket,
+            "--key",
+            key,
+            "--body",
+            body,
+            "--content-type",
+            content_type or "application/octet-stream",
+            "--cache-control",
+            f"max-age={_EDGE_MAX_AGE_SECONDS}",
+            "--metadata",
+            f"{_SHA_META}={digest}",
+        ]
+        if checksum_sha256:
+            # Pins the BYTES S3 stores to the digest of the payload we read. Deliberately
+            # NOT paired with --checksum-algorithm, which would have the CLI hash whatever
+            # it re-opened and certify a substitution instead of catching it.
+            args += ["--checksum-sha256", checksum_sha256]
+        return args
 
     # The suffixes the seam actually writes when it stages an artifact for upload. Keyed
     # by EXTENSION, not by artifact kind, so this answers a stable local question ("what
@@ -1521,7 +1605,7 @@ class PersonalDriveProvider(PublishProvider):
                 profile=profile,
                 bucket=bucket,
                 key=f"{prefix}{key_part}",
-                path=file_path,
+                payload=payload,
                 content_type=content_type,
                 digest=digest,
             )
@@ -1647,7 +1731,7 @@ class PersonalDriveProvider(PublishProvider):
                 profile=profile,
                 bucket=bucket,
                 key=key,
-                path=file_path,
+                payload=payload,
                 content_type=self._content_type_for(
                     file_path, str(head.get("ContentType") or "application/octet-stream")
                 ),

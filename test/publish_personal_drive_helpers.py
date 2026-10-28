@@ -158,6 +158,9 @@ class _EngineSpy:
         self.created_site_ids: list[str] = []
         self.created_tags: list[object] = []
         self.tag_queries = 0
+        #: The ``stdin_fd`` each ``s3api put-object`` was handed, in call order. A real
+        #: descriptor here (not ``None``) means the body went through the fd seam.
+        self.put_stdin_fds: list[object] = []
 
     def _tag_payload(self, region: str = "") -> str:
         """Mimic the real tagging API's REGION scoping.
@@ -202,8 +205,12 @@ class _EngineSpy:
         monkeypatch.setattr(pd.engine, "create_oac", _create_oac)
         monkeypatch.setattr(pd.engine, "create_distribution", _create_distribution)
 
-        def _checked(args, profile, action="", timeout=0):
+        def _checked(args, profile, action="", timeout=0, stdin_fd=None, extra_visible_dirs=()):
             self.checked.append(list(args))
+            if args[:2] == ["s3api", "put-object"]:
+                # Record how the body was handed over so a test can assert the upload
+                # went through the descriptor seam rather than by name.
+                self.put_stdin_fds.append(stdin_fd)
             if args[:2] == ["resourcegroupstaggingapi", "get-resources"]:
                 self.tag_queries += 1
                 asked = args[args.index("--region") + 1] if "--region" in args else ""
