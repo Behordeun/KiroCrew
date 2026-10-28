@@ -22,6 +22,7 @@
 
 import { sanitizeCssValue } from '../lib/cssSanitize'
 import { parseCssColor, relativeLuminance } from '../lib/iconContrast'
+import { sliceCodePoints } from '../components/CommentOverlay'
 import type { CustomThemeData } from './useTheme'
 
 // Allowlist of allowed CSS custom property names for themes.
@@ -599,7 +600,7 @@ function _droppedRuleId(prelude: string, block: string, fontPin: boolean): strin
     )
     if (prop) id = `${sel} { ${prop} }`
   }
-  return id.length > _DROPPED_ID_MAX ? `${id.slice(0, _DROPPED_ID_MAX - 1)}…` : id
+  return id.length > _DROPPED_ID_MAX ? `${sliceCodePoints(id, 0, _DROPPED_ID_MAX - 1)}…` : id
 }
 
 export function scopeOverridesCss(css: string): {

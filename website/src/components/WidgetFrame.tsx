@@ -15,6 +15,7 @@ import { useFrameSrc } from '../hooks/useFrameSrc'
 import { useFrameLinkBridge } from '../hooks/useFrameLinkBridge'
 import { useSilentLoadWatch } from '../hooks/useSilentLoadWatch'
 import { useNearViewport } from '../hooks/useNearViewport'
+import { sliceCodePoints } from './CommentOverlay'
 
 // Upper bound on the text a single widget action may pre-fill into the
 // composer. A malicious LLM-emitted <script> can postMessage
@@ -298,7 +299,7 @@ export default function WidgetFrame({ html, title = 'Widget', slug, messageTs, s
         let text = Object.keys(payload).length > 0
           ? `[UI] ${action}: ${JSON.stringify(payload)}`
           : `[UI] ${action}`
-        if (text.length > MAX_WIDGET_ACTION_TEXT) text = text.slice(0, MAX_WIDGET_ACTION_TEXT) + '…'
+        if (text.length > MAX_WIDGET_ACTION_TEXT) text = sliceCodePoints(text, 0, MAX_WIDGET_ACTION_TEXT) + '…'
         window.dispatchEvent(new CustomEvent('mc-widget-send', { detail: { text, action } }))
       }
     }
