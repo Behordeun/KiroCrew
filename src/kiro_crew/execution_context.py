@@ -883,14 +883,73 @@ def read_session_execution(session_key: str, *, required: bool = False) -> Execu
         raise _missing_identity(_OPEN_A_NEW_CHAT_REMEDY)
     store = record.get("memory_store")
     if store and store != "default":
-        from kiro_crew.memory_stores import memory_store_version
-
-        if memory_store_version(store) == 2:
+        if _declared_store_version(store) == 2:
             backfilled = _backfill_legacy_member_record(session_key, record, store)
             if backfilled is not None:
                 return backfilled
             raise _missing_identity(_legacy_store_remedy(store))
     return None
+
+
+def _declared_store_version(store: str) -> int:
+    """The declared memory version of a chat's recorded store, or a named refusal.
+
+    The chat still fails closed: ``memory_store_version`` alone decides whether the
+    store is usable. When it refuses, the refusal is re-raised naming the store and
+    the step that brings the chat back: restore the entry, correct its version, or
+    start a new chat. When a config file could not be read, the stores it declares
+    are missing for that reason, so the refusal names that file instead.
+    """
+    from kiro_crew.config.loader import KiroCrewConfig
+    from kiro_crew.memory_stores import (
+        UnknownMemoryStore,
+        memory_store_version,
+        validate_memory_store_name,
+    )
+
+    validate_memory_store_name(store)
+    try:
+        return memory_store_version(store)
+    except UnknownMemoryStore as refused:
+        config = KiroCrewConfig.load()
+        raise UnknownMemoryStore(
+            f"Memory store declaration is unavailable for {store!r}: "
+            f"{_undeclared_store_remedy(config, store)}; Global was not used"
+        ) from refused
+
+
+def _undeclared_store_remedy(config: object, store: str) -> str:
+    """The step that brings back a chat whose store has no usable declaration.
+
+    A present entry is named first. The overlay is deep-merged, so an unreadable
+    file may hold the rest of that entry; it is then named as well.
+    """
+    unreadable = [
+        name
+        for name, flag in (
+            ("config.json", getattr(config, "_base_unreadable", False)),
+            ("config.local.json", getattr(config, "_overlay_unreadable", False)),
+        )
+        if flag
+    ]
+    files = " and ".join(unreadable)
+    if store in getattr(config, "memory_stores", {}):
+        remedy = (
+            "its entry under memory_stores has no valid memory_version (1 or 2); "
+            "correct that entry, or open a new chat"
+        )
+        if unreadable:
+            remedy += f"; {files} could not be read and may hold the rest of that entry"
+        return remedy
+    if unreadable:
+        return (
+            f"{files} could not be read, so no memory store declared "
+            f"there is available; fix {'those files' if len(unreadable) > 1 else 'that file'}"
+        )
+    return (
+        "this chat's store is no longer declared; restore its entry under "
+        "memory_stores in config.json or config.local.json, or open a new chat"
+    )
 
 
 _OPEN_A_NEW_CHAT_REMEDY = (
