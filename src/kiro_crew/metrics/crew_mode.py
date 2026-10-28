@@ -28,8 +28,9 @@ CREW_MODE_NEW_CHATS = "kirocrew.crew_mode.new_chats"
 
 OTHER = "other"
 
-#: How Crew Mode was turned on.
-TURNED_ON_VIA: tuple[str, ...] = ("create",)
+#: How Crew Mode was turned on: a new chat born on a conductor, or an existing
+#: chat switched onto one.
+TURNED_ON_VIA: tuple[str, ...] = ("create", "switch")
 
 
 def _member(value: Any, allowed: tuple[str, ...]) -> str:

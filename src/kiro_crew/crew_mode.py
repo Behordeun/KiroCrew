@@ -450,9 +450,58 @@ def stamp_rows(
             creator = creator_of(creator, above)
 
 
+def saved_row_is_root(meta: Mapping[str, Any]) -> bool:
+    """Whether a saved session's metadata (a closed session) describes a Crew Mode root.
+
+    The same rule a live row meets (:func:`_row_is_root`), read off the fields a
+    session's metadata line keeps: no creator, not an app's, Persistent, and on a
+    conductor template or on the agent its Crew Mode stamp names. A metadata line
+    carries no ``parent`` edge, so the birth stamp alone says whether it had a creator.
+    """
+    return _row_is_root(
+        {
+            "created_by": meta.get("created_by"),
+            "app": meta.get("app"),
+            "instance_id": meta.get("instance_id"),
+            "memory_mode": meta.get("memory_mode"),
+            "agent": meta.get("agent"),
+            "agent_kind": meta.get("agent_kind"),
+            "mode": meta.get("mode"),
+            STAMP_FIELD: meta.get(STAMP_FIELD),
+        }
+    )
+
+
+def _live_creator_of(row: Mapping[str, Any]) -> str:
+    """The slot key that holds the live slot *row* describes now, or ``""``.
+
+    The reading :func:`stamp_rows` applies to a slot frame row, off a live slot: with
+    settled lineage (:func:`lineage_is_settled`) the session tree's parent edge is the
+    whole answer for a slot the tree holds a node for (a parentless node is a session
+    ``session_release`` let go), and the saved ``created_by`` stands in for a slot the
+    tree never saw; otherwise the birth stamp, then the saved one. A reopened worker
+    carries its creator only on the saved line, so the stamp alone would call it a root.
+    """
+    key = str(row.get("key") or "")
+    created_by = row.get("created_by") or ""
+    saved = row.get("saved_created_by") or ""
+    if not isinstance(saved, str) or saved == key:
+        saved = ""
+    if lineage_is_settled():
+        tracked = persisted_tree_slots()
+        if tracked is not None and key in tracked:
+            return persisted_parents().get(key, "")
+    return str(created_by or saved)
+
+
 def slot_is_crew_mode_root(slot: Any) -> bool:
-    """Whether live slot *slot* is a Crew Mode root, by the rule the slot list stamps."""
-    return _row_is_root(_live_row(slot))
+    """Whether live slot *slot* is a Crew Mode root, by the rule the slot list stamps.
+
+    A root has no creator by ANY reading: the slot's own ``created_by``, the saved
+    metadata line and the session tree's parent edge (:func:`_live_creator_of`).
+    """
+    row = _live_row(slot)
+    return _row_is_root(row) and not _live_creator_of(row)
 
 
 def in_crew_tree(row: Mapping[str, Any] | None) -> bool:

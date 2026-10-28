@@ -1480,6 +1480,16 @@ async def start_dashboard(
 
     await _restore_dashboard_sessions(state, cfg)
 
+    # Crew Mode's start pass (learn closed roots, move roots onto a conductor an
+    # update changed) and its retry of busy roots, now that the restore has rebuilt
+    # the slot set it reads. The dashboard alone starts it: a headless gateway
+    # restores no slots, so it would have nothing to move and a name to misrecord.
+    from kiro_crew.dashboard import crew_mode_migration
+
+    _crew_task = asyncio.create_task(crew_mode_migration.run(state))
+    state._background_tasks.add(_crew_task)
+    _crew_task.add_done_callback(state._background_tasks.discard)
+
     # A crewmate the migration above moved tells its user once, in its own
     # thread; a thread not open yet is offered it at its next turn end.
     from kiro_crew.dashboard.mate_thread_wakes import offer_upgrade_notices

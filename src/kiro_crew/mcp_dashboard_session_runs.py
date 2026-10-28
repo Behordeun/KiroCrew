@@ -97,12 +97,17 @@ def _resolve_folder_for_new_session(
         crew_folders, crew_err = _get_rows(ctx.client, "/api/chat/folders")
         if crew_err:
             return "", "", "", redact(f"Error: {crew_err}")
-        # The shared resolver, creating nothing: an ambiguous or unknown reference
-        # is refused rather than resolved to an arbitrary folder or to none.
+        # The shared resolver, creating nothing. A folder that does not exist (one
+        # the conductor's instructions would have created) names no project
+        # directory and is ignored like the folder itself: the dispatch goes ahead
+        # unfiled and the note says so. An AMBIGUOUS reference is still refused: it
+        # would pick a project directory nobody chose.
         crew_id, _created, crew_ref_err = _resolve_chat_folder_ref(
             folder_ref, crew_folders, create_missing=False
         )
         if crew_ref_err:
+            if crew_ref_err.startswith("folder not found"):
+                return "", "", CREW_MODE_FOLDER_NOTE, None
             return "", "", CREW_MODE_FOLDER_NOTE, redact(f"Error: {crew_ref_err}")
         # The id only: the session is not filed there, so no label says it is.
         return crew_id, "", CREW_MODE_FOLDER_NOTE, None

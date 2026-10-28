@@ -458,6 +458,85 @@ cleanup does not read durable session metadata. Tab close retires its nudge loop
 before other asynchronous work. After the last consumer and provider stop, cleanup
 releases only the captured identity, preserving any replacement session carrier.
 
+**Crew Mode** has no field of its own. It is a chat on a conductor template
+(`kiro_crew/crew_mode.py`): a chat is in Crew Mode exactly when it is a root
+session on a conductor template, in the `template` namespace. Every conductor is Crew
+Mode: `crew_mode.conductor_agents` is the one set, every
+shipped conductor (the Crew Mode conductor, team lead, pipeline, security and ledger
+conductors) plus the configured `agent.crew_mode_agent` and `CONDUCTOR_ALIASES`. A
+chat on the agent its own stamp names is Crew Mode too (`crew_mode.runs_crew_mode`):
+the stamp (`crew_mode_agent`, on the metadata line and the slot row) only marks the
+chat as Crew Mode until the migration moves it. `agent.crew_mode_agent` is the one
+place that names the conductor; when it changes, or an update ships a new default,
+`dashboard/crew_mode_migration.py` moves every Crew Mode root onto it through
+`switch_slot_agent` (busy roots at their next idle point), keeps the work ledger keyed
+on the session, and writes one `crew_mode.migrate` audit line per move. The config
+watcher starts the migration as a background task (`schedule_on_config_change`), off
+the applier's 10 s bound, so a cancel never lands inside a switch; a cancel inside
+the switch's reset still rolls the commit back. One migration runs at a time (a
+lock). Every root not on the target is owed the move before any await, so a cancel
+leaves the unvisited ones owed, and the 15 s loop re-runs the reconcile while the
+recorded name is not yet the target. A reconcile runs only once the dashboard's
+start-up restore has rebuilt the slot set and finished, and the session tree's
+lineage is settled or the crew log is off (`_slots_restored`, `_lineage_ready`): over a
+half-built set, or on a headless gateway that never began one, every root would be
+trivially on the target and the name recorded against slots it never saw, and over an
+unseeded tree the root rule falls back to the birth stamps, which an adopted worker
+lacks, so it would be read as a root and moved. Refusals that clear on their own
+(`turn_in_flight`, `slot_subagents_running`, `session_rebound`,
+`history_unavailable`, and `crew_mode_locked`: the configured name moved on mid-pass)
+are retried at the next idle point; any other refusal is audited, named in one
+dashboard notice and not retried by the loop (a config change or restart tries
+again). A pass that sees the configured name change stops there, leaving the rest
+for the task that owns the new name, so no false notice is posted. A name found
+unusable is re-checked on every idle-loop tick, so a
+template installed later is picked up without a config edit. The recorded name
+advances only when every live root is on the target. A configured name that is not an agent template that resolves in the
+`template` namespace (a typo, or a name that is only a crewmate's; a crewmate sharing an
+installed template's name does not make the template unusable) moves nothing: it is logged as an error, named in one notice, and
+`crew_mode.crew_mode_agent()` keeps answering the conductor last applied, so new
+Crew Mode chats still turn on. A migration move counts no `turned_on`. The start pass
+learns closed roots from saved metadata (`crew_mode_migration.learn_closed_roots`,
+`crew_mode.note_roots`), off the boot path, and pushes a slot frame when a newly
+learned root holds a live slot, so a worker whose root's tab was closed before this
+process ran stays out of the session list by the persisted lineage. The start pass
+writes no stamp: a conductor root from before Crew Mode had a switch is Crew Mode by
+its template alone, and the stamp means the chat TURNED Crew Mode on, which is what
+gates the folder rule, so backfilling it would take an old chat's folders away on a
+restart; the migration's own move keeps an empty stamp empty for the same reason, so a
+root it moved onto a conductor the config later stops naming is an ordinary chat again
+(nothing hidden, nothing lost: the person can switch it). History and the session
+search still list a Crew Mode root's dispatched sessions. A remote peer's `crew_root` and `crew_mode_root` stamps survive the peer
+row allowlist (`crew_mode_root` only as a real `true`). Once the root has a user message (in its window, or rows trimmed to disk), switching it to any other agent is refused `409
+crew_mode_locked` (`agent_switch._crew_mode_lock_refusal`, read before agent resolution
+and again in the no-await window that commits the switch, so a first message that lands
+while resolution awaits still locks it), and a provider-side switch
+mid-turn is vetoed in `chat_runner`; a switch onto the configured conductor in the
+`template` namespace is the one exception, whoever asks (the migration, or a person
+moving a root the migration never visited). Before the
+first user message a switch onto a template that is not a conductor passes: that is
+Crew Mode turned off. The agent
+catalog (`GET /api/agents/catalog`) carries `crew_mode_agent` and `conductor_agents`, so a
+client reads them instead of naming a conductor itself.
+Turning Crew Mode on is an ordinary
+`POST /api/chat/slots/{slot}/agent` naming the configured conductor in the `template`
+namespace; the agent picker is the way in.
+Which agent conducts is read where it is used: `crew_mode.crew_mode_agent()` asks
+the live config watcher's snapshot (primed from the boot config, refreshed on each
+edit of the file), and the agent catalog and the agent switch remember the
+config they loaded, so a custom `agent.crew_mode_agent` is in force
+from gateway start.
+
+A root session whose page is `goal-board` or `work-kanban` gets one more
+`[DASHBOARD]` line (`BOARD_IN_PANEL_LINE`): the page is the task board, so the
+reply carries no task board, table or `task-dashboard` artifact. The switch to the
+conductor adopts `goal-board` on that page while nothing else is adopted, and each
+turn's `[DASHBOARD]` block then names it, so the conductor's task board lives there
+instead of in its replies.
+A person who wants every new chat
+on the conductor sets it as the default agent (`agent.default_agent`); every chat
+then already starts on the conductor.
+
 ## Private member session ownership
 
 The section name is retained for existing documentation links. Member memory is

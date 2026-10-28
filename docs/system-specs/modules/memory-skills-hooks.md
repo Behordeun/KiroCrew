@@ -6552,7 +6552,7 @@ importable from `kiro_crew.context`:
 | `inclusion.py` | context-group scope, the folder-steering renderer, the skills loader call session start and re-injection share |
 | `member.py` | the member identity section and the V2 essentials envelope; delivery stays at the `member_turn_context` chokepoint |
 | `store_admission.py` | which store answers each memory and lesson section, the first message's early embed (`embed_startup_query`), the early memory reads (`prefetch_session_memory`), the per-message lessons block, the shown-lesson record |
-| `turn.py` | follow-up turn additions (post-compaction re-injection, Slack thread context, per-turn rails, guidance) and the user's own turn text |
+| `turn.py` | follow-up turn additions (post-compaction re-injection, Slack thread context, per-turn rails, guidance) and the user's own turn text. The rails include the own `[DASHBOARD]` block of a root session running the conductor template with an adopted page, which `chat_runner` builds from the slot (`dashboard_agentic.root_session_dashboard_block`) and hands over as `session_dashboard` |
 | `output_contract.py` | the output contract a session starts with: the critical-rules block per runtime (`_critical_rules_for`) and the `[UI LANGUAGE]` steer (`ui_language_tag` stays on the facade) |
 | `tool_names.py` | the `[TOOL NAMES]` block: how a model spells an MCP tool call on a harness that resolves only qualified names (KAS), at session start, minimal start and after a compaction |
 | `session_start.py` | `ContextBuilder.build_session_context`: the session-start block's order, its section timings (`_mark`, `_emit_context_section_timings`) and the redaction of replayed thread history |

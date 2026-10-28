@@ -376,13 +376,34 @@ class TestSessionCreateFolderInCrewMode:
         assert "folder ignored" in out
         assert "filed in" not in out
 
-    def test_an_unknown_reference_is_refused_and_creates_nothing(self) -> None:
+    def test_an_ambiguous_reference_is_still_refused(self) -> None:
+        # Ignoring it would pick a project directory nobody chose.
+        folders = [
+            {"id": "aaaaaaaaaaaa", "name": "kirocrew", "parent_id": None},
+            {"id": "bbbbbbbbbbbb", "name": "0811", "parent_id": "aaaaaaaaaaaa"},
+            {"id": "cccccccccccc", "name": "0811", "parent_id": "aaaaaaaaaaaa"},
+        ]
+        out, dash = _call(
+            "session_create",
+            {"title": "worker", "folder": "kirocrew/0811"},
+            self._routes(folders=folders),
+        )
+        assert out.startswith("Error:")
+        assert "render the same path" in out and "folder not found" not in out
+        assert _writes(dash) == []
+
+    def test_an_unknown_reference_is_ignored_like_the_folder_itself(self) -> None:
+        """The conductor's instructions name a goal folder created on the way; a Crew
+        Mode caller files nothing, so a reference that resolves to no existing folder
+        names no project directory and the dispatch goes ahead unfiled."""
         out, dash = _call(
             "session_create", {"title": "worker", "folder": "kirocrew/missing"}, self._routes()
         )
-        assert out.startswith("Error:")
-        assert "folder not found" in out
-        assert _writes(dash) == []
+        assert not out.startswith("Error:")
+        (create,) = _writes(dash)
+        assert create.path == "/api/session-control/create"
+        assert "folder_id" not in create.body or not create.body["folder_id"]
+        assert "folder ignored" in out
 
 
 class TestAdvertisedSet:
