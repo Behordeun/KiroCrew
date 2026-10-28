@@ -9603,6 +9603,8 @@
       "badge_on": "Activé",
       "badge_attention": "Attention requise",
       "badge_setup": "À configurer",
+      "policy_off_title": "Désactivé par la stratégie",
+      "policy_off_body": "Tailnet est désactivé par la stratégie ; ce tableau de bord ne peut donc pas être publié sur un réseau privé. Contacte ton administrateur si tu en as besoin.",
       "pinned_title": "Bloqué par la stratégie",
       "pinned_body": "La stratégie de sécurité de votre administrateur verrouille l'accès au tailnet en position désactivée ; ce tableau de bord ne peut donc pas être publié sur un réseau privé. Contactez votre administrateur si vous en avez besoin.",
       "untrusted_cli_title": "Tailscale est installé, mais {{productName}} ne l'exécutera pas",

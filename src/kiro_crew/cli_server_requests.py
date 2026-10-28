@@ -29,7 +29,12 @@ from kiro_crew.config.loader import read_local_secret
 from kiro_crew.dashboard import tailnet_serve
 from kiro_crew.dashboard.handlers.core import DASHBOARD_HTML_NOT_FOUND_MARKER
 from kiro_crew.dashboard.origin import dashboard_origin, resolve_dashboard_host
-from kiro_crew.dashboard.tailnet import is_governance_pinned_off, tailnet_origin
+from kiro_crew.dashboard.tailnet import (
+    POLICY_OFF_DETAIL,
+    is_governance_pinned_off,
+    policy_off,
+    tailnet_origin,
+)
 from kiro_crew.dashboard.token_auth import parse_duration
 from kiro_crew.loopback_http import loopback_urlopen
 from kiro_crew.port_resolution import resolve_client_port
@@ -235,6 +240,14 @@ def _emit_session_urls(port: int, token: str) -> None:
         # helper's own contract reserves it for ENFORCEMENT call sites, and this is a
         # read-shaped question ("would such a URL work?") on a foreground command an
         # operator runs constantly. `tailnet status` reads it the same way.
+        if policy_off():
+            print()
+            print(
+                f"⚠  dashboard.tailscale.enabled is on, but {POLICY_OFF_DETAIL} "
+                "No tailnet URL is printed.",
+                file=sys.stderr,
+            )
+            return
         if is_governance_pinned_off():
             print()
             print(

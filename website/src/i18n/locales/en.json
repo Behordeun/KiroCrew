@@ -5892,6 +5892,8 @@
       "badge_on": "Active",
       "badge_attention": "Needs attention",
       "badge_setup": "Setup needed",
+      "policy_off_title": "Off by policy",
+      "policy_off_body": "Tailnet is off by policy, so this dashboard cannot be published to a private network. Ask your administrator if you need it.",
       "pinned_title": "Blocked by policy",
       "pinned_body": "Your administrator's security policy pins tailnet access off, so this dashboard cannot be published to a private network. Ask your administrator if you need it.",
       "untrusted_cli_title": "Tailscale is installed, but {{productName}} will not run it",

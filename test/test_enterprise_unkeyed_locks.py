@@ -15,7 +15,6 @@ from unittest.mock import DEFAULT, MagicMock
 import pytest
 
 from kiro_crew import edition_locks
-from kiro_crew.computer_use import enable_state
 from kiro_crew.config.sections_telemetry import TelemetryConfig
 from kiro_crew.dashboard.handlers import updates
 from kiro_crew.dashboard.handlers.agents import api_config_schema
@@ -79,14 +78,6 @@ def test_release_channel_file_is_ignored(enterprise, channel_file):
 
 def test_oss_release_channel_file_still_applies(channel_file):
     assert update_layout.release_channel() == "nightly"
-
-
-def test_computer_use_opt_in_is_ignored(enterprise):
-    assert enable_state.is_enabled({"enabled": True}) is False
-
-
-def test_oss_computer_use_opt_in_still_applies():
-    assert enable_state.is_enabled({"enabled": True}) is True
 
 
 @pytest.fixture

@@ -38,7 +38,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
-from kiro_crew import github_runner
+from kiro_crew import edition, github_runner
 from kiro_crew.dashboard.urls import is_loopback
 from kiro_crew.executors import subprocess_executor
 from kiro_crew.platform.context import redact_log_via_context
@@ -551,6 +551,32 @@ def probe_daemon() -> DaemonProbe:
     )
 
 
+#: What every tailnet surface says when an enterprise policy does not turn it on.
+POLICY_OFF_DETAIL = "Tailnet is off by policy."
+
+
+def policy_off(*, audit_tool: str = "") -> bool:
+    """True in an enterprise build whose policy does not turn tailnet access on.
+
+    One boolean, ``capabilities.tailnet_origin``, asked of the policy layer alone
+    (``edition_locks.policy_permits``, RFC D3): a policy that permits it turns it on;
+    a silent or denying policy leaves it off. Local config, a local tier and the
+    environment cannot turn it on. No tailnet list and no Tailscale daemon is read
+    here. An ``oss`` build answers ``False`` without reading anything, and its
+    existing pin check (:func:`is_governance_pinned_off`) applies unchanged.
+
+    Pass *audit_tool* from an acting call so the answer is written to SEL; the
+    status card and other pure reads pass nothing. Publishing
+    (``tailnet_serve.publish``), origin derivation (:func:`resolve_tailnet_host`,
+    used by both gateway entry points) and its background recovery all ask here.
+    """
+    if not edition.is_enterprise():
+        return False
+    from kiro_crew.edition_locks import policy_permits
+
+    return not policy_permits("capabilities.tailnet_origin", audit_tool=audit_tool)
+
+
 def is_governance_pinned_off(*, audit_tool: str = "") -> bool:
     """Return whether an enterprise ceiling pins ``capabilities.tailnet_origin`` off.
 
@@ -660,6 +686,15 @@ async def resolve_tailnet_host(enabled: bool) -> str:
     """
     if not enabled:
         return ""
+    # Audited (SEL) off the event loop: resolving the ceiling and the SEL write
+    # both touch disk.
+    if await asyncio.to_thread(policy_off, audit_tool="tailnet_origin_resolve"):
+        logger.warning(
+            "dashboard.tailscale.enabled is on, but %s No tailnet origin was "
+            "derived and the Tailscale daemon was not consulted.",
+            POLICY_OFF_DETAIL,
+        )
+        return ""
     # Chokepoint (a) — THE ACTION. A ceiling pinning ``capabilities.tailnet_origin``
     # off stops the derivation itself, ahead of the daemon call: nothing is spawned
     # and no origin is contributed, so the pin closes both halves an administrator
@@ -761,6 +796,10 @@ async def _origin_governance_pinned(*, audit_tool: str = "") -> bool:
     """Evaluate the live governance ceiling off-loop, failing closed."""
 
     try:
+        # An enterprise policy that does not turn tailnet on is the same answer:
+        # recovery keeps waiting and adds no origin.
+        if await asyncio.to_thread(policy_off, audit_tool=audit_tool):
+            return True
         return await asyncio.to_thread(
             is_governance_pinned_off,
             audit_tool=audit_tool,

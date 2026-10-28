@@ -9603,6 +9603,8 @@
       "badge_on": "Attivo",
       "badge_attention": "Richiede attenzione",
       "badge_setup": "Da configurare",
+      "policy_off_title": "Disattivato dai criteri",
+      "policy_off_body": "Tailnet è disattivato dai criteri, quindi questa dashboard non può essere pubblicata su una rete privata. Contatta il tuo amministratore se ne hai bisogno.",
       "pinned_title": "Bloccato dai criteri",
       "pinned_body": "I criteri di sicurezza del tuo amministratore mantengono disattivato l'accesso alla tailnet, quindi questa dashboard non può essere pubblicata su una rete privata. Contatta il tuo amministratore se ne hai bisogno.",
       "untrusted_cli_title": "Tailscale è installato, ma {{productName}} non lo eseguirà",

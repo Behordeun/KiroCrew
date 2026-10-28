@@ -9317,6 +9317,8 @@
       "badge_on": "已开启",
       "badge_attention": "需要处理",
       "badge_setup": "待设置",
+      "policy_off_title": "已被策略关闭",
+      "policy_off_body": "Tailnet 已被策略关闭，因此无法把仪表板发布到专用网络。如确需使用，请联系管理员。",
       "pinned_title": "已被策略禁用",
       "pinned_body": "管理员的安全策略已锁定禁用 tailnet 访问，因此无法把仪表板发布到专用网络。如确需使用，请联系管理员。",
       "untrusted_cli_title": "Tailscale 已安装，但 {{productName}} 不会运行它",

@@ -350,14 +350,27 @@ def check_origin(
     # exactly. So only a different spelling of an allowed origin newly passes.
     canon = _canonical_origin(origin_base)
     if canon is not None:
-        if any(_canonical_origin(a) == canon for a in allowed):
-            return True
         _scheme, canon_host, canon_port = canon
+        # An enterprise build matches a non-loopback origin exactly as listed
+        # (``dashboard_origins`` is an exact-origin list): no other spelling passes.
+        # Each approved origin is stored in ``urls.stored_origin`` form (the
+        # ``origin_policy_item`` spelling a browser sends), so the exact
+        # ``origin_base in allowed`` test above is the comparison in that form.
+        from kiro_crew import edition
+
+        exact_only = edition.is_enterprise() and not is_loopback(canon_host)
+        if not exact_only and any(_canonical_origin(a) == canon for a in allowed):
+            return True
         if is_loopback(canon_host):
             req = _split_authority(request.headers.get("Host", ""))
             if req is not None and req[0]:
                 if (_canonical_host(req[0]), req[1]) == (canon_host, canon_port):
-                    return True
+                    # Not on the allowlist, so an extra origin: the
+                    # ``dashboard_origins`` policy decides it, audited (oss with
+                    # no policy: allowed).
+                    from kiro_crew.dashboard.urls import origin_permitted
+
+                    return origin_permitted(origin_base, audit_tool="dashboard_origin_request")
     # NOTE (CSE SEC-016): we deliberately do NOT blanket-trust every loopback
     # origin regardless of port. A browser always sends an Origin header, so a
     # malicious local web page on an arbitrary port would otherwise pass this

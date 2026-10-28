@@ -9317,6 +9317,8 @@
       "badge_on": "オン",
       "badge_attention": "要対応",
       "badge_setup": "セットアップ",
+      "policy_off_title": "ポリシーによりオフ",
+      "policy_off_body": "ポリシーにより Tailnet はオフのため、このダッシュボードをプライベートネットワークに公開できません。必要な場合は管理者にお問い合わせください。",
       "pinned_title": "ポリシーによりブロックされています",
       "pinned_body": "管理者のセキュリティポリシーによって tailnet アクセスがオフに固定されているため、このダッシュボードをプライベートネットワークに公開できません。必要な場合は管理者にお問い合わせください。",
       "untrusted_cli_title": "Tailscale はインストールされていますが、{{productName}} は実行しません",

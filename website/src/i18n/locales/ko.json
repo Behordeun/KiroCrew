@@ -9317,6 +9317,8 @@
       "badge_on": "켜짐",
       "badge_attention": "확인 필요",
       "badge_setup": "설정",
+      "policy_off_title": "정책에 의해 꺼짐",
+      "policy_off_body": "정책에 의해 Tailnet이 꺼져 있어 이 대시보드를 사설 네트워크에 게시할 수 없습니다. 필요하다면 관리자에게 문의하세요.",
       "pinned_title": "정책에 의해 차단됨",
       "pinned_body": "관리자의 보안 정책이 tailnet 접속을 끄도록 고정해 두어, 이 대시보드를 사설 네트워크에 게시할 수 없습니다. 필요하다면 관리자에게 문의하세요.",
       "untrusted_cli_title": "Tailscale이 설치되어 있지만 {{productName}}은(는) 이를 실행하지 않습니다",

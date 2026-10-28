@@ -9460,6 +9460,8 @@
       "badge_on": "Aktiv",
       "badge_attention": "Aktion erforderlich",
       "badge_setup": "Einrichten",
+      "policy_off_title": "Durch Richtlinie deaktiviert",
+      "policy_off_body": "Tailnet ist durch die Richtlinie deaktiviert, daher kann dieses Dashboard nicht in einem privaten Netzwerk veröffentlicht werden. Wende dich an deinen Administrator, falls du es brauchst.",
       "pinned_title": "Durch Richtlinie blockiert",
       "pinned_body": "Die Sicherheitsrichtlinie Ihres Administrators hat den Tailnet-Zugriff dauerhaft deaktiviert, sodass dieses Dashboard nicht in einem privaten Netzwerk veröffentlicht werden kann. Wenden Sie sich an Ihren Administrator, falls Sie ihn benötigen.",
       "untrusted_cli_title": "Tailscale ist installiert, aber {{productName}} führt es nicht aus",

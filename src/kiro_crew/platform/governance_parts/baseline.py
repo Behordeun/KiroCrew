@@ -88,6 +88,11 @@ BASELINE_CONTROLS: Dict[str, Mapping[str, object]] = {
     "capabilities.theme_install": _CAPABILITY_OFF,
     "capabilities.telemetry": _CAPABILITY_OFF,
     "capabilities.tailnet_origin": _CAPABILITY_OFF,
+    # ``dashboard.urls._BIND_LOCAL``; never queried, since loopback is the floor.
+    "bind_address": {"mode": "allow", "allow": ["127.0.0.1"]},
+    # This machine's loopback origins are the floor and are never queried.
+    "dashboard_origins": _OFF,
+    "capabilities.computer_use": _CAPABILITY_OFF,
     "capabilities.mobile_connect": _CAPABILITY_OFF,
     "capabilities.social_share": _CAPABILITY_OFF,
     "capabilities.feature_videos_download": _CAPABILITY_OFF,

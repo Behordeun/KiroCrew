@@ -9603,6 +9603,8 @@
       "badge_on": "Activado",
       "badge_attention": "Requiere atención",
       "badge_setup": "Configurar",
+      "policy_off_title": "Desactivado por política",
+      "policy_off_body": "Tailnet está desactivado por política, por lo que este panel no puede publicarse en una red privada. Pídeselo a tu administrador si lo necesitas.",
       "pinned_title": "Bloqueado por política",
       "pinned_body": "La política de seguridad de tu administrador mantiene desactivado el acceso a la tailnet, por lo que este panel no puede publicarse en una red privada. Pídeselo a tu administrador si lo necesitas.",
       "untrusted_cli_title": "Tailscale está instalado, pero {{productName}} no lo ejecutará",
