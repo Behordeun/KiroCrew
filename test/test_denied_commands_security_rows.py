@@ -598,6 +598,8 @@ class TestRecursiveForceRmFloor:
             "RM -rf $HOME/.cache",
             "RM -rf ./build",
             "RM -f /",
+            "RM -r /",
+            "RM -r ~",
             "RM -r /tmp/x",
             "RM -fr $HOME_BACKUP",
             # A parameter glued to the program word that leaves no ``rm`` stays allowed.

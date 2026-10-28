@@ -774,7 +774,7 @@ def is_denied(
         note = _rm._RM_FLOOR_NOTE
         try:
             rm_targets = _rm._rm_wipe_targets(tool_name)
-        except Exception as exc:  # incl. RecursionError and the depth cap
+        except Exception as exc:  # incl. RecursionError
             # Fail closed for a command naming rm as a word; letters inside
             # another word (``--format``) are not a command the floor reads.
             logger.warning("rm floor could not read the command: %r", exc)
