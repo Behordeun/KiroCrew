@@ -513,6 +513,13 @@ def build_message(
                 provider_type=provider_type,
                 context_provider=context_provider,
                 native_launch_sources=native_launch_sources,
+                # The user's own text (or a transform hook's output), never a
+                # dispatcher prefix, ranks the lessons -- as on the per-message path.
+                query_text=(
+                    hook_result.text
+                    if hook_result.action == ctx.HOOK_MODIFY
+                    else text[user_text_range[0] : user_text_range[1]]
+                ),
             )
         )
         # The session's durable work state, which a monitor cycle already gets

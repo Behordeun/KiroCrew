@@ -377,11 +377,20 @@ re-adds, once:
    [`[work ledger]` snapshot](#the-work-ledger-snapshot), via
    `context_assembly/turn.py` → `ledger_reinjection_part`; withheld on minimal and
    read-blocked turns.
+7. `[REINJECTED AFTER COMPACTION — learned corrections]` — the session-start
+   `[Learned corrections …]` / `[Learned experience …]` blocks, via
+   `context_assembly/store_admission.py` → `compaction_lessons_block`: the same
+   store choice (`_lessons_renderer`), startup budgets and gates as session start
+   (`lessons` group and `memory.inject_lessons`, nothing on a read-blocked turn,
+   nothing for a private member whose own store is not prepared), ranked against
+   the user's text for that turn. With per-message lessons on (the
+   `[Learned corrections — relevant to this message …]` row above), the
+   shown-lesson record restarts from this block, so that block does not repeat it.
 
 If that turn does not land (cancelled, refused, errored), `rearm_reinjection` puts
 the flag back, so the context is never lost to a failed turn. A minimal-context turn
 gets back only the agent contract and the reply-style preferences; the memory index,
-skills index, folder steering, member section and work ledger stay withheld
+skills index, lessons, folder steering, member section and work ledger stay withheld
 (`post_compaction_parts(minimal_context=True)`).
 
 ### The `[work ledger]` snapshot

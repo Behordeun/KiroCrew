@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 from kiro_crew.context_assembly import inclusion as _inclusion
 from kiro_crew.context_assembly import markers as _markers
 from kiro_crew.context_assembly import sections as _sections
+from kiro_crew.context_assembly import store_admission as _store_admission
 from kiro_crew.context_assembly import tool_names as _tool_names
 
 if TYPE_CHECKING:
@@ -55,19 +56,22 @@ def post_compaction_parts(
     provider_type: str | None,
     context_provider: Any,
     native_launch_sources: Collection[str],
+    query_text: str = "",
 ) -> list[str]:
     """What a turn re-injects after a confirmed compaction dropped session start.
 
     The agent contract, the memory activity index, the skills index (same gate and
-    glob restriction as session start), the CURRENT reply-style preferences and the
-    CURRENT folder steering. The member section is re-injected by the caller,
-    through the member lifecycle chokepoint. Also starts the session's shown-lesson
-    record again, since the compaction dropped those blocks too.
+    glob restriction as session start), the learned-lessons block (same store,
+    gates and budgets as session start, ranked against *query_text*, the user's
+    own text for this turn), the CURRENT reply-style preferences and the CURRENT
+    folder steering. The member section is re-injected by the caller, through the
+    member lifecycle chokepoint. Also starts the session's shown-lesson record
+    again, from the lessons block re-sent here.
 
     A minimal-context turn (shared and guest channel turns, minimal crons) gets back
     only what its minimal session start carried: the agent contract and the
-    reply-style preferences. The operator's memory, skills and folder steering stay
-    out of a prompt other people read.
+    reply-style preferences. The operator's memory, lessons, skills and folder
+    steering stay out of a prompt other people read.
     """
     from kiro_crew import context as ctx  # circular import: the facade imports this owner
 
@@ -153,6 +157,32 @@ def post_compaction_parts(
                 + ctx._neutralize_structural_markers(skills_ctx)
                 + "\n[END REINJECTED]\n\n"
             )
+    # Lessons are session-start context too: the user's standing corrections
+    # went with the compaction, and nothing else brings them back (the
+    # per-message block only adds new matches, and is off by default).
+    _lessons_ctx = _store_admission.compaction_lessons_block(
+        builder,
+        private=private_owner,
+        blocks_reads=blocks_reads,
+        context_groups=context_groups,
+        workspace=workspace,
+        memory_store=memory_store,
+        project=project,
+        model_window=model_window,
+        essentials=_essentials,
+        query_text=query_text,
+    )
+    if _lessons_ctx:
+        if session_key and ctx.KiroCrewConfig.load().memory.inject_lessons_per_turn:
+            # The block as sent: per-message lessons skip what it holds.
+            builder._remember_startup_lessons(session_key, _lessons_ctx)
+        # Lesson text is user- and agent-written: scrub the payload, keep the
+        # trusted wrapper outside it.
+        parts.append(
+            "[REINJECTED AFTER COMPACTION — learned corrections]\n"
+            + ctx._neutralize_structural_markers(_lessons_ctx)
+            + "\n[END REINJECTED]\n\n"
+        )
     if _prefs:
         parts.append("[REINJECTED AFTER COMPACTION — response preferences]\n" + _prefs)
     # Folder steering is session-start context too, and unlike kiro's
