@@ -698,6 +698,7 @@ if TYPE_CHECKING:  # the forwarded names, visible to type checkers and IDEs
         _first_party_no_backend_passthrough,
         _forward_for_effective_tier,
         _forward_ssh_auth_sock,
+        _forwards_without_consent,
         _no_backend_guidance,
         _ssh_dir_masked,
         _tier_lists_ssh,
@@ -709,6 +710,7 @@ if TYPE_CHECKING:  # the forwarded names, visible to type checkers and IDEs
         agent_confinement_is_kirocrew_own,
         launcher_refusal,
         refuse_unaudited_on_dead_fs,
+        ssh_auth_sock_consent_notice,
         unsandboxed_exec_permitted_by,
     )
     from kiro_crew.sandbox_workspace import (  # noqa: F401
