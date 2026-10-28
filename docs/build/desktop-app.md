@@ -126,9 +126,14 @@ subcommand the app uses. The Windows build administratively extracts the
 upstream MSI without installing it or writing PATH/registry state, then stages
 `kiro-cli.exe` plus the four Visual C++ runtime DLLs it imports
 (`vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll`, `msvcp140_1.dll`),
-copied from the build host's `System32`; a build host without the Visual C++
-2015-2022 x64 redistributable fails the build with that instruction. DirectML
-(`directml.dll`) is left to the host, where desktop Windows supplies it.
+taken from Microsoft's Visual C++ 2015-2022 x64 redistributable and never from
+the build host. `packaging/vc-runtime-pin.json` pins that installer's immutable
+download URL, its sha256 and each DLL's sha256; `packaging/vc_runtime.py`
+unpacks the four without running the installer, fails the build on any
+mismatch, and records the version in `VC-RUNTIME-VERSION` beside
+`BUNDLED-VERSION`. DirectML (`directml.dll`) is deliberately not bundled: it is
+an OS component on desktop Windows, the same dependency upstream's own
+installer has, so a Windows Server Core build host must supply it.
 `kiro_cli.bundled_kiro_cli_entry` owns
 the platform split. The release is pinned in two files that travel together:
 `packaging/kiro-cli-version`

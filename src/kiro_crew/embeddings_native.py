@@ -73,9 +73,12 @@ _LINUX_AARCH64_DOTPROD_DIRNAME = "linux_aarch64_dotprod"
 #: ``ggml-base.dll``/``ggml-cpu.dll`` additionally pull ``VCOMP140.DLL``, the MSVC
 #: OpenMP runtime. Both Linux payloads DO vendor their equivalent
 #: (``libgomp-*.so.1.0.0``), which is what makes this an omission on the Windows
-#: lane rather than a deliberate asymmetry. They are not vendored here because
-#: redistributing Microsoft's runtime is a licensing decision, not a packaging one
-#: — so the gap is reported precisely instead of being papered over.
+#: lane rather than a deliberate asymmetry. Redistributing the runtime is
+#: allowed when the files come from Microsoft's own redistributable and are
+#: sha256-pinned: the Windows desktop build does exactly that for the bundled
+#: kiro-cli (``packaging/vc_runtime.py``, ``packaging/vc-runtime-pin.json``).
+#: This package does not vendor them yet, so the gap is reported precisely
+#: instead of being papered over.
 _WINDOWS_MSVC_RUNTIME_DLLS = (
     "MSVCP140.dll",
     "VCRUNTIME140.dll",

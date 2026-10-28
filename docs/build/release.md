@@ -213,6 +213,22 @@ code.
      version prefix, which is also why a hotfix rebuild of an older tag keeps
      working after upstream releases. See [desktop-app](desktop-app.md) "Bundled
      kiro-cli".
+   - *VC++ runtime pin (read by the same `BUNDLE_KIRO_CLI=1` Windows build)*:
+     `packaging/vc-runtime-pin.json` pins the Microsoft Visual C++
+     redistributable whose `vcruntime140*.dll` and `msvcp140*.dll` are staged
+     beside `kiro-cli.exe`. Bump it when a newer kiro-cli needs a newer runtime
+     (it was built with a newer MSVC toolset), or for a Microsoft runtime fix.
+     Resolve `https://aka.ms/vs/17/release/vc_redist.x64.exe` to the immutable
+     `download.visualstudio.microsoft.com/download/pr/<id>/<SHA256>/VC_redist.x64.exe`
+     URL it redirects to (`curl -sI`), download it
+     (`curl -fsSLo VC_redist.x64.exe <that url>`), then run
+     `python3 packaging/vc_runtime.py pin <that url> VC_redist.x64.exe`: it
+     prints the new installer and DLL sha256 values; fill in `version` with the
+     redistributable's ProductVersion and replace the file in one commit. Run
+     `test/test_vc_runtime_pin.py`, and prove the bump with a
+     `BUNDLE_KIRO_CLI=1` Windows packaging probe, whose `--version` probe runs
+     the staged binary against the staged runtime. A sha mismatch fails the
+     build closed; a stale pin is not a failure, since the URL is immutable.
    - *Installer tool pins*: the source installers download mise
      (`scripts/lib/pinned-mise.sh`) and the AWS CLI and Session Manager plugin
      (`packaging/pins/aws-tools.env`) at pinned versions and refuse a sha256
