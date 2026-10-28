@@ -779,11 +779,13 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
     )
     from kiro_crew.cli_server_requests import (  # noqa: F401
         _GATEWAY_NOT_LISTENING_HINT,
+        _TOKEN_REFUSAL_REMEDIES,
         _TOKEN_REQUEST_TIMEOUT,
         _emit_session_urls,
         _logout,
         _probe_dashboard_health,
         _token,
+        _token_refusal_message,
         _update_approve,
     )
     from kiro_crew.cli_server_restart import (  # noqa: F401

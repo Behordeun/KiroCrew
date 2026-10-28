@@ -653,6 +653,21 @@ unresolvable peer pid, a different namespace on Linux — see
 [security](security.md)) names its remedy in the body, and reporting it as a
 network failure sent the operator to the wrong fix.
 
+`/api/token/local` refuses at three gates and names the one that refused in a
+`code` beside the `error`. When the code is one the CLI knows, a second stderr
+line names it and the remedy for that gate (`_TOKEN_REFUSAL_REMEDIES`):
+`loopback_only` -> run on the gateway host as the user that runs the gateway,
+where the gateway can confirm that user on its socket; `invalid_secret` -> the
+secret read is stale, so re-run, and if refused again a second gateway shares
+the data home: stop it or restart this one; `member_owner_token_refused` -> run
+inside the gateway's own host or container (for example `docker exec`), not from
+an agent's shell or a sandbox. The gateway's own text for that last gate gives
+the same remedy rather than pointing back to the command that was refused, so a remote mint, which keeps
+only the first 300 characters of stderr, still carries that remedy on the first line;
+the other two remedies are short enough that both lines fit in it.
+An unknown, missing or non-string `code` adds no line: the CLI does not guess
+which gate refused.
+
 A gateway that takes the request but does not answer within the 20 s budget
 (`_TOKEN_REQUEST_TIMEOUT`) is reported as busy (`Gateway on port N is up but did
 not answer within 20 s (busy)`), also never as `Could not reach gateway`. A read
