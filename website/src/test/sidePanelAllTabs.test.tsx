@@ -31,7 +31,6 @@ vi.mock('../utils/terminalRegistry', () => ({
   useTerminalEnabled: () => false,
   useTerminalTitle: () => 'Terminal',
 }))
-vi.mock('../hooks/useDevMode', () => ({ useDevMode: () => false }))
 const viewport = vi.hoisted(() => ({ mobile: false }))
 vi.mock('../hooks/useIsMobile', () => ({ useIsMobile: () => viewport.mobile }))
 

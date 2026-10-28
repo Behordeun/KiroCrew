@@ -1,7 +1,6 @@
 import { batchCloseConfirm } from '../../components/TabCloseMenu'
 import { useConfirm } from '../../components/ConfirmDialog'
 import { useState, useRef, useEffect, useCallback, useMemo, Fragment, Suspense, lazy, type ReactNode } from 'react'
-import { useDevMode } from '../../hooks/useDevMode'
 import { useScrollEdges } from '../../hooks/useScrollEdges'
 import { AllTabsMenu } from '../../components/AllTabsMenu'
 import { useSidePanelTabNav } from './SidePanelTabNav'
@@ -278,7 +277,6 @@ export default function SidePanel({
   const terminalEnabled = useTerminalEnabled() && remoteEnvironment !== undefined
   const placementRef = useRef(remoteEnvironment)
   placementRef.current = remoteEnvironment
-  const devMode = useDevMode()
   // Whether to offer the Summary row at all. Read from the panel's OWN endpoint
   // and under the SAME query key the Summary tab uses, so this is one cheap
   // request per slot that doubles as that tab's prefetch rather than a second
@@ -302,10 +300,10 @@ export default function SidePanel({
     summaryOn: summaryMeta ? summaryMeta.enabled === true : undefined, summaryWithheld: !!hiddenViews?.has('summary'),
   })
   // The + menu / empty-state launcher hide Terminal when the feature is
-  // disabled server-side and Context breakdown unless Developer Mode is on, and
-  // never list the pinned views (Changes / Files / Artifacts, and Summary while
-  // Pin Summary holds it) — those are always present in the strip.
-  const menuSections = newMenuSections({ devMode, terminalEnabled, summaryEnabled: summaryEnabled && !summaryPinned, hiddenViews })
+  // disabled server-side, and never list the pinned views (Changes / Files /
+  // Artifacts, and Summary while Pin Summary holds it) — those are always
+  // present in the strip.
+  const menuSections = newMenuSections({ terminalEnabled, summaryEnabled: summaryEnabled && !summaryPinned, hiddenViews })
   // The empty-state launcher shows the same entries flat: its two-column grid
   // has nowhere to put a separator, but it must not disagree with the menu
   // about ORDER, so it reads the groups rather than its own list.
