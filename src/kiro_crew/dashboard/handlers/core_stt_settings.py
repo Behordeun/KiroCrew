@@ -525,24 +525,16 @@ async def api_stt_config(request: web.Request) -> web.Response:
 
 
 def _transcribe_extra_importable() -> bool:
-    """True when AWS Transcribe's half of the ``voice`` extra imported here.
+    """True when AWS Transcribe's half of the ``voice`` extra imports here. BLOCKING.
 
-    Reads ``kiro_crew.transcribe``'s own import outcome (its module-level
-    try/except sets ``boto3 = None`` on failure) rather than probing specs: a
-    partial installation whose dist-info exists but whose import fails must
-    surface the repair command, not suppress it. Runs off the event loop —
-    ``transcribe`` is already imported at module load, so this is an attribute
-    read, but callers batch it with the other filesystem probes anyway.
+    Asks ``transcribe_aws``'s own availability answer, which imports boto3 and
+    the streaming client rather than probing specs: a partial installation whose
+    dist-info exists but whose import fails must surface the repair command, not
+    suppress it. Runs off the event loop; the first call imports boto3.
     """
     from kiro_crew import transcribe
 
-    if transcribe.boto3 is None:
-        return False
-    try:
-        import amazon_transcribe  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    return transcribe._aws_availability().ok
 
 
 def _ffmpeg_install_commands() -> list[str]:
