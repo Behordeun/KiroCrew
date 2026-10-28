@@ -214,6 +214,55 @@ def _registry_sign_in_refused(repo: str, branch: str) -> bool:
     return (_strip_git_target_userinfo(repo), branch) in _SIGN_IN_REFUSED
 
 
+def _load_index_entries_sync(
+    clone_path: Path, repo: str, branch: str
+) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]]]:
+    """Read the clone's index and scan its ``apps/`` tree — both blocking.
+
+    Return ``(index_entries, fallback_entries)``: the object entries of a
+    well-formed ``app-registry.json`` (``None`` when the file is absent,
+    unreadable or not a JSON list), and the ``apps/*/app.json`` fallback rows
+    (empty when the clone has none). The index probe governs which of the two
+    answers the caller reads — an EMPTY index list is a valid index result,
+    never a trigger to scan the fallback.
+
+    Blocking: every probe and read here is a filesystem call, so the caller
+    runs this in one ``asyncio.to_thread`` hop rather than probing on the event
+    loop. Read and decode errors propagate to the fetch's own handler.
+    """
+    index_path = clone_path / "app-registry.json"
+    if index_path.is_file():
+        try:
+            data = json.loads(index_path.read_text("utf-8"))
+            if isinstance(data, list):
+                # Keep only well-formed object entries — a malformed index
+                # item (e.g. a bare string) must never reach normalization.
+                return [item for item in data if isinstance(item, dict)], []
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            pass
+
+    entries: list[dict[str, Any]] = []
+    apps_dir = clone_path / "apps"
+    if apps_dir.is_dir():
+        for app_dir in sorted(apps_dir.iterdir()):
+            if not app_dir.is_dir():
+                continue
+            if not (app_dir / "app.json").is_file():
+                continue
+            app_name = app_dir.name
+            if not app_name or app_name in (".", ".."):
+                continue
+            entries.append(
+                {
+                    "name": app_name,
+                    "repo": repo,
+                    "branch": branch,
+                    "subdirectory": f"apps/{app_name}",
+                }
+            )
+    return None, entries
+
+
 async def _fetch_external_registry_index(
     repo: str,
     branch: str,
@@ -358,42 +407,17 @@ async def _fetch_external_registry_index(
                     _SIGN_IN_REFUSED.add(sign_in_key)
                 return None
 
-        # Prefer an explicit app-registry.json index.
-        index_path = clone_path / "app-registry.json"
-        if index_path.is_file():
-            try:
-                data = json.loads(await asyncio.to_thread(index_path.read_text, "utf-8"))
-                if isinstance(data, list):
-                    # Keep only well-formed object entries — a malformed index
-                    # item (e.g. a bare string) must never reach normalization.
-                    _sel_outcome("success")
-                    return _credential_free_external_registry_entries(
-                        [item for item in data if isinstance(item, dict)]
-                    )
-            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-                pass
-
-        # Fallback: scan for apps/*/app.json
-        entries: list[dict[str, Any]] = []
-        apps_dir = clone_path / "apps"
-        if apps_dir.is_dir():
-            for app_dir in sorted(apps_dir.iterdir()):
-                if not app_dir.is_dir():
-                    continue
-                if not (app_dir / "app.json").is_file():
-                    continue
-                app_name = app_dir.name
-                if not app_name or app_name in (".", ".."):
-                    continue
-                entries.append(
-                    {
-                        "name": app_name,
-                        "repo": repo,
-                        "branch": branch,
-                        "subdirectory": f"apps/{app_name}",
-                    }
-                )
-        result = entries if entries else None
+        # Prefer an explicit app-registry.json index, then the apps/*/app.json
+        # fallback. Both walk the clone's disk, so they run in ONE
+        # asyncio.to_thread hop: a slow or network clone root stalls this
+        # fetch's worker thread, not every session's turn on the loop.
+        index_entries, fallback_entries = await asyncio.to_thread(
+            _load_index_entries_sync, clone_path, repo, branch
+        )
+        if index_entries is not None:
+            _sel_outcome("success")
+            return _credential_free_external_registry_entries(index_entries)
+        result = fallback_entries or None
         _sel_outcome("success" if result else "failed")
         return _credential_free_external_registry_entries(result) if result else None
 

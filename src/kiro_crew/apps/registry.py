@@ -713,6 +713,7 @@ if _typing.TYPE_CHECKING:
         _fetch_and_cache_external_registry,
         _fetch_external_registry_index,
         _load_external_registries,
+        _load_index_entries_sync,
         _owner_tier_confirmed,
         _registry_sign_in_refused,
     )
