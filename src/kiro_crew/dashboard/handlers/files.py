@@ -664,6 +664,17 @@ _ALLOWED_TEXT_EXT = {
     ".cpp",
     ".h",
     ".hpp",
+    # More source and config text. Stored as uploaded bytes and read back as
+    # text: file-read answers text/plain, file-download is attachment + nosniff,
+    # and none of these is a .html/.htm the viewer would render. A server-side
+    # language extension (.php) is never executed here.
+    ".php",
+    ".sql",
+    ".kt",
+    ".swift",
+    ".cs",
+    ".vue",
+    ".toml",
 }
 _ALLOWED_DOC_EXT = {
     ".pdf",
