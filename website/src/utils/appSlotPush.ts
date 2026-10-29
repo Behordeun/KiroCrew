@@ -46,6 +46,23 @@ interface Entry { app: string; watcher: SlotPushWatcher }
 
 const watchers = new Map<string, Set<Entry>>()
 let connected = false
+const watchListeners = new Set<() => void>()
+
+/** The slots some app embed watches: they render a live transcript, so the
+ *  dashboard socket names them in its `chunk_watch` set (websocket/chunkWatch). */
+export function appWatchedSlots(): string[] {
+  return [...watchers.keys()]
+}
+
+/** Call *listener* whenever the set `appWatchedSlots` returns may have changed. */
+export function onAppWatchedSlotsChange(listener: () => void): () => void {
+  watchListeners.add(listener)
+  return () => { watchListeners.delete(listener) }
+}
+
+function watchedSlotsChanged(): void {
+  for (const listener of [...watchListeners]) listener()
+}
 
 /** The owning app of a listed slot, or null when unowned or not listed. */
 type OwnerOf = (slotKey: string) => string | null
@@ -61,6 +78,12 @@ export function noteAppSlotFrame(type: string, data: unknown): void {
   const fields = data as { slot?: unknown; key?: unknown }
   const slot = fields.slot == null && KEY_SLOT_FRAMES.has(type) ? fields.key : fields.slot
   if (typeof slot !== 'string' || !slot) return
+  noteAppSlotChanged(slot)
+}
+
+/** Tell the app embeds that own and watch *slot* to re-read it. Content-free and
+ *  gated on ownership, like the frame path above. */
+export function noteAppSlotChanged(slot: string): void {
   const set = watchers.get(slot)
   if (!set || set.size === 0) return
   const owner = ownerOf(slot)
@@ -92,13 +115,18 @@ export function createAppSlotPush(app: string): SlotPush {
     watch(slotKey, watcher) {
       const entry: Entry = { app, watcher }
       let set = watchers.get(slotKey)
+      const added = !set
       if (!set) { set = new Set(); watchers.set(slotKey, set) }
       set.add(entry)
+      if (added) watchedSlotsChanged()
       return () => {
         const cur = watchers.get(slotKey)
         if (!cur) return
         cur.delete(entry)
-        if (cur.size === 0) watchers.delete(slotKey)
+        if (cur.size === 0) {
+          watchers.delete(slotKey)
+          watchedSlotsChanged()
+        }
       }
     },
   }

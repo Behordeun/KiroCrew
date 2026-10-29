@@ -274,7 +274,11 @@ function readToolEntry(s: RootState, slot: string | undefined, message: ChatMess
   const e = lookupLogEntry(index, toolCallId, label)
   if (e) {
     const rejected = !!e.rejected || wasRejectedByPerm()
-    const isDone = e.output != null || rejected || autoDenied || !slotRunning
+    // `output_partial === false` with no output: the call returned while this
+    // tab did not watch the slot (`tool_status` with `returned`), so its output
+    // lives only on the persisted row.
+    const returnedUnseen = e.output == null && e.output_partial === false
+    const isDone = e.output != null || returnedUnseen || rejected || autoDenied || !slotRunning
     return {
       effectiveId: e.tool_call_id || null,
       isDone, isRejected: rejected,
@@ -282,8 +286,10 @@ function readToolEntry(s: RootState, slot: string | undefined, message: ChatMess
       autoDenyReason,
       autoDenyNotice,
       purpose: e.purpose || '',
-      input: e.input || '',
-      output: e.output || '',
+      // A log entry seeded from `tool_status` (a slot this tab did not watch)
+      // has no input; the persisted row carries it.
+      input: e.input || (typeof message.meta?.input === 'string' ? message.meta.input : ''),
+      output: e.output || (returnedUnseen && typeof message.meta?.output === 'string' ? message.meta.output : ''),
       // Clamp seams for the two payloads (null when nothing was cut). The
       // panel renders the localized marker there at view time; the store
       // holds only the offset, so a language switch re-renders it.

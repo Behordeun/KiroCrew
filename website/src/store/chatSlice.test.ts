@@ -11,6 +11,7 @@ import chatReducer, {
   sseSubagentBatchChunks,
   sseToolActivity,
   sseToolResult,
+  markToolReturned,
   switchSlot,
   refreshSlot,
   warmSlotCache,
@@ -71,6 +72,25 @@ describe('sseToolResult — prefer exact tool_call_id match (bug chat/activity.t
     const b = log.find((e) => e.text === 'toolB')!
     expect(a.output).toBe('RESULT-A')
     expect(b.output).toBeUndefined()
+  })
+
+  it('markToolReturned marks only its own call returned and keeps cached output', () => {
+    const store = makeStore()
+    store.dispatch(setActiveSlot('active'))
+    store.dispatch(sseToolActivity({ slot: 'active', tool: 'toolA', kind: 'tool', purpose: '', input_preview: '', tool_call_id: 'call-A' }))
+    store.dispatch(sseToolActivity({ slot: 'active', tool: 'toolNoId', kind: 'tool', purpose: '', input_preview: '' }))
+    store.dispatch(sseToolResult({ slot: 'active', output: 'partial', tool_call_id: 'call-A', final: false }))
+    store.dispatch(sseToolResult({ slot: 'active', output: 'NOID' }))
+
+    // A tab that stopped watching the slot gets the return without the output.
+    store.dispatch(markToolReturned({ slot: 'active', tool_call_id: 'call-A' }))
+    store.dispatch(markToolReturned({ slot: 'active', tool_call_id: 'missing' }))
+    const log = store.getState().chat.toolLog
+    const a = log.find((e) => e.text === 'toolA')!
+    expect(a.output).toBe('partial')
+    expect(a.output_partial).toBe(false)
+    // No id-less fallback for a return without output.
+    expect(log.find((e) => e.text === 'toolNoId')!.output).toBe('NOID')
   })
 
   it('falls back to the most-recent id-less tool only when no tid matches', () => {

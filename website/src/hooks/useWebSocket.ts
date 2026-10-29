@@ -6,7 +6,7 @@ import { sseTodoUpdate, sseMcpReportUpdate, sseSlotTitle, triggerRefresh, trigge
 import { addNotification, ackNotificationByTs, unackNotificationByTs, clearAllNotifications } from '../store/notificationsSlice'
 import { dispatchMcNotification, dispatchLiveNotification } from './notificationEvent'
 import {
-  fetchHistory, sseChatMessage, sseChatMessageUpdate, sseChatMessagePatchByTs, refreshSlot, retireSwappedRows, sseContextUsage, clearMessages, clearSlotCache, resolveByApprovalId, sseSubagentPending, sseSubagentSpawn, sseSubagentQueued, sseSubagentTool, sseSubagentStalled, sseSubagentRetrying, sseSubagentDone, sseSubagentSnapshot, subagentReplayDone, sseSubagentBatchUpdate, sseSubagentBatchChunks, sseToolResult, sseActivityEvent, sseSideResult, sseWorkflowEvent, removeQueuedMessage, appendQueuedMessage, cancelQueuedMessage, editQueuedMessage, reorderQueuedMessages, sseMcpAppRender, sseSideQueue, sideClose, sideClosedElsewhere, queueEntryAttachments, isTerminalWorkflowStatus,
+  fetchHistory, sseChatMessage, sseChatMessageUpdate, sseChatMessagePatchByTs, refreshSlot, retireSwappedRows, warmSlotCache, sseContextUsage, clearMessages, clearSlotCache, resolveByApprovalId, sseSubagentPending, sseSubagentSpawn, sseSubagentQueued, sseSubagentTool, sseSubagentStalled, sseSubagentRetrying, sseSubagentDone, sseSubagentSnapshot, subagentReplayDone, sseSubagentBatchUpdate, sseSubagentBatchChunks, sseToolResult, sseActivityEvent, sseSideResult, sseWorkflowEvent, removeQueuedMessage, appendQueuedMessage, cancelQueuedMessage, editQueuedMessage, reorderQueuedMessages, sseMcpAppRender, sseSideQueue, sideClose, sideClosedElsewhere, queueEntryAttachments, isTerminalWorkflowStatus,
   forgetSideSteerSubmittedText, noteSideQueueDroppedByClose, readSideSteerSubmittedText,
   takeSideQueueEditForClose,
 } from '../store/chatSlice'
@@ -39,7 +39,8 @@ import {
 import { useSocketConnection } from './websocket/connection'
 import { createFoldWatch, FOLD_HELLO_FRAME, type FoldWatch } from './websocket/foldWatch'
 import { applySlotFoldFrame, readSlotFoldFrame, resetWorkDeltaBases, SLOT_DELTA_FRAME, type SlotFoldFrame, type SlotFoldOutcome } from './websocket/workDelta'
-import { noteAppSlotFrame } from '../utils/appSlotPush'
+import { appWatchedSlots, noteAppSlotChanged, noteAppSlotFrame, onAppWatchedSlotsChange } from '../utils/appSlotPush'
+import { catchupSlots, createChunkWatch, type ChunkWatch } from './websocket/chunkWatch'
 import { decodeFrame } from './websocket/frames'
 import { useStreamBuffers } from './websocket/streamBuffers'
 import { useVoicePlayback } from './websocket/voicePlayback'
@@ -158,6 +159,13 @@ export function useWebSocket() {
   // Which work boards this tab shows, sent as `fold_watch` once a gateway that
   // routes by watch set says `fold_hello`. Created with the hook's lifetime.
   const foldWatchRef = useRef<FoldWatch | null>(null)
+  // Which slots this tab renders a stream for, sent as `chunk_watch` on every
+  // open and change. Created with the hook's lifetime.
+  const chunkWatchRef = useRef<ChunkWatch | null>(null)
+  // Slots the reconnect catch-up already re-read on this socket: its first
+  // `chunk_watch_ack` names them again (the gateway's watch set starts empty),
+  // and each needs one read, not two.
+  const reReadOnOpenRef = useRef<Set<string>>(new Set())
 
   /** Reconcile coordinator approvals against the authority on every open.
    *  The registry decides what to retire and adopt; the permission row an
@@ -192,6 +200,8 @@ export function useWebSocket() {
       slotList.resetForConnection()
       // A new socket starts unwatched; the gateway's hello re-sends the set.
       foldWatchRef.current?.reset()
+      // The gateway scopes stream frames per socket, so a new one starts empty.
+      chunkWatchRef.current?.onOpen()
       // A fold revision is minted by the gateway process that folded, so numbers
       // from the previous socket are not comparable with this one's: carried over,
       // a restarted gateway's frames would all read as stale.
@@ -225,9 +235,10 @@ export function useWebSocket() {
         // No frame could arrive while the socket was down (a gateway restart is
         // one), so the Context tab's trace may have moved unseen: read it once.
         rereadAllContextTraces(queryClient)
-        runReconnectCatchUp(ws, catchUp)
+        reReadOnOpenRef.current = new Set(runReconnectCatchUp(ws, catchUp))
         return
       }
+      reReadOnOpenRef.current = new Set()
       runFirstConnect(ws, catchUp)
     }
 
@@ -567,7 +578,7 @@ export function useWebSocket() {
             chatStream.onToolCall(data)
             break
           case 'tool_result':
-            dispatch(batchedUnlessOpen(data.slot, sseToolResult(data as { slot: string; output: string; tool_call_id?: string; final?: boolean })))
+            dispatch(batchedUnlessOpen(data.slot, sseToolResult(data as { slot: string; output: string; tool_call_id?: string; final?: boolean; slim?: boolean })))
             break
           case 'mcp_app_render':
             // MCP App (SEP-1865) render payload from the gateway. Stored by
@@ -728,6 +739,18 @@ export function useWebSocket() {
             onUsageFrame(queryClient, frame)
             break
           }
+          case 'chunk_watch_ack':
+            // Slots that joined this tab's watch set mid-turn: their earlier
+            // chunks were held back, so re-read them now that every later one
+            // reaches this socket. The same pair the reconnect catch-up uses,
+            // plus any app embed showing the slot, which reads its own query.
+            for (const slot of catchupSlots(data)) {
+              if (reReadOnOpenRef.current.delete(slot)) continue
+              if (slot === store.getState().chat.activeSlot) dispatch(refreshSlot(slot))
+              else dispatch(warmSlotCache(slot))
+              noteAppSlotChanged(slot)
+            }
+            break
           case FOLD_HELLO_FRAME:
             // This gateway sends a board's slot-fold frames only to tabs that
             // watch it: tell it which boards this tab shows.
@@ -968,6 +991,12 @@ export function useWebSocket() {
           case 'chat_thinking':
             chatStream.onChatThinking(data)
             break
+          case 'chat_phase':
+            chatStream.onChatPhase(data)
+            break
+          case 'tool_status':
+            chatStream.onToolStatus(data)
+            break
           case 'chat_segment': {
             buffers.flushChunks()
             voice.speakSegmentTail(data.slot as string)
@@ -1137,6 +1166,22 @@ export function useWebSocket() {
     socket.resume()
     const foldWatch = createFoldWatch(queryClient, (payload) => socket.sendIfOpen(payload))
     foldWatchRef.current = foldWatch
+    const chunkWatch = createChunkWatch({
+      queryClient,
+      activeSlot: () => store.getState().chat.activeSlot,
+      appSlots: appWatchedSlots,
+      hidden: () => document.hidden,
+    }, (payload) => socket.sendIfOpen(payload))
+    chunkWatchRef.current = chunkWatch
+    let watchedActive = store.getState().chat.activeSlot
+    const detachActiveWatch = store.subscribe(() => {
+      const active = store.getState().chat.activeSlot
+      if (active === watchedActive) return
+      watchedActive = active
+      chunkWatch.sync()
+    })
+    const detachAppWatch = onAppWatchedSlotsChange(chunkWatch.sync)
+    document.addEventListener('visibilitychange', chunkWatch.sync)
     connect()
     const detachQuestionRetirements = store.subscribe(cards.onQuestionStateChange)
     const detachVoice = voice.attachWindowEvents()
@@ -1155,6 +1200,11 @@ export function useWebSocket() {
       detachFocus()
       foldWatch.dispose()
       if (foldWatchRef.current === foldWatch) foldWatchRef.current = null
+      detachActiveWatch()
+      detachAppWatch()
+      document.removeEventListener('visibilitychange', chunkWatch.sync)
+      chunkWatch.dispose()
+      if (chunkWatchRef.current === chunkWatch) chunkWatchRef.current = null
     }
   }, [socket, connect, voice, buffers, cards, queryClient])
 

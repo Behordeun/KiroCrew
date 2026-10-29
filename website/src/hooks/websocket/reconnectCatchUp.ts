@@ -98,8 +98,10 @@ export function runFirstConnect(ws: WebSocket, ctx: CatchUpContext): void {
 }
 
 /** A later open: re-fetch state instead of reloading the page, which keeps
- *  unsent messages, scroll position and form inputs. */
-export function runReconnectCatchUp(ws: WebSocket, ctx: CatchUpContext): void {
+ *  unsent messages, scroll position and form inputs. Returns the slots whose
+ *  transcript it re-read, so this socket's first `chunk_watch_ack` does not
+ *  read them a second time. */
+export function runReconnectCatchUp(ws: WebSocket, ctx: CatchUpContext): ReadonlySet<string> {
   const { dispatch, queryClient, socket, buffers } = ctx
   // Reconnecting after an in-app update's restart: the disconnect WAS the
   // gateway exec'ing its updated self, and this tab's JS predates the
@@ -109,7 +111,7 @@ export function runReconnectCatchUp(ws: WebSocket, ctx: CatchUpContext): void {
   // the stale bundle (with the update overlay's spinner) forever.
   if (consumeUpdateRestartLatch()) {
     window.location.reload()
-    return
+    return new Set()
   }
   // Suppress markSlotUnread during the post-reconnect catch-up burst.
   // Assumption: the WS replay backlog flushes faster than the fetchSlots
@@ -206,4 +208,6 @@ export function runReconnectCatchUp(ws: WebSocket, ctx: CatchUpContext): void {
   if (!document.hidden) {
     ws.send(JSON.stringify({ type: 'slot_focused', slot: ctx.focusedSlot(), announce: true }))
   }
+  if (active) warmed.add(active)
+  return warmed
 }
