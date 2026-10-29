@@ -258,7 +258,9 @@ class RelayClient:
                 try:
                     end, served = await self._serve(credential)
                 finally:
-                    self._unbind()
+                    # A connection a move left draining still answers requests the
+                    # relay wrote to it, so the binding stays until it closes too.
+                    self._unbind_unless_serving()
                 if self._stopping.is_set():
                     return
                 if end.reached_ready:
@@ -310,6 +312,16 @@ class RelayClient:
             self._ingress.unbind_host()
         except Exception:
             logger.warning("the relay ingress refused the unbind", exc_info=True)
+
+    def _unbind_unless_serving(self) -> None:
+        """Unbind only when no connection, active or draining, still serves.
+
+        Unbinding retires the handover credential, so doing it while a drained
+        connection still serves would refuse that connection's late requests.
+        Whichever of the loop and the drain finishes last does the unbind.
+        """
+        if not any(conn.serving for conn in self._live):
+            self._unbind()
 
     async def _renew(self) -> "_Renewal":
         """Ask the source for a fresh host token."""
@@ -374,9 +386,13 @@ class RelayClient:
         a background drain. Returns ``None`` when the new one did not get ready
         within the relay's window; the old one then ends with the relay's 1012,
         which redials at once.
+
+        The window (``closeInSeconds``) bounds only the wait for the new connection.
+        The old one keeps its HTTP requests until they finish, then closes with
+        1000, or until the relay closes it with 1012, which ends the drain without a
+        redial: the new connection already serves the endpoint.
         """
         window = old.move_close_in
-        started = self._monotonic()
         credential = self._credential or old.credential
         new = self._connection(credential)
         new_run: "asyncio.Future[ConnectionEnd]" = asyncio.ensure_future(new.run())
@@ -396,21 +412,19 @@ class RelayClient:
         if self._draining is not None:
             await self._draining.close(1000)
         self._draining = old
-        remaining = window - (self._monotonic() - started)
-        self._spawn(self._drain(old, old_run, remaining))
+        self._spawn(self._drain(old, old_run))
         await self._now_connected(new)
         return new, new_run
 
-    async def _drain(
-        self, old: HostConnection, old_run: "asyncio.Future[ConnectionEnd]", within: float
-    ) -> None:
+    async def _drain(self, old: HostConnection, old_run: "asyncio.Future[ConnectionEnd]") -> None:
         try:
-            await old.drain_and_close(within, quiet=self._timings.move_grace)
+            await old.drain_and_close(quiet=self._timings.move_grace)
             await asyncio.gather(old_run, return_exceptions=True)
         finally:
             self._live.discard(old)
             if self._draining is old:
                 self._draining = None
+            self._unbind_unless_serving()
 
     def _spawn(self, coro: Awaitable[None]) -> None:
         task = asyncio.ensure_future(coro)
