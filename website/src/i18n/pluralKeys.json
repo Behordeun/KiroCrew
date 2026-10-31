@@ -499,5 +499,9 @@
   "pages.settings.postureDisclosure.show_more_count",
   "apps.designCritique.designCritiquePage.entry_meta_screens",
   "apps.designCritique.designCritiquePage.findings_count",
-  "apps.designCritique.designCritiquePage.flow_screens_count"
+  "apps.designCritique.designCritiquePage.flow_screens_count",
+  "pages.chat.gatewayNotice.turn_limit_minutes",
+  "pages.chat.gatewayNotice.turn_limit_hours",
+  "pages.chat.gatewayNotice.background_turn_waited",
+  "pages.chat.gatewayNotice.eager_spawn_stopped"
 ]
