@@ -80,7 +80,73 @@ def test_glab_cannot_be_pointed_at_another_host(command: str) -> None:
         "GITLAB_CI=true make test",
         # Reading a steering variable's name without running glab sets nothing.
         "grep -rn GITLAB_HOST docs/",
+        # An argument that only LOOKS like an assignment sets nothing.
+        'grep -rn "GITLAB_TOKEN=" src/',
+        # Shared variables (not glab-only) are refused only next to a glab call, so the
+        # gate does not change commands on targets it does not protect (GitHub or GitLab).
+        "XDG_CONFIG_HOME=$(mktemp -d) pytest -q",
+        "XDG_CONFIG_HOME=/tmp/cfg pytest -q",
+        "export XDG_CONFIG_HOME=/tmp/cfg; pytest -q",
+        "env XDG_CONFIG_HOME=/tmp/cfg python -m pytest",
+        "OAUTH_TOKEN=x make test",
+        # Near-miss names are not steering variables.
+        f"GITLAB_HOST_X=x glab mr view {MR}",
+        f"MY_GITLAB_HOST=x glab mr view {MR}",
+        f"XDG_CONFIG_HOME_OLD=x glab mr view {MR}",
+        f"gitlab_host=x glab mr view {MR}",
+        "export GITLAB_HOST_ALIAS=x",
+        "GL_HOSTS=x make",
+        "declare -x GITLAB_TOKENS=x",
+        "printf -v GITLAB_URL x",
+        # A word that merely contains "glab" is not a glab call.
+        f"XDG_CONFIG_HOME=x glabber mr view {MR}",
     ],
 )
 def test_glab_reads_and_unrelated_variables_stay_allowed(command: str) -> None:
     assert R.shell_command_refusal(command) == "", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # Each way a shell sets a variable, for a glab-only name, with no glab call.
+        "GITLAB_TOKEN=x make test",
+        "GITLAB_HOST+=x",
+        "export GITLAB_TOKEN=x",
+        "export -n GITLAB_HOST",
+        "env GITLAB_HOST=x make",
+        "env -i GITLAB_HOST=x make",
+        "timeout 5 env GITLAB_HOST=x make",
+        "declare GLAB_CONFIG_DIR=/tmp/evil",
+        "typeset -x GITLAB_URI=https://attacker.example",
+        "readonly GITLAB_API_HOST=attacker.example",
+        "local GITLAB_ACCESS_TOKEN=x",
+        "printf -vGITLAB_HOST attacker.example",
+        "true && export GITLAB_HOST=x",
+        "sh -c 'export GITLAB_HOST=x'",
+        "eval 'export GITLAB_HOST=x'",
+    ],
+)
+def test_setting_a_glab_only_variable_is_refused_in_every_form(command: str) -> None:
+    reason = R.shell_command_refusal(command)
+    assert "setting a GitLab host" in reason, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # A shared variable next to a glab call, in every form.
+        f"XDG_CONFIG_HOME=/tmp/evil glab mr view {MR}",
+        f"OAUTH_TOKEN=x glab mr view {MR}",
+        f"export XDG_CONFIG_HOME=/tmp/evil; glab mr view {MR}",
+        f"env XDG_CONFIG_HOME=/tmp/evil glab mr view {MR}",
+        f"declare -x XDG_CONFIG_HOME=/tmp/evil && glab mr view {MR}",
+        f"printf -v XDG_CONFIG_HOME /tmp/evil; glab mr view {MR}",
+        f"XDG_CONFIG_HOME=/tmp/evil sh -c 'glab mr view {MR}'",
+        f"sh -c 'export XDG_CONFIG_HOME=/tmp/evil'; glab mr view {MR}",
+        f"/usr/bin/glab mr view {MR} --comments $XDG_CONFIG_HOME",
+    ],
+)
+def test_a_shared_variable_is_refused_next_to_a_glab_call(command: str) -> None:
+    reason = R.shell_command_refusal(command)
+    assert "glab cannot run" in reason, command

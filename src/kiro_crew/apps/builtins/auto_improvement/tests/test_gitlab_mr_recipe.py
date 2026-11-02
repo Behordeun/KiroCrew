@@ -387,9 +387,15 @@ class TestProviderSelection:
 
 class TestProfileSelectsTheRecipe:
     def test_a_gitlab_target_gets_the_mr_recipe_on_field_five(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _public_dns: None
     ) -> None:
         """One profile serves both hosts; only field ⑤ changes with the provider."""
+        # ``_public_dns`` stubs the SSRF resolve; also pin the glab transport
+        # probe so profile selection reads neither DNS nor the installed CLI config.
+        monkeypatch.setattr(
+            "kiro_crew.apps.builtins.auto_improvement.backend.clone_setup._glab_prefers_ssh",
+            lambda _host: False,
+        )
         monkeypatch.setattr(
             "kiro_crew.apps.builtins.auto_improvement.backend.store.data_dir",
             lambda: tmp_path / "data",
