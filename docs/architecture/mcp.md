@@ -1784,6 +1784,14 @@ ambiguous reason is wrong for half the callers it hits.
 so the dial is skipped, the read is audited as `tool_policy.unattestable_key`, and the
 call is refused with text that names the missing session token without claiming a
 gateway read. It is a separate reason from `identity_unattested` only for that text.
+On an install that declares `agent.mcp_registry_mode` the refusal (and its warning
+log line) adds the registry cause and the admin's fix
+(`mcp_shared_policy.registry_identity_note`): the registry catalog launches Crew's
+servers without a session identity, and an administrator enables them by setting
+`"mcp_registry_local_control_plane": true` in `security_policy.json`, which makes
+`session_mcp.kiro_control_plane_servers` mount the per-session identity element for
+`kirocrew-core` and `kirocrew-cron` only. Without that field nothing is mounted
+under registry mode and the call stays refused.
 
 One missing identity reaches a reader through three refusals -- this
 `identity_unattested` text when a key is declared, the strict-identity diagnosis behind

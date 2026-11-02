@@ -86,6 +86,7 @@ from kiro_crew import agent as _agent_mod
 from kiro_crew import hooks as _hooks
 from kiro_crew import mcp_provenance
 from kiro_crew.acp.mcp_session_report import sanitize_sink_text
+from kiro_crew.acp.session_mcp_registry import _registry_local_control_plane_permitted
 from kiro_crew.acp.session_mcp_settings_read import (  # noqa: F401 -- re-exported
     _NATIVE_NAMED_PATH_CHARS,
     _UNREADABLE_CHURN,
@@ -1891,9 +1892,21 @@ def kiro_control_plane_servers(
     element does -- and it has to come from this read. A second read for it
     would be the window in which a toggle undone in between answers ``None``
     and the session falls back to a guard that names the wrong file.
+
+    Under registry mode an injected element launches past the admin's catalog, so
+    nothing is mounted unless the admin's security policy opts in
+    (:func:`_registry_local_control_plane_permitted`), and then only
+    :data:`CONTROL_PLANE_SERVERS`.
     """
-    if not agent or _registry_mode():
+    if not agent:
         return NativeControlPlaneMount([], {})
+    registry_mode = _registry_mode()
+    if registry_mode and not _registry_local_control_plane_permitted():
+        return NativeControlPlaneMount([], {})
+    identity_servers: tuple[str, ...] = (
+        CONTROL_PLANE_SERVERS if registry_mode else IDENTITY_BOUND_SERVERS
+    )
+    app_launches = {} if registry_mode else builtin_app_identity_launches()
     spec = spec_override if spec_override is not None else _agent_spec_for(agent, work_dir)
     if not isinstance(spec, dict) or not isinstance(spec.get("mcpServers"), dict):
         return NativeControlPlaneMount([], {})
@@ -1915,7 +1928,7 @@ def kiro_control_plane_servers(
         )
         # The verdict covers the whole population this function mounts, the
         # builtin app servers included, so a withheld one is named as such.
-        unreadable = (*IDENTITY_BOUND_SERVERS, *builtin_app_identity_launches())
+        unreadable = (*identity_servers, *app_launches)
         return NativeControlPlaneMount([], {name: exc for name in unreadable})
     out: list[dict[str, Any]] = []
     withheld_by_name: dict[str, NativeMountWithholding | NativeSettingsUnreadable] = {}
@@ -1925,10 +1938,9 @@ def kiro_control_plane_servers(
     # the env its pinned launch needs (PYTHONPATH and KIROCREW_HOME).
     candidates: list[tuple[str, dict[str, Any] | None, dict[str, str]]] = [
         (name, managed_mcp_spec_entry(name, include_opt_in=True), {})
-        for name in IDENTITY_BOUND_SERVERS
+        for name in identity_servers
         if allow.grants(name)
     ]
-    app_launches = builtin_app_identity_launches()
     candidates.extend(
         (name, launch, dict(launch.get("env") or {}))
         for name, launch in app_launches.items()

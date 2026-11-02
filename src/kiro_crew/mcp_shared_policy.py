@@ -289,6 +289,51 @@ def external_client_identity_note(server: str = "kirocrew-core") -> str:
     )
 
 
+#: The security-policy field an admin sets to let Crew's own servers carry their
+#: session identity on a registry-governed host. A test pins it to the key the
+#: governance policy parser reads, so the refusal cannot name a field that does nothing.
+REGISTRY_LOCAL_CONTROL_PLANE_FIELD = "mcp_registry_local_control_plane"
+
+
+def _registry_mode_declared() -> bool:
+    """Whether the effective config declares ``agent.mcp_registry_mode``; False if unreadable.
+
+    Used only to choose refusal wording, never to decide a call, so an unreadable
+    config costs the hint and nothing else.
+    """
+    try:
+        from kiro_crew.config.loader import KiroCrewConfig
+
+        return KiroCrewConfig.load().agent.mcp_registry_mode is True
+    except Exception:
+        logger.debug("registry mode unreadable for refusal wording", exc_info=True)
+        return False
+
+
+def registry_identity_note() -> str:
+    """The cause and the admin's fix for ``identity_unattestable`` on a registry host.
+
+    Empty unless this install declares registry mode. There, kiro-cli launches
+    ``kirocrew-core`` and ``kirocrew-cron`` from the admin's MCP registry catalog,
+    which gives them no session identity, and Kiro Crew mounts its own identity
+    element for them only when the admin's security policy opts in. The text says
+    that plainly and names the exact field, because the person reading a refusal is
+    usually not the person who can fix it and has to know what to ask for.
+    """
+    if not _registry_mode_declared():
+        return ""
+    return (
+        f" This host is MCP registry-governed (agent.mcp_registry_mode), and the "
+        f"admin's MCP registry is blocking Kiro Crew's own tools: under the registry "
+        f"these servers start without a session identity. An administrator enables "
+        f'them by setting "{REGISTRY_LOCAL_CONTROL_PLANE_FIELD}": true at the top '
+        f"level of security_policy.json in the Kiro Crew data home and restarting Kiro "
+        f"Crew; kirocrew-core and kirocrew-cron then run from the local install "
+        f"instead of the registry catalog's entry "
+        f"(docs/guides/enterprise-mcp-governance.md)."
+    )
+
+
 def _policy_session_key() -> str | None:
     """Resolve the session whose tool policy is being asked for, absent a gateway caller.
 

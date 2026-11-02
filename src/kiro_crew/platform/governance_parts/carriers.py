@@ -689,6 +689,14 @@ class GovernanceCeiling:
     # "Auto-approval duration"). 0 = no cap. Read through
     # ``safety_override_permits.yolo_ttl_cap``.
     yolo_max_seconds: int = 0
+    # Policy-only admin opt-in (top-level ``mcp_registry_local_control_plane``).
+    # ``True`` lets a registry-governed host (``agent.mcp_registry_mode``) mount
+    # Kiro Crew's own per-session identity element for ``kirocrew-core`` and
+    # ``kirocrew-cron``, which launches them from the local install rather than the
+    # admin catalog's entry. ``False`` (absent) withholds it, so identity-scoped
+    # calls from those servers are refused there. A profile cannot carry this key.
+    # Read through ``acp.session_mcp._registry_local_control_plane_permitted``.
+    mcp_registry_local_control_plane: bool = False
     # Which precedence tier produced this ceiling (one of the ``TIER_*`` names, or
     # "" for a ceiling parsed outside the loader).  Its one consumer is the tier
     # audit in ``compose_tier_ladder``, which names authority and subordinate in the
