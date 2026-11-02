@@ -67,6 +67,7 @@ BASELINE_CONTROLS: Dict[str, Mapping[str, object]] = {
     },
     "filesystem.write": _OFF,
     "network.egress": _OFF,
+    "external_access.registry_hosts": _OFF,
     "channels": {"members": _OFF},
     "yolo_duration": _OFF,
     "webhooks": _OFF,

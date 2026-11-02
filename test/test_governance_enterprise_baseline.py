@@ -44,6 +44,7 @@ _BASELINE_TABLE: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "folders.read": ((_WORKSPACE_FILE,), ("/etc/passwd",)),
     "folders.write": ((), (_WORKSPACE_FILE,)),
     "network.egress": ((), ("example.com",)),
+    "external_access.registry_hosts": ((), ("skills.sh",)),
     "channels": ((), ("slack",)),
     "approval_mode": (("interactive",), ()),
     "sandbox.min_level": (("strict",), ()),
