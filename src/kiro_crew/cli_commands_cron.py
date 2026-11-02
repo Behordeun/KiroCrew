@@ -51,6 +51,7 @@ from kiro_crew.platform import redact_log_via_context
 from kiro_crew.port_resolution import resolve_client_port_ex
 from kiro_crew.security import redact
 from kiro_crew.sel import sel
+from kiro_crew.terminal_safe import safe_terminal_line
 from kiro_crew.validation import (
     _AGENT_NAME_RE,
     _MODEL_NAME_RE,
@@ -165,10 +166,14 @@ _CRON_LIST_UNGROUPED = "-"
 
 
 def _cron_folder_label(folder_id: str, names: dict[str, str]) -> str:
-    """A job's folder as ``cron list`` prints it: its name, else its raw id."""
+    """A job's folder as ``cron list`` prints it: its name, else its raw id.
+
+    Folder names are stored as written (an agent can write one), so the label
+    goes through ``safe_terminal_line`` before it reaches the terminal.
+    """
     if not folder_id:
         return "(none)"
-    return names.get(folder_id) or folder_id
+    return safe_terminal_line(names.get(folder_id) or folder_id)
 
 
 def _cron_add(svc: CronService, args: argparse.Namespace) -> None:
@@ -757,7 +762,9 @@ def _cron_dispatch(args: argparse.Namespace) -> None:
                     resources=f"job_id={args.job_id} reason=not_found",
                 )
                 print(f"Job not found: {args.job_id}")
-                return
+                # Same exit as the plain not-found update below, so a script
+                # that re-files a stale id sees the failure.
+                sys.exit(1)
             if folder_ref.strip():
                 # Dry-run the store's own update check on a copy first, so an
                 # update the store would refuse (a bad cron expression, an
