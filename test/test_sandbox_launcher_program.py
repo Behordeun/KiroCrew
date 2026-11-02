@@ -84,7 +84,9 @@ def payload(**overrides: Any) -> dict[str, Any]:
         "strict_host_key_opt": "",
         "stand_in_roots": [],
     }
-    unknown = set(overrides) - set(base)
+    # Emitted only when the operator configured the read-only layer.
+    optional = {"operator_readonly_dirs", "operator_writable_dirs"}
+    unknown = set(overrides) - set(base) - optional
     assert not unknown, f"not a payload key: {sorted(unknown)}"
     base.update(overrides)
     return base
@@ -781,6 +783,7 @@ _CHILD_STAGES = (
     "check_crew_home_aliases",
     "preread_exposed_files",
     "stage_private_windows",
+    "seal_operator_readonly",
     "seal_readonly",
     "mask_sensitive",
     "apply_carveouts",

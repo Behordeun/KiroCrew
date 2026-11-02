@@ -78,6 +78,7 @@ from kiro_crew.sandbox_tiers import (
     _resolved_install_root_targets,
     _resolved_kiro_agents_targets,
     _sandbox_policy,
+    configured_readonly_layer,
 )
 from kiro_crew.sandbox_workspace import (
     _literal_ancestor_guards,
@@ -285,6 +286,29 @@ def _carveout_probes(candidates: tuple[str, ...]) -> dict[str, sandbox_plan.Carv
     return probes
 
 
+def _operator_layer_probes(entries: tuple[str, ...]) -> tuple[sandbox_plan.CarveoutProbe, ...]:
+    """What this host says about each operator read-only entry, relative ones included.
+
+    A relative entry is carried unprobed, so the plan refuses it by name rather than
+    this adapter dropping it silently.
+    """
+    probes: dict[str, sandbox_plan.CarveoutProbe] = {}
+    for raw in entries:
+        if raw in probes:
+            continue
+        if not raw or not os.path.isabs(raw):
+            probes[raw] = sandbox_plan.CarveoutProbe(
+                raw=raw, lexical=raw, canonical=raw, is_dir=False
+            )
+            continue
+        lexical = os.path.normpath(raw)
+        canonical = os.path.realpath(lexical)
+        probes[raw] = sandbox_plan.CarveoutProbe(
+            raw=raw, lexical=lexical, canonical=canonical, is_dir=os.path.isdir(canonical)
+        )
+    return tuple(probes.values())
+
+
 def _plan_cwd(request: sandbox_plan.SandboxRequest, host_paths: list[str]) -> str:
     """The working directory a relative path in the plan resolves against.
 
@@ -350,6 +374,9 @@ def _live_plan_host(request: sandbox_plan.SandboxRequest) -> sandbox_plan.PlanHo
         else _literal_ancestor_guards(tuple(os.path.dirname(t) for t in install_root_targets))
     )
     carveout_probes = tuple(_carveout_probes(sandbox_plan.carveout_candidates(request)).values())
+    operator_paths, operator_exceptions = configured_readonly_layer()
+    operator_readonly_probes = _operator_layer_probes(operator_paths)
+    operator_exception_probes = _operator_layer_probes(operator_exceptions)
     host_paths = [
         home,
         *([pod_os_home] if pod_os_home else []),
@@ -390,6 +417,8 @@ def _live_plan_host(request: sandbox_plan.SandboxRequest) -> sandbox_plan.PlanHo
         install_root_targets=install_root_targets,
         install_root_ancestor_guards=install_root_ancestor_guards,
         carveout_probes=carveout_probes,
+        operator_readonly_probes=operator_readonly_probes,
+        operator_exception_probes=operator_exception_probes,
         uid=uid,
         gid=gid,
         ssh_accept_new=_ssh_supports_accept_new() if namespace else False,
