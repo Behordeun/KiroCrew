@@ -14,11 +14,6 @@ scale-F18 deletes markers whose PR merged before the harness.
 
 | Test | Deleted by | Reason |
 |---|---|---|
-| `test_listing_budget.py::test_concurrent_identical_listings_scan_once` | scale-F2 | concurrent identical /api/sessions requests each run their own scan |
-| `test_listing_budget.py::test_steady_listing_costs_one_stat` | scale-F9 | main stats every transcript on each listing; the index stats the directory |
-| `test_listing_budget.py::test_listing_past_the_metadata_cache_reads_no_heads` | scale-F9 | past `_METADATA_CACHE_MAX` the head memo evicts and every listing re-reads |
-| `test_listing_budget.py::test_reconcile_runs_off_the_request` | scale-F9 | the index runs its full stat reconcile inline on the request that trips it (item 2.20) |
-| `test_listing_budget.py::test_index_build_fills_has_messages` | scale-F9 | the listing index leaves `has_messages` unfilled, so the listing asks per row (item 2.10) |
 | `test_listing_budget.py::test_first_listing_after_warm_reads_no_transcripts` | scale-F10 | main has no boot warm of the listing; the first listing pays the cold read (item 2.10) |
 | `test_process_tree_budget.py::test_a_full_tree_walk_spawns_nothing` | scale-F8 | main forks pgrep for every leaf whose children file is empty |
 | `test_process_tree_budget.py::test_a_vanished_pid_is_a_leaf_without_pgrep` | scale-F8 | a pid with no /proc entry still falls through to pgrep |
