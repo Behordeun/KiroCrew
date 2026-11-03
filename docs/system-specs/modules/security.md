@@ -833,8 +833,21 @@ Two mechanisms make "the split changed nothing for a caller" a tested claim rath
 - `text_redaction.py` — the redaction entry points that compose `redaction.py` with
   `exfil.py`: `redact`, `redact_with_findings`, `redact_and_truncate`, and the
   `StreamRedactor` with the holdback bounds it reads.
-- `redaction_rules/` — a data-driven credential rule table that no seam calls yet;
-  `redaction.py` and `text_redaction.py` stay the redactors every surface uses. It is
+- `redaction_rules/` — the data-driven credential rule table. It is wired into
+  `redaction.py`'s credential plan behind an internal switch,
+  `compat.use_rule_table()`, which is off and has no user setting yet; only code
+  (the table's tests) turns it on, and nothing table-related runs at gateway start.
+  Importing `dashboard.display_battery` does not load the table package, and its
+  `RULE_SOURCES` excludes the table files while the switch has no user setting.
+  The verdict version still keys the switch value; the battery trace checks that
+  its real return is false and traces every other rule call as before.
+  With it on, the plan finds credentials with the table in place of its
+  fixed-pattern pass, through `compat.py`, and runs its later passes (encoded
+  credentials, bare secret keys with their exemptions, `token=` parameters)
+  unchanged after it; off, every surface runs the fixed-pattern pass. A table
+  error withholds the whole text. `stream.py` tells
+  `StreamRedactor` where to hold a buffer so a streamed value reaches one window whole
+  and redacts as the batch pass does (`test_stream_table_parity.py`). It is
   a subpackage reached by its own path, not a facade submodule. `rules.yaml` is the
   only place a rule is defined: each row has a tier (`secret`, `bearer_link`,
   `identifier`) and one detector (`checksum_prefix`, `vendor_prefix`, `structural`,
@@ -856,9 +869,11 @@ Two mechanisms make "the split changed nothing for a caller" a tested claim rath
   inside a URL (for this skip a URL ends at `;`, so connection-string pairs after it
   are read; `url_param` still reads query parameters over the whole URL), and
   resumes after every separator so nested pairs (`-H "X-Api-Key: …"`) match. An
-  unquoted value in a line-oriented assignment (env, INI, YAML, a header) runs to the
-  end of its line, a CLI flag's to the next blank, and a nested pair's to its
-  container's delimiter. A shell line whose credential value starts with a
+  unquoted value in a line-oriented assignment (env, INI, YAML, a header) under a
+  name ending in `password`, `passwd`, `pwd` or `passphrase` runs to the end of its line; under
+  any other name, and under `Authorization`, it is one word. A CLI flag's value runs
+  to the next blank, and a nested pair's to its container's delimiter. An
+  unterminated private-key block is redacted to the end of the text. A shell line whose credential value starts with a
   placeholder is read to the end of the line, so a credential later on the same
   line is still redacted. `labelled.secret_field`'s allow list holds the
   status words (`required`, `expired`) a credential field carries in place of a value,

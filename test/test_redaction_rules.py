@@ -129,7 +129,7 @@ class TestLoading:
             ({"id": "Bad Id"}, "malformed"),
             ({"pattern": "tst_[a-z]+"}, "unbounded"),
             ({"pattern": "(?P<v>tst_[a-z]{8,})"}, "unbounded"),
-            ({"pattern": "(?P<v>tst_[a-z]{1,50000})"}, "unbounded"),
+            ({"pattern": "(?P<v>tst_[a-z]{1,500000})"}, "unbounded"),
             ({"pattern": "(?P<v>tst_[a-z]*)"}, "unbounded"),
             ({"pattern": "tst_[a-z]{8}"}, "named group 'v'"),
             ({"pattern": "(?P<v>tst_[a-z{8}"}, "does not compile"),
@@ -308,10 +308,12 @@ class TestGithubClassic:
         assert rule_ids(result) == ["github.classic"]
         assert result.records[0].detector is rr.Detector.CHECKSUM_PREFIX
 
-    def test_bad_checksum_is_kept(self) -> None:
+    def test_bad_checksum_is_still_redacted_by_the_unverified_row(self) -> None:
         token = github_classic()
         broken = token[:-1] + ("A" if token[-1] != "A" else "B")
-        assert redact(f"value {broken} here").text == f"value {broken} here"
+        result = redact(f"value {broken} here")
+        assert result.text == f"value {rr.PLACEHOLDER} here"
+        assert rule_ids(result) == ["github.unverified"]
 
 
 class TestAwsKeyIdAndSecret:
@@ -345,12 +347,12 @@ class TestAwsKeyIdAndSecret:
         text = f"{aws_key_id()} commit {synth(40, HEX, 4)}"
         assert redact(text).text == text
 
-    def test_documented_example_secret_is_kept(self) -> None:
+    def test_documented_example_secret_is_kept_unlabelled_and_redacted_labelled(self) -> None:
         example = synth(30, B64, 6) + "EXAMPLEKEY"
         text = f"{aws_key_id()} {example}"
         assert redact(text).text == text
         labelled = f"aws_secret_access_key = {example}"
-        assert redact(labelled).text == labelled
+        assert redact(labelled).text == f"aws_secret_access_key = {rr.PLACEHOLDER}"
 
     def test_key_id_inside_a_labelled_credential_stays_readable(self) -> None:
         key_id, sig = aws_key_id(), synth(64, HEX, 7)
@@ -371,9 +373,11 @@ class TestJwt:
         assert result.text == f"session {rr.PLACEHOLDER}"
         assert rule_ids(result) == ["jwt"]
 
-    def test_unsigned_alg_none_is_kept(self) -> None:
+    def test_unsigned_alg_none_is_still_redacted_by_the_unverified_row(self) -> None:
         token = jwt({"alg": "none"})
-        assert redact(f"session {token}").text == f"session {token}"
+        result = redact(f"session {token}")
+        assert result.text == f"session {rr.PLACEHOLDER}"
+        assert rule_ids(result) == ["jwt.unverified"]
 
     def test_header_that_is_not_json_is_kept(self) -> None:
         text = f"eyJ{synth(20, ALNUM, 8)}.eyJ{synth(20, ALNUM, 9)}.{synth(20, ALNUM, 10)}"
@@ -576,9 +580,8 @@ class TestLabelledSecretField:
     @pytest.mark.parametrize(
         "template",
         [
-            "api_key=abcd {k} tail",
             "password = myprefix {k}",
-            "export SLACK_SECRET=old {k} new",
+            "export DB_PASSPHRASE=old {k} new",
         ],
     )
     def test_vendor_key_inside_a_line_value_leaves_nothing_behind(self, template: str) -> None:
@@ -588,6 +591,37 @@ class TestLabelledSecretField:
         for word in ("abcd", "tail", "myprefix", "old", "new"):
             assert f" {word}" not in once.text and f"={word}" not in once.text
         assert redact(once.text) == rr.RedactionResult(once.text, ())
+
+    @pytest.mark.parametrize(
+        ("template", "first", "kept"),
+        [
+            ("api_key=abcd {k} tail", "abcd", " tail"),
+            ("export SLACK_SECRET=oldval {k} new", "oldval", " new"),
+            ("AWS_SECRET=oldvalue {k} prose", "oldvalue", " prose"),
+        ],
+    )
+    def test_a_token_line_value_is_one_word(self, template: str, first: str, kept: str) -> None:
+        """A key, token or secret name reads one blank-free word; a vendor key after it still goes."""
+        key = "sk-" + "proj-" + synth(20, ALNUM, 31) + "T3Blbk" + "FJ" + synth(20, ALNUM, 32)
+        once = redact(template.format(k=key))
+        assert key not in once.text
+        assert f"={first}" not in once.text
+        assert once.text.endswith(kept)
+
+    def test_authorization_prose_is_kept_and_a_header_value_is_not(self) -> None:
+        assert redact("Authorization: granted to all users.").text == (
+            "Authorization: granted to all users."
+        )
+        assert redact("Authorization: opaque-value-123").text == f"Authorization: {rr.PLACEHOLDER}"
+
+    @pytest.mark.parametrize("text", ["&amptoken=Xk9fQ2mP4nR7sT1v", "&Amp;token=Xk9fQ2mP4nR7sT1v"])
+    def test_a_token_parameter_behind_an_escaped_separator_is_left_to_pass_4(
+        self, text: str
+    ) -> None:
+        assert redact(text).text == text
+
+    def test_an_escaped_separator_is_not_part_of_the_name(self) -> None:
+        assert redact("&ampapi_key=Xk9fQ2mP4nR7sT1v").text == f"&ampapi_key={rr.PLACEHOLDER}"
 
     def test_short_tail_beside_an_identifier_is_replaced(self) -> None:
         text = f"password={aws_key_id()}:x9!"
@@ -703,6 +737,7 @@ def _vendor_samples() -> list[tuple[str, str]]:
         ),
         ("anthropic.key", "sk-" + "ant-api03-" + synth(93, ALNUM + "-_", 38)),
         ("google.api_key", "AI" + "za" + synth(35, ALNUM + "-_", 39)),
+        ("google.oauth_client_secret", "GOCSPX" + "-" + synth(28, ALNUM + "-_", 51)),
         ("gitlab.pat", "gl" + "pat-" + synth(20, ALNUM, 40)),
         ("npm.token", "np" + "m_" + synth(36, ALNUM, 41)),
         ("pypi.token", "py" + "pi-AgEIcHlwaS5vcmc" + synth(60, ALNUM + "-_", 42)),
@@ -712,14 +747,37 @@ def _vendor_samples() -> list[tuple[str, str]]:
         ("hashicorp.terraform", synth(14, ALNUM, 47) + ".atlas" + "v1." + synth(67, ALNUM, 48)),
         ("shopify.token", "shp" + "at_" + synth(32, lower_hex, 49)),
         ("digitalocean.token", "do" + "p_v1_" + synth(64, lower_hex, 50)),
+        ("telegram.token", synth(10, string.digits, 52) + ":" + synth(35, ALNUM + "-_", 53)),
+        # Each fallback sample fails its exact row (checksum, marker, length).
+        ("github.unverified", "gh" + "p_" + synth(36, ALNUM, 57)),
+        ("github.unverified", "github_" + "pat_" + synth(50, ALNUM + "_", 58)),
+        ("slack.token_unverified", "xox" + "b-" + synth(300, ALNUM, 62)),
+        ("gitlab.pat_unverified", "gl" + "pat-" + synth(17, ALNUM, 63)),
+        ("stripe.key_unverified", "sk" + "_live_" + synth(300, ALNUM, 64)),
+        ("sendgrid.key_unverified", "S" + "G." + synth(20, ALNUM, 65) + "." + synth(20, ALNUM, 66)),
+        ("openai.key_unverified", "sk-" + "proj-" + synth(40, ALNUM, 59)),
+        ("anthropic.key_unverified", "sk-" + "ant-" + synth(30, ALNUM, 60)),
+        ("npm.token_unverified", "np" + "m_" + synth(30, ALNUM, 67)),
+        ("pypi.token_unverified", "py" + "pi-" + synth(30, ALNUM, 61)),
+        ("digitalocean.token_unverified", "do" + "p_v1_" + synth(40, ALNUM, 68)),
+        ("google.oauth_client_secret_unverified", "GOCSPX" + "-" + synth(70, ALNUM, 69)),
+        (
+            "discord.token",
+            "M"
+            + synth(25, ALNUM + "-_", 54)
+            + "."
+            + synth(6, ALNUM + "-_", 55)
+            + "."
+            + synth(27, ALNUM + "-_", 56),
+        ),
     ]
 
 
 class TestFullTable:
     def test_every_row_is_present_once(self) -> None:
         ids = [rule.id for rule in rr.load_table().rules]
-        assert len(ids) == 29
-        assert len(set(ids)) == 29
+        assert len(ids) == 49
+        assert len(set(ids)) == 49
         assert "labelled.session_generic" not in ids
 
     def test_every_vendor_rule_has_a_sample(self) -> None:
@@ -746,6 +804,12 @@ class TestVendorRows:
         "rule_id, token", _vendor_samples(), ids=[r for r, _ in _vendor_samples()]
     )
     def test_glued_to_a_word_is_kept(self, rule_id: str, token: str) -> None:
+        # telegram.token intentionally matches when adjacent to letters (e.g., bot<TOKEN>
+        # in Telegram API URLs), so it's excluded from this generic word-boundary test.
+        if rule_id == "telegram.token":
+            pytest.skip("telegram.token has no letter lookbehind by design")
+        if rule_id.endswith("unverified"):
+            pytest.skip("a fallback row keeps the legacy pass's lack of word boundaries")
         text = f"x{token}z" if token[0].isalnum() else f"0{token}0"
         assert rule_id not in {h.rule_id for h in rr.hits(text)}
 
@@ -1028,3 +1092,392 @@ class TestBackToBackTemplates:
         assert secret not in result.text
         assert result.records
         assert redact(result.text).text == result.text
+
+
+# ── Telegram, Discord, Google client secret, JWE and link-token rows ──
+
+
+def telegram_token(bot_id_len: int = 10, secret_len: int = 35, seed: int = 100) -> str:
+    """A synthetic Telegram bot token: <bot_id>:<secret>."""
+    bot_id = synth(bot_id_len, string.digits, seed)
+    secret = synth(secret_len, ALNUM + "-_", seed + 1)
+    return f"{bot_id}:{secret}"
+
+
+def discord_token(seed: int = 110) -> str:
+    """A synthetic Discord bot token: <base64(app_id)>.<timestamp>.<hmac>.
+
+    First char is M/N/O (base64 of a snowflake starting with 1-9), timestamp is 6 chars,
+    HMAC is 27+ chars.
+    """
+    prefix = ["M", "N", "O"][seed % 3]
+    app_id_b64 = prefix + synth(24, ALNUM + "-_", seed)
+    timestamp = synth(6, ALNUM + "-_", seed + 1)
+    hmac = synth(27, ALNUM + "-_", seed + 2)
+    return f"{app_id_b64}.{timestamp}.{hmac}"
+
+
+def google_oauth_secret(seed: int = 120) -> str:
+    """A synthetic Google OAuth client secret with the GOCSPX- prefix."""
+    return "GOCSPX-" + synth(28, ALNUM + "-_", seed)
+
+
+def jwe_token(seed: int = 130) -> str:
+    """A synthetic JWE compact token: 5 dot-separated base64url segments.
+
+    header.encrypted_key.iv.ciphertext.tag
+    """
+    header = b64url_json({"alg": "A256KW", "enc": "A256GCM"})
+    encrypted_key = synth(43, ALNUM + "-_", seed)
+    iv = synth(16, ALNUM + "-_", seed + 1)
+    ciphertext = synth(64, ALNUM + "-_", seed + 2)
+    tag = synth(22, ALNUM + "-_", seed + 3)
+    return f"{header}.{encrypted_key}.{iv}.{ciphertext}.{tag}"
+
+
+def jwe_direct_key(seed: int = 140) -> str:
+    """A synthetic JWE with direct key (alg:dir) - empty encrypted key segment."""
+    header = b64url_json({"alg": "dir", "enc": "A256GCM"})
+    iv = synth(16, ALNUM + "-_", seed)
+    ciphertext = synth(64, ALNUM + "-_", seed + 1)
+    tag = synth(22, ALNUM + "-_", seed + 2)
+    return f"{header}..{iv}.{ciphertext}.{tag}"
+
+
+def link_token(payload_seed: int = 150) -> str:
+    """A synthetic two-segment link token: base64url(payload).base64url(hmac).
+
+    The payload is a JSON object; the signature is always 43 chars (HMAC-SHA256).
+    """
+    payload = b64url_json(
+        {
+            "sub": synth(8, ALNUM, payload_seed),
+            "exp": 1800000000,
+            "iat": 1700000000,
+            "nonce": synth(16, HEX, payload_seed + 1),
+            "gen": 1,
+            "session_exp": 1750000000,
+        }
+    )
+    sig = synth(43, ALNUM + "-_", payload_seed + 2)
+    return f"{payload}.{sig}"
+
+
+class TestTelegramToken:
+    def test_token_is_redacted(self) -> None:
+        token = telegram_token()
+        result = redact(f"bot token: {token}")
+        assert token not in result.text
+        assert rule_ids(result) == ["telegram.token"]
+
+    def test_token_in_json_is_redacted(self) -> None:
+        token = telegram_token(seed=101)
+        result = redact(f'{{"telegram_token": "{token}"}}')
+        assert token not in result.text
+
+    def test_token_in_url_is_redacted(self) -> None:
+        token = telegram_token(seed=102)
+        result = redact(f"https://api.telegram.org/bot{token}/getUpdates")
+        assert token not in result.text
+
+    def test_wrong_length_bot_id_is_kept(self) -> None:
+        # Bot ID too short (< 6 digits)
+        short = "12345:" + synth(35, ALNUM + "-_", 103)
+        assert "telegram.token" not in {h.rule_id for h in rr.hits(short)}
+
+    def test_short_secret_is_kept(self) -> None:
+        # Secret too short (< 30 chars)
+        short = synth(10, string.digits, 104) + ":" + synth(20, ALNUM + "-_", 105)
+        assert "telegram.token" not in {h.rule_id for h in rr.hits(short)}
+
+    def test_arn_with_account_id_is_not_matched(self) -> None:
+        # A 12-digit AWS account ID followed by a CDK resource name should not match
+        text = "arn:aws:s3:us-east-1:123456789012:MyBucketA1B2C3D4"
+        assert "telegram.token" not in {h.rule_id for h in rr.hits(text)}
+
+    def test_second_pass_changes_nothing(self) -> None:
+        token = telegram_token(seed=106)
+        once = redact(f"token: {token}")
+        assert redact(once.text) == rr.RedactionResult(once.text, ())
+
+
+class TestDiscordToken:
+    def test_token_is_redacted(self) -> None:
+        token = discord_token()
+        result = redact(f"DISCORD_TOKEN={token}")
+        assert token not in result.text
+        assert rule_ids(result) == ["discord.token"]
+
+    def test_token_in_json_is_redacted(self) -> None:
+        token = discord_token(seed=111)
+        result = redact(f'{{"discord_bot_token": "{token}"}}')
+        assert token not in result.text
+
+    def test_token_in_log_line_is_redacted(self) -> None:
+        token = discord_token(seed=112)
+        result = redact(f"[INFO] Bot connected with token {token}")
+        assert token not in result.text
+
+    def test_wrong_prefix_is_kept(self) -> None:
+        # First char must be M, N, or O
+        wrong = (
+            "A"
+            + synth(24, ALNUM + "-_", 113)
+            + "."
+            + synth(6, ALNUM + "-_", 114)
+            + "."
+            + synth(27, ALNUM + "-_", 115)
+        )
+        assert "discord.token" not in {h.rule_id for h in rr.hits(wrong)}
+
+    def test_wrong_timestamp_length_is_kept(self) -> None:
+        # Timestamp must be exactly 6 chars
+        wrong = (
+            "M"
+            + synth(24, ALNUM + "-_", 116)
+            + "."
+            + synth(10, ALNUM + "-_", 117)
+            + "."
+            + synth(27, ALNUM + "-_", 118)
+        )
+        assert "discord.token" not in {h.rule_id for h in rr.hits(wrong)}
+
+    def test_second_pass_changes_nothing(self) -> None:
+        token = discord_token(seed=119)
+        once = redact(f"token: {token}")
+        assert redact(once.text) == rr.RedactionResult(once.text, ())
+
+
+class TestGoogleOAuthClientSecret:
+    def test_secret_is_redacted(self) -> None:
+        secret = google_oauth_secret()
+        result = redact(f"CLIENT_SECRET={secret}")
+        assert secret not in result.text
+        assert rule_ids(result) == ["google.oauth_client_secret"]
+
+    def test_secret_in_json_is_redacted(self) -> None:
+        secret = google_oauth_secret(seed=121)
+        result = redact(f'{{"client_secret": "{secret}"}}')
+        assert secret not in result.text
+
+    def test_secret_in_url_is_redacted(self) -> None:
+        secret = google_oauth_secret(seed=122)
+        result = redact(f"https://oauth.example.com/token?client_secret={secret}")
+        assert secret not in result.text
+
+    def test_wrong_prefix_is_kept(self) -> None:
+        wrong = "GOCSP-" + synth(28, ALNUM + "-_", 123)  # missing X
+        assert "google.oauth_client_secret" not in {h.rule_id for h in rr.hits(wrong)}
+
+    def test_short_secret_is_kept(self) -> None:
+        short = "GOCSPX-" + synth(10, ALNUM + "-_", 124)  # < 20 chars
+        assert "google.oauth_client_secret" not in {h.rule_id for h in rr.hits(short)}
+
+    def test_second_pass_changes_nothing(self) -> None:
+        secret = google_oauth_secret(seed=125)
+        once = redact(f"secret: {secret}")
+        assert redact(once.text) == rr.RedactionResult(once.text, ())
+
+
+class TestJwe:
+    def test_jwe_is_redacted(self) -> None:
+        token = jwe_token()
+        result = redact(f"encrypted: {token}")
+        assert token not in result.text
+        assert rule_ids(result) == ["jwe"]
+
+    def test_jwe_direct_key_is_redacted(self) -> None:
+        token = jwe_direct_key()
+        result = redact(f"encrypted: {token}")
+        assert token not in result.text
+        assert rule_ids(result) == ["jwe"]
+
+    def test_jwe_in_json_is_redacted(self) -> None:
+        token = jwe_token(seed=131)
+        result = redact(f'{{"encrypted_data": "{token}"}}')
+        assert token not in result.text
+
+    def test_three_segment_jwt_does_not_match_jwe(self) -> None:
+        # A 3-segment JWT should be caught by jwt rule, not jwe
+        token = jwt()
+        hits = rr.hits(token)
+        rule_id_set = {h.rule_id for h in hits}
+        assert "jwt" in rule_id_set
+        assert "jwe" not in rule_id_set
+
+    def test_missing_enc_header_is_kept(self) -> None:
+        # JWE requires 'enc' in header; without it, not a valid JWE
+        header = b64url_json({"alg": "A256KW"})  # missing enc
+        bad = f"{header}.{synth(43, ALNUM, 132)}.{synth(16, ALNUM, 133)}.{synth(64, ALNUM, 134)}.{synth(22, ALNUM, 135)}"
+        assert "jwe" not in {h.rule_id for h in rr.hits(bad)}
+
+    def test_second_pass_changes_nothing(self) -> None:
+        token = jwe_token(seed=136)
+        once = redact(f"token: {token}")
+        assert redact(once.text) == rr.RedactionResult(once.text, ())
+
+
+class TestLinkToken:
+    def test_link_token_is_redacted(self) -> None:
+        token = link_token()
+        result = redact(f"https://app.example.com/auth?token={token}")
+        assert token not in result.text
+        assert rule_ids(result) == ["link_token"]
+
+    def test_link_token_tier_is_bearer_link(self) -> None:
+        token = link_token(payload_seed=151)
+        result = redact(f"token: {token}")
+        assert result.records[0].tier is rr.Tier.BEARER_LINK
+
+    def test_link_token_bare_is_redacted(self) -> None:
+        token = link_token(payload_seed=152)
+        result = redact(f"here is your link token: {token}")
+        assert token not in result.text
+
+    def test_short_payload_is_kept(self) -> None:
+        # Payload must be >= 96 chars after eyJ
+        short_payload = b64url_json({"sub": "x"})  # very short
+        short = f"{short_payload}.{synth(43, ALNUM + '-_', 153)}"
+        assert "link_token" not in {h.rule_id for h in rr.hits(short)}
+
+    def test_wrong_signature_length_is_kept(self) -> None:
+        # Signature must be exactly 43 chars
+        payload = b64url_json(
+            {
+                "sub": synth(8, ALNUM, 154),
+                "exp": 1800000000,
+                "iat": 1700000000,
+                "nonce": synth(16, HEX, 155),
+                "gen": 1,
+                "session_exp": 1750000000,
+            }
+        )
+        wrong_sig = f"{payload}.{synth(40, ALNUM + '-_', 156)}"  # 40 chars, not 43
+        assert "link_token" not in {h.rule_id for h in rr.hits(wrong_sig)}
+
+    def test_payload_not_json_object_is_kept(self) -> None:
+        # Payload must decode to a JSON object
+        not_json = "eyJ" + synth(100, ALNUM + "-_", 157) + "." + synth(43, ALNUM + "-_", 158)
+        assert "link_token" not in {h.rule_id for h in rr.hits(not_json)}
+
+    def test_three_segment_jwt_does_not_match_link_token(self) -> None:
+        # A 3-segment JWT should be caught by jwt rule, not link_token
+        token = jwt()
+        rule_id_set = {h.rule_id for h in rr.hits(token)}
+        assert "link_token" not in rule_id_set
+
+    def test_second_pass_changes_nothing(self) -> None:
+        token = link_token(payload_seed=159)
+        once = redact(f"token: {token}")
+        assert redact(once.text) == rr.RedactionResult(once.text, ())
+
+
+class TestOverLongValues:
+    """A value past the regex cap is read through to its natural end."""
+
+    LONG = 3000
+
+    def _value(self) -> str:
+        return "".join(f"v{i:09d}k-" for i in range(self.LONG // 12))
+
+    def _pieces(self, value: str) -> list[str]:
+        return [value[i : i + 12] for i in range(0, len(value), 12)]
+
+    @pytest.mark.parametrize(
+        "template, expected",
+        [
+            ("aws_secret_access_key={v}\nnext", "aws_secret_access_key={p}\nnext"),
+            ("password={v}\nnext", "password={p}\nnext"),
+            ("api_key: {v}\nnext", "api_key: {p}\nnext"),
+            ('{{"password": "{v}", "region": "x"}}', '{{"password": "{p}", "region": "x"}}'),
+            ("cfg password={v} next", "cfg password={p} next"),
+            ("run --password {v} next", "run --password {p} next"),
+            ("<password>{v}</password> next", "<password>{p}</password> next"),
+            ("https://example.com/cb?token={v}&x=1", "https://example.com/cb?token={p}&x=1"),
+        ],
+    )
+    def test_whole_value_is_replaced(self, template: str, expected: str) -> None:
+        value = self._value()
+        result = redact(template.format(v=value))
+        assert [p for p in self._pieces(value) if p in result.text] == []
+        assert result.text == expected.format(p=rr.PLACEHOLDER)
+
+    def test_param_past_the_url_cap_is_still_read(self) -> None:
+        value = synth(32, ALNUM, 80)
+        url = "https://example.com/" + "a" * 3000 + f"?sig={value}"
+        assert value not in redact(url).text
+
+    def test_long_run_of_nested_pairs_is_read_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from kiro_crew.security.redaction_rules import detectors
+
+        read = 0
+        real = detectors._RUN_OF[detectors._UNQUOTED_RE]
+
+        class Counting:
+            def match(self, text: str, pos: int) -> object:
+                nonlocal read
+                m = real.match(text, pos)
+                read += m.end() - pos if m else 0
+                return m
+
+        monkeypatch.setitem(detectors._RUN_OF, detectors._UNQUOTED_RE, Counting())
+        # Every `password=` opens a nested value that runs to the text's end.
+        text = "x " + "password=" * 3000
+        assert redact(text).text.startswith("x password=" + rr.PLACEHOLDER)
+        assert read <= 2 * len(text)
+
+
+class TestUnterminatedPrivateKey:
+    def test_header_with_no_end_line_is_redacted_to_the_end(self) -> None:
+        body = "\n".join(synth(64, B64, 90 + i) for i in range(3))
+        text = f"key:\n-----BEGIN RSA PRIVATE KEY-----\n{body}\nmore text after"
+        result = redact(text)
+        assert result.text == f"key:\n{rr.PLACEHOLDER}"
+        assert rule_ids(result) == ["pem.private_key_unterminated"]
+
+    def test_end_line_of_another_type_does_not_close_it(self) -> None:
+        block = _armour("RSA PRIVATE KEY").replace("END RSA", "END EC")
+        assert redact("x " + block + " tail").text == "x " + rr.PLACEHOLDER
+
+    def test_terminated_block_keeps_the_text_after_it(self) -> None:
+        block = _armour("DH PRIVATE KEY")
+        result = redact(f"{block}\nafter")
+        assert result.text == f"{rr.PLACEHOLDER}\nafter"
+        assert rule_ids(result) == ["pem.private_key"]
+
+    def test_through_end_is_refused_on_a_value_rule(self) -> None:
+        with pytest.raises(rr.RuleTableError, match="through_end"):
+            rr.build_table(_minimal(through_end=True))
+
+
+class TestUnverifiedFallbacks:
+    def test_openai_key_without_its_marker_is_redacted(self) -> None:
+        token = "sk-" + "proj-" + synth(40, ALNUM, 91)
+        result = redact(f"key {token} end")
+        assert result.text == f"key {rr.PLACEHOLDER} end"
+        assert rule_ids(result) == ["openai.key_unverified"]
+
+    def test_a_valid_token_keeps_its_exact_rule(self) -> None:
+        assert rule_ids(redact(github_classic())) == ["github.classic"]
+
+    def test_deeply_nested_header_does_not_fail_the_scan(self) -> None:
+        header = base64.urlsafe_b64encode(b"[" * 3000).rstrip(b"=").decode()
+        text = f"eyJ{header}.eyJ{synth(20, ALNUM, 92)}.{synth(20, ALNUM, 93)}"
+        assert rr.redact_with_findings(text).text == text
+
+
+class TestTelegramInsideAnArn:
+    ARN = "arn:aws:sns:us-west-2:123456789012:MyStackMyTopicA1B2C3D4-N1zQX9yJZ8wK"
+
+    def test_cdk_arn_resource_is_kept(self) -> None:
+        assert redact(f"topic {self.ARN} done").text == f"topic {self.ARN} done"
+
+    def test_token_after_an_arn_prefix_with_a_bot_id_is_redacted(self) -> None:
+        token = synth(9, string.digits, 94) + ":" + synth(35, ALNUM + "-_", 95)
+        result = redact(f"arn:aws:sns:us-west-2:{token}")
+        assert result.text == f"arn:aws:sns:us-west-2:{rr.PLACEHOLDER}"
+        assert rule_ids(result) == ["telegram.token"]
+
+    def test_non_cdk_tail_behind_an_account_id_is_redacted(self) -> None:
+        secret = synth(35, ALNUM + "-_", 96)
+        assert secret not in redact(f"arn:aws:sns:us-west-2:123456789012:{secret}").text

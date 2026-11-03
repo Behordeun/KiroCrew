@@ -5,9 +5,10 @@ detector (how the value is found) and what is replaced. :func:`hits` resolves th
 rules' overlapping claims on a text and :func:`redact_with_findings` replaces
 secret and bearer-link values, keeps identifiers, and returns value-free records.
 
-No seam calls this package yet. ``security.redaction`` and
-``security.text_redaction`` remain the redactors every surface uses; this table
-runs beside them until it is wired in.
+With :func:`.compat.use_rule_table` ON this table takes the place of pass 1 of
+``security.redaction``'s credential plan, through :mod:`.compat`; the plan's later
+passes and every other redactor are unchanged. That internal switch is off and
+has no user setting yet.
 """
 
 from __future__ import annotations

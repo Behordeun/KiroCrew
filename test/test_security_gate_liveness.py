@@ -640,7 +640,13 @@ def _url_payload_command(n: int) -> str:
 #: shape regex, the operator-listed lookup that reads the file only for that shape,
 #: its once-per-endpoint audit, and the second counterfactual keyword that keeps
 #: MCP discovery from assuming an operator entry. No check was relaxed elsewhere.
-_PACKAGE_LINE_BUDGET = 33_735
+#: Raised by 57, from 33,735, for the credential rule table standing in for pass 1:
+#: ``redaction`` (+35) splits pass 1 and passes 2-4 into their own functions so the
+#: table's hits can take pass 1's place, routes the plan by the switch, and names
+#: the whole-text fail-closed placeholder; ``text_redaction`` (+22) asks the table's
+#: stream glue where to hold a buffer, which does nothing while the switch is off.
+#: The table itself lives in a subpackage this budget does not count.
+_PACKAGE_LINE_BUDGET = 33_792
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second

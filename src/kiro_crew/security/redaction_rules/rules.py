@@ -36,11 +36,15 @@ logger = logging.getLogger(__name__)
 _TABLE_FILE = "rules.yaml"
 _TABLE_VERSION = 1
 
-#: Longest value a name-keyed detector reads, and the largest repeat count a
-#: rule pattern may use. Every pattern is bounded so a scan stays linear in the
-#: text length times a constant; a PEM or PGP block needs the larger bound.
+#: Longest run a name-keyed detector's regex reads at once (a longer value is
+#: read on in further runs to its natural end, see ``detectors._Scan``), and the
+#: largest repeat count a rule pattern may use. Every pattern is bounded so a
+#: scan stays linear in the text length times a constant; a PEM or PGP block
+#: needs the larger bound.
 MAX_VALUE_LEN = 2000
-_MAX_REPEAT = 20_000
+#: A JOSE segment can be large (a token carrying a big claim set), and a JOSE
+#: row only starts at a run's start, so its long bound costs one read per run.
+_MAX_REPEAT = 100_000
 _MAX_PAIR_WINDOW = 2000
 
 _TABLE_FIELDS = frozenset({"version", "allow", "label_exclude", "rules"})
@@ -56,6 +60,7 @@ _ROW_FIELDS = frozenset(
         "replace",
         "allow",
         "corpus",
+        "through_end",
     }
 )
 _ALLOW_FIELDS = frozenset({"values", "suffixes", "patterns"})
@@ -116,7 +121,8 @@ def _b64url_json_object(segment: str) -> dict[str, Any] | None:
     try:
         raw = base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
         decoded = json.loads(raw.decode("utf-8"))
-    except (binascii.Error, ValueError):
+    except (binascii.Error, ValueError, RecursionError):
+        # A deeply nested segment is not a token header; it must not fail the scan.
         return None
     return decoded if isinstance(decoded, dict) else None
 
@@ -133,10 +139,83 @@ def _jwt_structure(value: str) -> bool:
     return isinstance(alg, str) and bool(alg) and alg.lower() != "none"
 
 
+def _jwe_structure(value: str) -> bool:
+    """Header decodes to a JSON object with ``enc`` (JWE content encryption alg).
+
+    A JWE compact token has 5 dot-separated segments: header, encrypted key, IV,
+    ciphertext, and authentication tag. The encrypted key segment may be empty
+    for direct key (alg:dir) or ECDH-ES key agreement.
+    """
+    parts = value.split(".")
+    if len(parts) != 5:
+        return False
+    header = _b64url_json_object(parts[0])
+    if header is None:
+        return False
+    # JWE requires 'enc' (content encryption algorithm); JWS does not have it.
+    enc = header.get("enc")
+    return isinstance(enc, str) and bool(enc)
+
+
+def _link_token_structure(value: str) -> bool:
+    """Payload decodes to a JSON object; the signature segment is opaque."""
+    parts = value.split(".")
+    if len(parts) != 2:
+        return False
+    # The payload must be a JSON object; the signature is not decoded.
+    return _b64url_json_object(parts[0]) is not None
+
+
+def _jose_header(value: str) -> bool:
+    """The first segment decodes to a JSON object, as every JOSE header does.
+
+    A header holding a second ``eyJ`` is kept a credential without decoding, as
+    the legacy pass kept it: deciding it would mean judging each ``eyJ`` again.
+    """
+    header = value.split(".", 1)[0]
+    return header.find("eyJ", 1) != -1 or _b64url_json_object(header) is not None
+
+
+_ARN_ACCOUNT_ID_LEN = 12
+
+
+def _outside_cdk_arn(text: str, start: int, end: int) -> bool:
+    """False only for an ``<account id>:<CDK name>`` right after a real ARN prefix.
+
+    A Telegram-shaped ``<digits>:<30+ run>`` also matches the account id and
+    resource of a CDK-generated ARN (``arn:aws:sns:us-east-1:<account>:MyStack-
+    MyTopicA1B2C3D4-N1zQX9yJZ8wK``). The legacy pass exempts exactly that case,
+    and this check uses its terms, read from their one home in
+    ``security.redaction_patterns``: the digits are a 12-digit account id, a real
+    ARN prefix ends right before them (searched a bounded distance back, so each
+    check costs a constant), the whole tail reads as a CDK-generated name, and
+    the id is not a bot id padded with zeros. Anything else stays a token.
+    """
+    # Lazy: the package imports this module while `security` is still loading.
+    import kiro_crew.security.redaction_patterns as rp
+
+    hit = text[start:end]
+    if len(hit.partition(":")[0]) != _ARN_ACCOUNT_ID_LEN:
+        return True
+    lookback = max(0, start - rp._ARN_PREFIX_MAX_LOOKBACK)
+    if rp._ARN_ACCOUNT_ID_PREFIX_RE.search(text, lookback, start) is None:
+        return True
+    return rp._arn_exemption_withheld(hit)
+
+
+#: Checks that read the text around a value: ``(text, start, end) -> keep``.
+CONTEXT_VALIDATORS: Mapping[str, Callable[[str, int, int], bool]] = {
+    "outside_cdk_arn": _outside_cdk_arn,
+}
+
+
 VALIDATORS: Mapping[str, Callable[[str], bool]] = {
     "github_crc32": _github_crc32,
     "aws_secret_shape": _aws_secret_shape,
     "jwt_structure": _jwt_structure,
+    "jwe_structure": _jwe_structure,
+    "link_token_structure": _link_token_structure,
+    "jose_header": _jose_header,
 }
 
 
@@ -177,6 +256,11 @@ class Rule:
     replace: str
     allow: Allow
     corpus: str
+    #: The hit runs from the match's start to the end of the text: a block whose
+    #: closing line is missing (a key cut off mid-paste) has no other end.
+    through_end: bool = False
+    #: A :data:`CONTEXT_VALIDATORS` check, given ``(text, start, end)`` of the value.
+    validate_at: Callable[[str, int, int], bool] | None = None
 
 
 @dataclass(frozen=True)
@@ -307,6 +391,7 @@ def _build_rule(index: int, data: Any) -> Rule:
     pattern = None
     labels: frozenset[str] = frozenset()
     validate = None
+    validate_at = None
     if detector in PATTERN_DETECTORS:
         if "labels" in data:
             raise _fail(where, f"labels do not apply to detector {detector.value}")
@@ -315,9 +400,12 @@ def _build_rule(index: int, data: Any) -> Rule:
             raise _fail(where, "replace: value needs a named group 'v' in the pattern")
         name = data.get("validate")
         if name is not None:
-            if name not in VALIDATORS:
+            if name in VALIDATORS:
+                validate = VALIDATORS[name]
+            elif name in CONTEXT_VALIDATORS:
+                validate_at = CONTEXT_VALIDATORS[name]
+            else:
                 raise _fail(where, f"unknown validator {name!r}")
-            validate = VALIDATORS[name]
     elif detector in NAME_DETECTORS:
         for field in ("pattern", "validate"):
             if field in data:
@@ -329,6 +417,12 @@ def _build_rule(index: int, data: Any) -> Rule:
         labels = frozenset(
             normalise_name(s) for s in _string_list(f"{where}.labels", data["labels"])
         )
+
+    through_end = data.get("through_end", False)
+    if not isinstance(through_end, bool):
+        raise _fail(where, "through_end must be true or false")
+    if through_end and (detector is not Detector.STRUCTURAL or replace != "match"):
+        raise _fail(where, "through_end needs detector structural and replace: match")
 
     pair = None
     if detector is Detector.KEY_ID_PAIR:
@@ -349,6 +443,8 @@ def _build_rule(index: int, data: Any) -> Rule:
         replace=replace,
         allow=_build_allow(f"{where}.allow", data.get("allow")),
         corpus=corpus,
+        through_end=through_end,
+        validate_at=validate_at,
     )
 
 

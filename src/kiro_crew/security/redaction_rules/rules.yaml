@@ -13,6 +13,8 @@
 #               characters of the value.
 #   validate    a named check in rules.VALIDATORS.
 #   replace     `value` (default) or `match`.
+#   through_end structural + replace: match only: the hit runs from the match
+#               to the end of the text (a block with no closing line).
 #   allow       values that look like a match but are not secrets.
 #   corpus      rules/<id>: the rule's true positives, known false positives
 #               and bypass shapes.
@@ -116,6 +118,31 @@ rules:
     pattern: '(?<![A-Za-z0-9_-])(?P<v>AIza[A-Za-z0-9_-]{35})(?![A-Za-z0-9_-])'
     corpus: rules/google.api_key
 
+  - id: google.oauth_client_secret
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?<![A-Za-z0-9_-])(?P<v>GOCSPX-[A-Za-z0-9_-]{20,64})(?![A-Za-z0-9_-])'
+    corpus: rules/google.oauth_client_secret
+
+  # Telegram bot token: ``<bot_id>:<secret>``. Bot ID is 6-12 digits, secret is 30-50
+  # URL-safe base64 chars. The lookbehind `(?<![0-9])` prevents matching mid-run in a
+  # longer digit sequence (e.g., timestamps), but deliberately allows letters so that
+  # `bot<TOKEN>` in Telegram API URLs is caught. Over-redacting a rare ``digits:token``
+  # lookalike is the safe direction. The one shape kept is a CDK-generated ARN
+  # resource, `arn:...:<12-digit account>:<CDK name>` (see `outside_cdk_arn`).
+  - id: telegram.token
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?<![0-9])(?P<v>[0-9]{6,100}:[A-Za-z0-9_-]{30,1000})(?![A-Za-z0-9_-])'
+    validate: outside_cdk_arn
+    corpus: rules/telegram.token
+
+  - id: discord.token
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?<![A-Za-z0-9_-])(?P<v>[MNO][A-Za-z0-9_-]{22,30}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{25,1000})(?![A-Za-z0-9_-])'
+    corpus: rules/discord.token
+
   - id: gitlab.pat
     tier: secret
     detector: vendor_prefix
@@ -183,12 +210,26 @@ rules:
     corpus: rules/twilio.account_sid
 
   # ── structural ──
+  # The key type is any run of capitals and spaces (`RSA `, `EC `, `OPENSSH `,
+  # `ENCRYPTED `, `DH `), as the legacy pass read it.
   - id: pem.private_key
     tier: secret
     detector: structural
-    pattern: '-----BEGIN (?P<k>(?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?)PRIVATE KEY-----[\s\S]{1,16000}?-----END (?P=k)PRIVATE KEY-----'
+    pattern: '-----BEGIN (?P<k>[A-Z ]{0,60})PRIVATE KEY-----[\s\S]{1,16000}?-----END (?P=k)PRIVATE KEY-----'
     replace: match
     corpus: rules/pem.private_key
+
+  # A private-key header that no matching END line follows within the block
+  # bound (a key cut off mid-paste or by a truncated log line): everything from
+  # the header to the end of the text is replaced, since nothing marks where
+  # the key material stops.
+  - id: pem.private_key_unterminated
+    tier: secret
+    detector: structural
+    pattern: '-----BEGIN (?P<k>[A-Z ]{0,60})PRIVATE KEY-----(?![\s\S]{1,16000}?-----END (?P=k)PRIVATE KEY-----)'
+    replace: match
+    through_end: true
+    corpus: rules/pem.private_key_unterminated
 
   # `\x20` stands for the space in the armour line, so this row is not itself
   # read as a key block by secret scanners.
@@ -199,10 +240,13 @@ rules:
     replace: match
     corpus: rules/pgp.private_key
 
+  # Any scheme, glued to the text before it or not, an empty user, and a
+  # password holding `@` (read to the last `@` of the authority), as the legacy
+  # pass read it. Only the password is replaced.
   - id: url.userinfo_password
     tier: secret
     detector: structural
-    pattern: '(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,31}://[^\s:/@"''<>`]{1,256}:(?P<v>[^\s/@"''<>`]{1,256})@'
+    pattern: '[A-Za-z][A-Za-z0-9+.-]{0,31}://[^\s:/@"''<>`]{0,256}:(?P<v>[^\s/"''<>`]{1,256})@'
     corpus: rules/url.userinfo_password
 
   - id: jwt
@@ -211,6 +255,129 @@ rules:
     pattern: '(?<![A-Za-z0-9_.-])(?P<v>eyJ[A-Za-z0-9_-]{4,2000}\.eyJ[A-Za-z0-9_-]{4,2000}\.[A-Za-z0-9_-]{1,2000})(?![A-Za-z0-9_.-])'
     validate: jwt_structure
     corpus: rules/jwt
+
+  # JWE compact token: 5 dot-separated base64url segments (header.key.iv.ciphertext.tag).
+  # Direct key (alg:dir) and ECDH-ES have an empty Encrypted Key segment (2nd), so {0,}.
+  # Segment bounds: key 0-2000, iv 10-100, ciphertext 10-5000, tag 10-100.
+  - id: jwe
+    tier: secret
+    detector: structural
+    pattern: '(?<![A-Za-z0-9_.-])(?P<v>eyJ[A-Za-z0-9_-]{4,2000}\.[A-Za-z0-9_-]{0,2000}\.[A-Za-z0-9_-]{10,100}\.[A-Za-z0-9_-]{10,5000}\.[A-Za-z0-9_-]{10,100})(?![A-Za-z0-9_.-])'
+    validate: jwe_structure
+    corpus: rules/jwe
+
+  # Two-segment link token: base64url(payload).base64url(hmac_sig). The signature is
+  # always 43 chars (HMAC-SHA256 base64url-unpadded). The payload floor (96) is derived
+  # from the generator's minimum claim set; see redaction_patterns.py for the derivation.
+  - id: link_token
+    tier: bearer_link
+    detector: structural
+    pattern: '(?<![A-Za-z0-9_-])(?P<v>eyJ[A-Za-z0-9_-]{96,500}\.[A-Za-z0-9_-]{43})(?![A-Za-z0-9_-])'
+    validate: link_token_structure
+    corpus: rules/link_token
+
+  # ── unverified fallbacks ──
+  # The legacy pass's vendor spellings, kept behind the exact rows so the table
+  # misses nothing that pass caught. A validator only chooses between secret
+  # rules: a token with a vendor prefix that fails a checksum, marker or exact
+  # length (a mistyped, rotated, shortened or over-long key, or one glued to a
+  # word) is still a secret. These rows have the legacy pass's bounds and, like
+  # it, no word boundaries. On the same span the exact row wins (more certain
+  # detector, then the lower rule id); a fallback hit names its own row.
+  - id: github.unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>gh[pousr]_[A-Za-z0-9]{30,1000}|github_pat_[A-Za-z0-9_]{40,1000})'
+    corpus: rules/github.unverified
+
+  - id: slack.token_unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>xox[bpas]-[0-9a-zA-Z-]{10,1000})'
+    corpus: rules/slack.token_unverified
+
+  - id: gitlab.pat_unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>glpat-[A-Za-z0-9_-]{16,1000})'
+    corpus: rules/gitlab.pat_unverified
+
+  - id: stripe.key_unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,1000})'
+    corpus: rules/stripe.key_unverified
+
+  - id: sendgrid.key_unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>SG\.[A-Za-z0-9_-]{16,1000}\.[A-Za-z0-9_-]{16,1000})'
+    corpus: rules/sendgrid.key_unverified
+
+  - id: openai.key_unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{16,1000})'
+    corpus: rules/openai.key_unverified
+
+  - id: anthropic.key_unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>sk-ant-[A-Za-z0-9_-]{16,1000})'
+    corpus: rules/anthropic.key_unverified
+
+  - id: npm.token_unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>npm_[A-Za-z0-9]{24,1000})'
+    corpus: rules/npm.token_unverified
+
+  - id: pypi.token_unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>pypi-[A-Za-z0-9_-]{16,1000})'
+    corpus: rules/pypi.token_unverified
+
+  - id: digitalocean.token_unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>do[opr]_v1_[A-Za-z0-9]{40,1000})'
+    corpus: rules/digitalocean.token_unverified
+
+  - id: google.oauth_client_secret_unverified
+    tier: secret
+    detector: vendor_prefix
+    pattern: '(?P<v>GOCSPX-[A-Za-z0-9_-]{20,1000})'
+    corpus: rules/google.oauth_client_secret_unverified
+
+  # A JOSE token the exact jwt/jwe rows reject (`alg: none`, a payload that is
+  # not JSON, a segment count or length they do not take) whose header is still
+  # a JSON object: the legacy pass's 3-to-5-segment shape. It may start inside a
+  # word (`monkeyJ<token>`), up to 64 characters into its run, as the legacy
+  # pass read it; only a run's start is tried, so a long run costs one read.
+  - id: jwt.unverified
+    tier: secret
+    detector: structural
+    pattern: '(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{0,64}?(?P<v>eyJ[A-Za-z0-9_-]{1,100000}(?:\.[A-Za-z0-9_-]{0,100000}){2,4})'
+    validate: jose_header
+    corpus: rules/jwt.unverified
+
+  # An AWS secret-key or session-token field name glued to the end of a longer
+  # run (`...Ab1SecretAccessKey = <value>`), which the labelled detector does not
+  # read as a field name: the legacy pass's spelling, label included.
+  - id: aws.secret_field_glued
+    tier: secret
+    detector: structural
+    pattern: '(?<=[A-Za-z0-9_.\-])(?:SecretAccessKey|aws_secret_access_key|SessionToken|aws_session_token)["'']?\s{0,8}[:=]\s{0,8}["'']?[^\s"'',}]{1,20000}'
+    replace: match
+    corpus: rules/aws.secret_field_glued
+
+  # A two-segment link token whose payload is not a JSON object.
+  - id: link_token.unverified
+    tier: bearer_link
+    detector: structural
+    pattern: '(?<![A-Za-z0-9_.-])(?P<v>eyJ[A-Za-z0-9_-]{96,5000}\.[A-Za-z0-9_-]{43})(?![A-Za-z0-9_-])'
+    corpus: rules/link_token.unverified
 
   # ── labelled ──
   - id: labelled.secret_field
@@ -257,9 +424,11 @@ rules:
       # The match is the whole value, case-insensitive: `enabledXYZ` is still
       # redacted. A credential whose real value is exactly one of these words
       # (`password=enabled`) is kept; that trade was accepted in review.
+      # A documented example key (`...EXAMPLEKEY`) under a credential name is
+      # still replaced, as the legacy pass replaced it: a real key can end the
+      # same way, and the label says it is a secret.
       values: [required, optional, expired, revoked, invalid, missing, disabled,
                enabled, hidden, redacted, unset, empty, string]
-      suffixes: [EXAMPLEKEY]
     corpus: rules/labelled.secret_field
 
   - id: labelled.session_cookie

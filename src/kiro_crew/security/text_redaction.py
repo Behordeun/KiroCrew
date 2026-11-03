@@ -91,6 +91,7 @@ _CRED_CLASS: frozenset[str] = frozenset(
 # bounds latency/memory for a pathologically long unbroken run (only affects a
 # single >512-char secret with no delimiter, which no supported provider issues).
 _STREAM_HOLDBACK_MAX = 512
+_TS = "redaction_rules.stream"  # the rule table's stream side, loaded on first use
 
 # PEM header hold-back: matches an in-progress "BEGIN [type] PRIVATE KEY"
 # phrase in the tail of the commit buffer.  When found, we refuse to commit
@@ -241,7 +242,7 @@ class StreamRedactor:
     character, while a credential is a contiguous credential-class run.
     """
 
-    __slots__ = ("_buf", "_redact", "_discarding", "_discard_kind", "_discarded")
+    __slots__ = ("_buf", "_redact", "_discarding", "_discard_kind", "_discarded", "_ctx")
 
     def __init__(self, redactor: "Callable[[str], str] | None" = None) -> None:
         self._buf = ""
@@ -250,13 +251,15 @@ class StreamRedactor:
         self._discarding = False
         self._discard_kind: tuple[str, ...] | None = None
         self._discarded = 0
+        self._ctx = ""  # raw text emitted since the last line break
 
     def _redact_window(self, text: str) -> str:
         """Redact one context-incomplete window without URL-prefix exemptions."""
         redaction = _submodule("redaction")
+        ctx, self._ctx = self._ctx, _submodule(_TS).line_context(self._ctx, text)
         suspension = redaction._TOKEN_PARAM_EXEMPT_SUSPENDED.set(True)
         try:
-            return self._redact(text)
+            return _submodule(_TS).redact_window(self._redact, ctx, text)
         finally:
             redaction._TOKEN_PARAM_EXEMPT_SUSPENDED.reset(suspension)
 
@@ -279,9 +282,8 @@ class StreamRedactor:
         # to Phase A as an anchorless run, which the 512 floor streams raw.
         if self._discarding:
             assert self._discard_kind is not None
-            run, kinds = stream_aws_anchor.discard_run(
-                self._discard_kind, self._buf, _STREAM_DISCARD_RUN_RES
-            )
+            res = _submodule(_TS).discard_run_res(_STREAM_DISCARD_RUN_RES)
+            run, kinds = stream_aws_anchor.discard_run(self._discard_kind, self._buf, res)
             # A credential label glued to the dropped run (`.../Authorization:`,
             # `...SecretAccessKey = `) must survive it: its own value follows
             # whitespace the discard stops at, and would stream with no label.
@@ -302,6 +304,7 @@ class StreamRedactor:
                 # Keep the tail still in the discard, so a label split across
                 # chunks is seen whole on the next pass.
                 carry = stream_aws_anchor.LABEL_CARRY if "aws-keyed" in kinds else 0
+                carry = _submodule(_TS).discard_carry(kinds, carry)
                 self._buf = self._buf[max(0, len(self._buf) - carry) :]
                 self._discard_kind = kinds
                 if self._discarded < _STREAM_DISCARD_MAX:
@@ -311,6 +314,7 @@ class StreamRedactor:
             self._discarding = False
             self._discard_kind = None
             self._buf = self._buf[run:]
+            self._ctx = _submodule(_TS).line_context(self._ctx, _redaction._REDACTED_CREDENTIAL_TAG)
 
         # PHASE A -- SAFETY CUT.
         # Invariant: every candidate can only move the cut backward. Bytes before
@@ -394,8 +398,13 @@ class StreamRedactor:
             if not strong_token_anchor:
                 weak_token_anchor = token_anchor
 
+        # With the rule table on, its open values are held too (`redaction_rules.stream`).
+        table = _submodule(_TS).read_buffer(self._ctx, self._buf)
+        base_cuts = list(safety_cuts)
+        safety_cuts.extend(v.cut for v in table.open)
+
         # The PEM hold refuses any commit at this boundary.
-        i = 0 if pem_hold else min(safety_cuts)
+        i = table.keep_pairs(0 if pem_hold else min(safety_cuts))
         complete_token_matches = tuple(_redaction._TOKEN_PARAM_RE.finditer(self._buf))
         # Invariant: the complete-match crossing predicate is re-evaluated after
         # every assignment to `i`; both Phase A and the Phase B floor call the
@@ -410,6 +419,7 @@ class StreamRedactor:
             or aws_keyed_anchor is not None
             or complete_token_crossing is not None
             or strong_token_anchor
+            or bool(table.strong)
         )
 
         # A partial canonical tag is already-redacted material. It lowers only
@@ -457,18 +467,24 @@ class StreamRedactor:
                     armed.append("aws-keyed")
                 if partial_jwt is not None:
                     armed.append("jwt")
+                # A table value arms the drop only when no legacy carrier does.
+                table_only = bool(table.strong) and not armed
+                if table_only:
+                    armed.append(table.strong[0].kind)
                 if "aws-keyed" not in armed:
                     # With no AWS carrier, the enclosing carrier alone defines
                     # where the credential ends: token-param, then bearer, then jwt.
                     armed = armed[:1]
-                if pem_hold and aws_keyed_anchor is not None and armed in ([], ["aws-keyed"]):
+                pem_aws = pem_hold and aws_keyed_anchor is not None and armed in ([], ["aws-keyed"])
+                if pem_aws or (table.open and not pem_hold):
                     # The PEM hold only defers a commit at a whitespace boundary;
                     # it is not a credential. When an AWS value (open or closed by
                     # its quote) is the only thing failing closed, the drop starts
                     # at the AWS cut, not at 0,
                     # so a word like "begin" before the key cannot drop the
-                    # benign text in front of it.
-                    i = min(safety_cuts)
+                    # benign text in front of it. A table value's drop starts at
+                    # the value (`BufferRead.drop_start`).
+                    i = min(base_cuts) if pem_hold else table.drop_start(base_cuts, table_only)
                     crossing = _complete_token_match_crossing(complete_token_matches, i)
                     if crossing is not None:
                         i = crossing.start()
@@ -521,7 +537,9 @@ class StreamRedactor:
                     )
                 commit, self._buf = self._buf[:i], self._buf[drop_end:]
                 out = self._redact_window(commit) if commit else ""
-                return out + _redaction._REDACTED_CREDENTIAL_TAG
+                tag = _redaction._REDACTED_CREDENTIAL_TAG
+                self._ctx = _submodule(_TS).line_context(self._ctx, tag)
+                return out + tag
             i = len(self._buf) - cap
             i -= self._buf.startswith("${", i - 1)  # keep a JS/TS `${` placeholder whole
 
@@ -539,6 +557,7 @@ class StreamRedactor:
                 for match in _redaction._credential_matches(self._buf):
                     if match.start() < i < match.end():
                         i = match.end()
+            i = table.floor_past_pairs(i)
 
             # Repair the complete-match cut first, then preserve a trailing WEAK
             # prefix if that repair crossed it. An encoded separator is at most
@@ -559,9 +578,11 @@ class StreamRedactor:
             self._buf = ""
             self._discarding = False
             self._discard_kind = None
+            self._ctx = ""
             return ""
         out = self._redact_window(self._buf) if self._buf else ""
         self._buf = ""
+        self._ctx = ""
         return out
 
     @property
@@ -580,6 +601,7 @@ class StreamRedactor:
         self._discarding = False
         self._discard_kind = None
         self._discarded = 0
+        self._ctx = ""
 
 
 def redact_and_truncate(text: str, max_chars: int = 4000) -> str:
