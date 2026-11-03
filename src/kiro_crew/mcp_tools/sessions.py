@@ -99,7 +99,8 @@ def schemas() -> list[dict[str, Any]]:
                 "identified by a session_key returned from search_chat_history. "
                 "Returns the messages as role/content pairs, tail-capped at "
                 "max_messages. Use after search_chat_history when a snippet hit "
-                "looks like the thread you need. Refuses incognito/temporary "
+                "looks like the thread you need. With tool_call_id, returns that one "
+                "tool call's stored output instead. Refuses incognito/temporary "
                 "sessions. This is a READ — it never modifies memory or history."
             ),
             "inputSchema": {
@@ -126,6 +127,14 @@ def schemas() -> list[dict[str, Any]]:
                             "instance id or name) instead of local history. Pair with a "
                             "session_key returned by search_chat_history/list_sessions run "
                             "with the same crew. The crew must be connected."
+                        ),
+                    },
+                    "tool_call_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional: return only the stored output (up to 8,000 "
+                            "chars) of the tool call with this id in that session, as "
+                            "listed after a context trim. Local transcripts only."
                         ),
                     },
                 },
@@ -527,6 +536,9 @@ def get_chat_session(name: str, args: dict[str, Any]) -> str:
         return "Invalid session_key."
 
     crew = args.get("crew")
+    tool_call_id = args.get("tool_call_id")
+    if crew and tool_call_id:
+        return "tool_call_id reads this gateway's transcripts only; call it without crew."
     if crew:
         # Remote crew scope: read the transcript from that crew over the tunnel.
         # The local key guard above still applies as defense-in-depth; the
@@ -578,6 +590,9 @@ def get_chat_session(name: str, args: dict[str, Any]) -> str:
                 outcome="denied_cross_workspace",
             )
             return "Access denied: that conversation belongs to a different workspace."
+
+    if tool_call_id:
+        return _get_tool_call_output(cl, key, tool_call_id, session_key)
 
     # RECALL_ROLES rather than a literal, because this is the one surface whose
     # whole purpose is reading a past session: a breadcrumb appended with
@@ -637,6 +652,46 @@ def get_chat_session(name: str, args: dict[str, Any]) -> str:
         metadata={"message_count": len(messages)},
     )
     return output
+
+
+def _get_tool_call_output(cl: ConversationLog, key: str, call_id: str, session_key: str) -> str:
+    """One tool row's stored output, by ``meta.tool_call_id``, from *key*'s transcript.
+
+    The row was redacted and cut to 8,000 chars when it was stored, and is redacted
+    again here. Read through the same derivation seam as the message read, so a
+    transcript tightened to private after the checks above is still refused.
+    """
+
+    def _log(outcome: str) -> None:
+        mcp_core.sel().log_tool_invocation(
+            session_key=session_key,
+            source="mcp",
+            tool_name="get_chat_session",
+            outcome=outcome,
+            metadata={"tool_call_id": True},
+        )
+
+    try:
+        rows = cl.derive_messages_chained(key)
+    except TranscriptBusy:
+        _log("busy")
+        return "That conversation is being written right now; try again in a moment."
+    except TranscriptWithheld:
+        _log("refused_incognito")
+        return "That conversation is private (incognito/temporary) and cannot be read."
+    for row in reversed(rows):
+        meta = row.get("meta")
+        if row.get("role") == "tool" and isinstance(meta, dict):
+            if meta.get("tool_call_id") == call_id:
+                output = meta.get("output")
+                label = str(row.get("content") or "").strip()
+                text = output if isinstance(output, str) and output else "(no output stored)"
+                _log("success")
+                return mcp_core._redact_history_output(
+                    f"Tool call `{call_id}` ({label}) output:\n\n{text}"
+                )
+    _log("not_found")
+    return "No tool call with that tool_call_id in that conversation."
 
 
 def list_sessions(name: str, args: dict[str, Any]) -> str:
