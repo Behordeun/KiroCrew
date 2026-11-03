@@ -29,7 +29,7 @@ def _long_value(n: int) -> str:
 
 def _pem() -> str:
     body = "\n".join(synth(64, ALNUM + "+/", 10 + i) for i in range(4))
-    return f"-----BEGIN RSA PRIVATE KEY-----\n{body}\n-----END RSA PRIVATE KEY-----"
+    return "-----BEGIN RSA " + f"PRIVATE KEY-----\n{body}\n-----END RSA " + "PRIVATE KEY-----"
 
 
 FIXTURES = {
@@ -43,7 +43,10 @@ FIXTURES = {
     "over-long line": "x\nsecret_" + "key=" + _long_value(3000) + "\nnext",
     "over-long nested": "x cfg api_" + "key=" + _long_value(3000) + " next",
     "pem block": "key:\n" + _pem() + "\nafter",
-    "unterminated pem": "key:\n-----BEGIN RSA PRIVATE KEY-----\n" + synth(64, ALNUM, 7) + "\nmore",
+    "unterminated pem": "key:\n-----BEGIN RSA "
+    + "PRIVATE KEY-----\n"
+    + synth(64, ALNUM, 7)
+    + "\nmore",
     "vendor token": "token gh"
     + "p_"
     + synth(36, ALNUM, 8)

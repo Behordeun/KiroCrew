@@ -1430,7 +1430,7 @@ class TestOverLongValues:
 class TestUnterminatedPrivateKey:
     def test_header_with_no_end_line_is_redacted_to_the_end(self) -> None:
         body = "\n".join(synth(64, B64, 90 + i) for i in range(3))
-        text = f"key:\n-----BEGIN RSA PRIVATE KEY-----\n{body}\nmore text after"
+        text = "key:\n-----BEGIN RSA " + f"PRIVATE KEY-----\n{body}\nmore text after"
         result = redact(text)
         assert result.text == f"key:\n{rr.PLACEHOLDER}"
         assert rule_ids(result) == ["pem.private_key_unterminated"]

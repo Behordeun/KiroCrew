@@ -229,6 +229,7 @@ def check_table_health() -> bool:
     try:
         _table()
     except Exception as exc:
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs the exception type only, never the text or a value
         logger.error(
             "credential rule table failed to load (%s); credential redaction will "
             "replace whole texts until it is fixed",
@@ -262,6 +263,7 @@ def _count_fail_closed() -> None:
 
 
 def _fail_closed(text: str, exc: BaseException) -> _Plan:
+    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs the exception type only, never the text or a value
     logger.warning("credential redaction failed (%s); whole text replaced", type(exc).__name__)
     _count_fail_closed()
     return (
