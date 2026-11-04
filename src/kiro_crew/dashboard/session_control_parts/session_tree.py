@@ -160,6 +160,8 @@ async def fork_session(
     # eligible creator before anything else is read -- see the note on
     # `_refuse_ineligible_creator` for why this set mirrors `authorize_target`'s.
     _refuse_ineligible_creator(state, caller_slot)
+    # A fork opens a session too, so a paused crew may not fork one either.
+    session_create._refuse_if_crew_paused(caller_key, caller_slot)
 
     if at_message_index is not None and (
         isinstance(at_message_index, bool) or at_message_index < 0

@@ -32,6 +32,8 @@ import { fmtRelativeTime } from '../sessionOrder'
 import { CREW_FINISHED_OPEN_KEY, CREW_WORKER_SEARCH_MIN, CrewPanelBack, CrewWorkerSearch, openCrewSession, reopenCrewWorker, useCrewWorkerQuery, useCrewWorkers, useLiveCrewWorkers } from './CrewWorkerList'
 import { usePersistedBool } from '../../../hooks/usePersistedBool'
 import { RadioChipGroup, radioChip } from '../../../components/RadioChipGroup'
+import { useCrewMode } from '../../../hooks/usePreviewFlag'
+import { CrewMemberContinue, CrewPauseRow } from './CrewPauseControl'
 
 export interface UltraCounts { total: number; done: number; running: number; approvals: number; questions: number }
 
@@ -317,20 +319,29 @@ function MilestoneRow({ item, state, waitingOn, now, onOpen }: { item: WorkBoard
   )
 }
 
-function MemberRow({ w, depth, onOpen, current }: { w: CrewWorker; depth: number; onOpen: () => void; current: boolean }) {
+function MemberRow({ w, depth, onOpen, current, pausedIn }: { w: CrewWorker; depth: number; onOpen: () => void; current: boolean; pausedIn?: string }) {
   const title = w.title || i18nT('commandCenter.worker_untitled')
+  const card = `rounded-lg border text-sm transition-colors ${current ? 'crew-card' : 'border-border bg-bg-elevated/40 hover:bg-bg-hover'}`
+  const body = <>
+    <span className="flex items-center gap-2 min-w-0">
+      <span className="font-medium text-text truncate">{title}</span>
+      {!pausedIn && <span className="ml-auto"><CrewStatusDot group={crewWorkerGroup(w)} /></span>}
+    </span>
+    {w.summary && <span className="block text-[12px] text-text/80 truncate mt-0.5">{w.summary}</span>}
+    {w.last_activity && <span className="block text-[11px] text-muted truncate mt-0.5">{fmtRelativeTime(w.last_activity)}</span>}
+  </>
   return (
-    <li data-testid="ultra-member" data-depth={depth} style={{ paddingLeft: depth * 16 }} className="relative">
+    <li data-testid="ultra-member" data-depth={depth} data-paused={pausedIn ? 'true' : undefined} style={{ paddingLeft: depth * 16 }} className="relative">
       {depth > 0 && <span aria-hidden="true" className="absolute top-0 bottom-0 border-l border-border" style={{ left: depth * 16 - 9 }} />}
-      <button type="button" onClick={onOpen} aria-current={current ? 'true' : undefined}
-        className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition-colors ${current ? 'crew-card' : 'border-border bg-bg-elevated/40 hover:bg-bg-hover'}`}>
-        <span className="flex items-center gap-2 min-w-0">
-          <span className="font-medium text-text truncate">{title}</span>
-          <span className="ml-auto"><CrewStatusDot group={crewWorkerGroup(w)} /></span>
-        </span>
-        {w.summary && <span className="block text-[12px] text-text/80 truncate mt-0.5">{w.summary}</span>}
-        {w.last_activity && <span className="block text-[11px] text-muted truncate mt-0.5">{fmtRelativeTime(w.last_activity)}</span>}
-      </button>
+      {/* A member Pause all stopped shows "Paused" and its own Continue in the card. */}
+      {pausedIn ? (
+        <div className={`flex items-start gap-2 pr-2 ${card}`}>
+          <button type="button" onClick={onOpen} aria-current={current ? 'true' : undefined} className="flex-1 min-w-0 text-left px-3 py-2">{body}</button>
+          <span className="pt-2"><CrewMemberContinue root={pausedIn} worker={w.key} /></span>
+        </div>
+      ) : (
+        <button type="button" onClick={onOpen} aria-current={current ? 'true' : undefined} className={`w-full text-left px-3 py-2 ${card}`}>{body}</button>
+      )}
     </li>
   )
 }
@@ -411,6 +422,9 @@ export default function UltraCrewPanel({ root, viewing, active, onAct }: {
   const listed = useCrewWorkers(root, active)
   const live = useLiveCrewWorkers(root)
   const workers = useMemo(() => mergeCrewWorkers(listed.data?.workers, live), [listed.data, live])
+  // Pause all ships behind the Ultra Mode preview, like the rest of this panel's crew surfaces.
+  const crewModeOn = useCrewMode()
+  const pause = crewModeOn ? listed.data?.paused : undefined
   const slots = useAppSelector(s => s.dashboard.slots)
   const approvals = crewApprovalRequests(slots, root, new Map())
   // The same pending-question record the chat's own card reads.
@@ -610,12 +624,14 @@ export default function UltraCrewPanel({ root, viewing, active, onAct }: {
       ) : (
         <div className="relative flex-1 min-h-0 flex flex-col">
         {showSearch && <CrewWorkerSearch query={query} onChange={setQuery} />}
+        {/* A paused crew can always be resumed, its root's tab closed or not; only Pause all needs a live root. */}
+        {crewModeOn && (pause || !listed.data?.root_closed) && <CrewPauseRow root={root} paused={pause} running={c.running} leadRunning={!!slots.find(s => s.key === root)?.running} needsYou={workers.filter(w => crewWorkerGroup(w) === 'approval').length} />}
         <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1.5" data-testid="ultra-list">
           {reopenFailed && <ErrorNotice variant="inline" message={i18nT('commandCenter.worker_reopen_failed')} askAgent />}
           {searching && shown.length === 0 && <p role="status" className="text-sm text-muted" data-testid="crew-search-empty">{i18nT('commandCenter.workers_search_empty', { query: query.trim() })}</p>}
           <h3 className="text-[11px] font-semibold uppercase tracking-[1px] text-muted">{`${i18nT('components.crewMode.ultra_crew')} · ${i18nT('components.crewMode.ultra_row_sessions', { count: c.total, running: c.running })}`}</h3>
           <ul className="space-y-1.5">
-            {unfinished.map(w => <MemberRow key={w.key} w={w} depth={depthOpen.get(w.key) ?? 0} current={w.key === viewing} onOpen={() => open(w)} />)}
+            {unfinished.map(w => <MemberRow key={w.key} w={w} depth={depthOpen.get(w.key) ?? 0} current={w.key === viewing} onOpen={() => open(w)} pausedIn={pause?.stopped.includes(w.key) ? root : undefined} />)}
           </ul>
           {finished.length > 0 && (
             <details className="group" data-testid="ultra-finished" open={searching || finishedOpen}

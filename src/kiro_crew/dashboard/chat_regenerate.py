@@ -87,6 +87,24 @@ _MAX_EDIT_CONTENT_CHARS = 32_768
 _SAVE_DRAIN_ATTEMPTS = 8
 
 
+def _crew_paused(slot: "_ChatSlot") -> bool:
+    """Whether an Ultra Mode "Pause all" holds *slot*: its history is not rewritten.
+
+    Asked before anything is truncated, so a refused edit leaves the chat as it
+    was instead of a rewritten history with no turn behind it.
+    """
+    from kiro_crew import crew_pause
+
+    return crew_pause.holds_slot(slot)
+
+
+def _crew_paused_response() -> web.Response:
+    return web.json_response(
+        {"error": "this crew is paused; resume it from the Board", "code": "crew_paused"},
+        status=409,
+    )
+
+
 def _destructive_history_busy(slot: "_ChatSlot") -> web.Response | None:
     """Refuse history mutation while a turn, admission reservation, or teardown owns
     the slot.
@@ -146,6 +164,8 @@ async def api_chat_slot_regenerate(request: web.Request) -> web.Response:
         busy = _destructive_history_busy(slot)
         if busy is not None:
             return busy
+        if _crew_paused(slot):
+            return _crew_paused_response()
 
         msgs = slot.messages
         ai_idx = -1
@@ -523,6 +543,8 @@ async def api_chat_slot_edit_resend(request: web.Request) -> web.Response:
         busy = _destructive_history_busy(slot)
         if busy is not None:
             return busy
+        if _crew_paused(slot):
+            return _crew_paused_response()
 
         # The session whose native resume identity the discard below clears.
         # Resolved here because the two guards that follow are about THAT

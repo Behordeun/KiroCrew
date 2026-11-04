@@ -785,6 +785,29 @@ class TestStopDuringSessionPrep:
         assert stream_calls == []
 
     @pytest.mark.asyncio
+    async def test_an_ultra_mode_pause_during_prep_aborts_dispatch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pause all lands while the turn is prepared: it never opens, on any path."""
+        from kiro_crew import crew_pause
+
+        state, slot, _run_chat = self._make_state_and_slot(tmp_path)
+        stream_calls: list[str] = []
+        client = self._make_client(stream_calls)
+        paused = {"on": False}
+        monkeypatch.setattr(crew_pause, "holds_slot", lambda sl: paused["on"])
+
+        async def _paused_meanwhile(*args, **kwargs):
+            paused["on"] = True
+            return client, True, False
+
+        state.sessions.get_or_create = AsyncMock(side_effect=_paused_meanwhile)
+
+        await _run_chat(state, slot, "hello")
+
+        assert stream_calls == []
+
+    @pytest.mark.asyncio
     async def test_no_stop_dispatches_normally(self, tmp_path: Path) -> None:
         """Control: without a Stop, the same setup opens the turn exactly once."""
         state, slot, _run_chat = self._make_state_and_slot(tmp_path)

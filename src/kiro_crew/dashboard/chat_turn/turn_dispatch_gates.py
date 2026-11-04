@@ -751,6 +751,22 @@ async def _turn_dispatch_gates(turn: _ChatTurn) -> _Flow | None:
             depth=_prompt_depth,
         )
         return _Flow.END
+    # Ultra Mode "Pause all" holds this session: whichever path reached here (a
+    # linked thread, Regenerate, Rewind, Edit & Resend, an API send), no turn
+    # starts until Resume all or the session's own Continue lifts the hold, both
+    # of which lift it before they dispatch. Synchronous, beside the stop gate.
+    from kiro_crew import crew_pause
+
+    if crew_pause.holds_slot(slot):
+        logger.info("Aborting dispatch for %s: its Ultra Mode crew is paused", session_key)
+        crew_log_emit.on_turn_refused(
+            _crew_log_sid,
+            _crew_log_turn_no,
+            "crew_paused",
+            turn._crew_log_actor,
+            depth=_prompt_depth,
+        )
+        return _Flow.END
     # The consume-seam supersession check ran at turn ENTRY, but the whole
     # preparation path (session acquisition, prompt assembly) is awaited
     # between there and this point. A correction the user queued during

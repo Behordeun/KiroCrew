@@ -48,7 +48,7 @@ export function mateRootOf(row: { mate_root?: string | null } | null | undefined
 }
 
 /** The conductor Crew Mode runs while the gateway has not said otherwise. */
-export const DEFAULT_CREW_MODE_AGENT = 'kirocrew-conductor'
+export const DEFAULT_CREW_MODE_AGENT = 'kirocrew-team-lead'
 
 /** The longest steer a person may type into a worker: the server's
  *  `MAX_SEND_MESSAGE_CHARS`, which the steer route and the worker's own composer
