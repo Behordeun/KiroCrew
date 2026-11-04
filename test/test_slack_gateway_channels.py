@@ -32,15 +32,9 @@ from kiro_crew.testing.wait import await_until
 class TestInboundReplayResolvesItsSpoolWhenScheduled:
     """The detached replay pass reads the spool THIS boot resolved, not a later one.
 
-    ``_start_channel_transports`` schedules ``_replay_spooled_inbound`` as a detached
-    task, and the pass reads the spool on a worker thread (``asyncio.to_thread``).
-    Resolving ``spool_path()`` there means resolving the data home at whatever
-    moment the thread runs -- under the suite, after the starting test's
-    ``KIROCREW_HOME`` pin is gone. Five full runs left
-    ``~/.kiro/crew/inbound-spool/refused.jsonl.lock`` in the operator's REAL data
-    home exactly this way. The scheduler now resolves the path on the loop as it
-    creates the task; this pins that the path the pass receives is the one in
-    force at schedule time.
+    The pass runs on a worker thread, so resolving ``spool_path()`` there could read the
+    data home after a test's ``KIROCREW_HOME`` pin is gone and write into the real
+    ``~/.kiro/crew``. The path must be fixed on the loop when the task is created.
     """
 
     @pytest.mark.asyncio
@@ -158,11 +152,8 @@ class TestConnectSlackResilience:
 class TestUnreadyChannelBadge:
     """An ENABLED channel that cannot start owes the operator a reason.
 
-    Its factory returns None silently, so ``channel_status`` reported
-    ``{connected: False, error: ""}``, byte-identical to a channel nobody
-    configured, which System > Services deliberately filters out. The badge is what
-    makes the two distinguishable, and it names the missing credential rather than
-    only producing a row.
+    Without the badge its status matches an unconfigured channel, which System >
+    Services filters out. The badge names the missing credential.
     """
 
     def _orch_with(self, **sections):
@@ -418,10 +409,8 @@ class TestChannelTransportStartGate:
 
     @pytest.mark.asyncio
     async def test_slack_connect_denied_by_policy_drops_socket_client(self):
-        # BLOCKING (GPT #593): Slack is a GOVERNED transport like every other
-        # channel. A `channels` policy that denies `slack` must stop it from
-        # CONNECTING — not merely drop its inbound messages — and must drop the
-        # socket client so nothing can reconnect it later.
+        # Slack is governed like every channel: a policy denying `slack` must stop it
+        # connecting and drop the socket client so nothing can reconnect it.
         self._install_policy(
             {
                 "version": 1,
@@ -698,27 +687,12 @@ _UNCREDENTIALED_CHANNEL_TYPES = (
 class TestChannelSkipReasonAtTransportStart:
     """The enabled-but-uncredentialed WARNING must fire on the real start path.
 
-    The channel registry's enabled-only gate never calls a channel factory
-    when ``_<channel>_enabled`` is False — for a disabled AND for an
-    enabled-but-uncredentialed channel alike — so a factory-level log can
-    never be reached in production. The skip reason is therefore logged by
-    ``_start_channel_transports`` at the decision point, which runs AFTER
-    ``KIROCREW_READY`` (outside the boot-path window), via the seven-channel
-    table feeding ``warn_if_channel_uncredentialed``. These pin that wiring
-    for every collapsed-flag channel, generalizing the WeCom-only
-    class; the helper's message contract is
-    pinned in ``test_wecom_gateway.py``.
+    The registry never calls a factory whose ``_<channel>_enabled`` is False, so the
+    reason is logged by ``_start_channel_transports`` via ``warn_if_channel_uncredentialed``.
+    The message contract is pinned in ``test_wecom_gateway.py``.
 
-    Rows that make a ``_<channel>_enabled`` flag True (fully-credentialed
-    cases) stub the governance gate to deny, so ``registry.start_channels``
-    skips every factory and no transport or network is ever touched; the
-    WARNING under test fires before either.
-
-    Capture is scoped to WARNING+: the wiring contract here is the
-    warning-level diagnostic (exactly one, or none), so an unrelated DEBUG/INFO
-    line some channel module may grow on the skip path must not flake these.
-    Helper-level COMPLETE silence (no records at any level) stays pinned in
-    ``test_wecom_gateway.py``.
+    Fully-credentialed rows stub the governance gate to deny, so no transport starts.
+    Capture is WARNING+ so an unrelated DEBUG/INFO line cannot flake these.
     """
 
     def _build(
