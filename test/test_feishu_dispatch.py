@@ -20,9 +20,7 @@ from kiro_crew.messaging.link import (
 )
 from kiro_crew.session_allocation import SessionClosingError
 
-# ------------------------------------------------------------------
 # Fakes
-# ------------------------------------------------------------------
 
 
 class FakeProvider:
@@ -286,9 +284,7 @@ def _inbound(
     )
 
 
-# ------------------------------------------------------------------
 # Tests: full turn
-# ------------------------------------------------------------------
 
 
 class TestTurn:
@@ -550,15 +546,10 @@ class TestTurn:
     async def test_turn_honours_an_out_of_band_approval_grant(self, monkeypatch) -> None:
         """A button-less channel needs the process-global grant or it cannot act.
 
-        With ``decider=None`` there is no in-band approve/deny, so if the turn does
-        not read the out-of-band grant the INTERACTIVE ladder denies EVERY tool and
-        the agent can only talk -- even while the operator has the dashboard YOLO
-        toggle active. 8/9 channels pass this, including every other button-less
-        one; Feishu was the exception.
-
-        Asserted as a live predicate rather than a captured bool, because reading it
-        per request is what makes arming (or lapsing) the grant take effect on the
-        next tool instead of after a gateway restart.
+        With ``decider=None`` there is no in-band approve/deny, so without the grant
+        the INTERACTIVE ladder denies every tool, even under the dashboard YOLO toggle.
+        It must be a live predicate so arming or lapsing the grant applies to the next
+        tool, not after a gateway restart.
         """
         captured: list = []
 
@@ -588,12 +579,8 @@ class TestTurn:
     async def test_turn_carries_a_session_directive_consumer(self, monkeypatch) -> None:
         """``monitor_start`` & co. must actually apply on a Feishu session.
 
-        These tools are stateless: they return a marker that ``TurnDriver``
-        decodes and hands to the turn's ``directive_consumer``. With no consumer
-        the driver leaves the marker inert *while the tool still reports success
-        to the model* -- a silent no-op, which is strictly worse than a refusal
-        because nothing surfaces the failure. Nine sibling dispatchers pass one;
-        this pins that Feishu does too.
+        ``TurnDriver`` hands these tools' markers to the turn's ``directive_consumer``.
+        With no consumer the marker stays inert while the tool still reports success.
         """
         captured: list = []
 
@@ -672,9 +659,7 @@ class TestTurn:
         assert not any("自动压缩" in content for _, content in client.replies)
 
 
-# ------------------------------------------------------------------
 # Tests: commands (/new, /reset, /compact)
-# ------------------------------------------------------------------
 
 
 class TestCommands:
@@ -903,9 +888,7 @@ class TestCommands:
         assert client.replies == [("msg1", "ℹ️ 当前没有可压缩的对话。")]
 
 
-# ------------------------------------------------------------------
 # Tests: mid-turn busy
-# ------------------------------------------------------------------
 
 
 class TestMidTurn:
@@ -973,9 +956,7 @@ class TestMidTurn:
         assert sessions.successes == []
 
 
-# ------------------------------------------------------------------
 # Tests: group isolation
-# ------------------------------------------------------------------
 
 
 class TestGroupIsolation:
@@ -1044,9 +1025,7 @@ class TestGroupIsolation:
         assert "oc_group1" in group_key
 
 
-# ------------------------------------------------------------------
 # Tests: restart seeding
-# ------------------------------------------------------------------
 
 
 class TestRestartSeeding:
@@ -1140,9 +1119,7 @@ class TestSharedSessionContext:
         assert ctx.minimal == [False], ctx.minimal
 
 
-# ------------------------------------------------------------------
 # Tests: the /compact capability gate
-# ------------------------------------------------------------------
 
 
 class TestCompactCapabilityGate:

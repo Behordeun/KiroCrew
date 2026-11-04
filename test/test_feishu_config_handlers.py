@@ -423,12 +423,9 @@ def test_a_failed_credential_write_leaves_no_folder_behind(tmp_path: Path, monke
 
     status = asyncio.run(_run())
     assert status >= 500, status
-    # The whole point: the folder was never touched.
     assert calls == []
-    # And our config write was rolled back, so nothing durable remains from a save
-    # that reported failure. The file itself SURVIVES: the rollback restores the
-    # `feishu` section only, because unlinking the config to undo our own section
-    # would take every other channel's settings with it.
+    # The config write was rolled back. The file survives: the rollback restores
+    # only the `feishu` section, since unlinking it would drop other channels.
     cfg_path = tmp_path / "config.json"
     if cfg_path.exists():
         assert "feishu" not in json.loads(cfg_path.read_text(encoding="utf-8"))
@@ -611,20 +608,11 @@ def test_save_waits_on_the_cross_process_config_lock(tmp_path: Path, monkeypatch
 def test_rollback_keeps_a_concurrent_edit_it_does_not_own(tmp_path: Path, monkeypatch) -> None:
     """A failed save must undo only what it wrote, not a concurrent writer's edit.
 
-    Sequence: we write `enabled` and `allow_group`, another process then changes
-    `allow_group`, and our .env write fails. Rolling the whole section back would
-    discard their change; the rollback compares per key, so `enabled` reverts and
-    `allow_group` keeps THEIR value.
-
-    The injection is keyed to observed behavior, not call order: the save's apply
-    is the only write that leaves `allow_group` as True in THIS test's config, so
-    the foreign edit lands right after that call returns, strictly before the
-    handler proceeds to the failing .env write and the rollback. `loader` is
-    patched module-wide, so a leaked background writer from a sibling test in the
-    same worker process can also reach `_interleave`; a call-count heuristic let
-    such a caller suppress the injection entirely, and an unlocked
-    read-modify-write could lose it. Hence the once-gate under a lock and the
-    injection going through the real locked primitive.
+    We write `enabled` and `allow_group`, another writer changes `allow_group`, then
+    our .env write fails: the per-key rollback reverts `enabled` and keeps THEIR value.
+    The foreign edit is injected once, under a lock, keyed to our apply's observed
+    result (not call order), because a leaked writer from a sibling test can also
+    reach the module-wide `loader` patch.
     """
     import threading
 
@@ -716,13 +704,9 @@ def test_id_shape_validator() -> None:
 
 
 # ── Missing-SDK install advice (GET) ──
-# lark-oapi ships as the optional [feishu] extra, so a fully credentialed channel
-# still cannot start without it. The badge cannot report that in the case that
-# matters: maybe_start_feishu returns at its first line when the channel is
-# disabled, and the ImportError branch that records the missing SDK sits AFTER
-# that return -- so a user who has not yet flipped the enable toggle gets no hint
-# at all, and one who has must restart the gateway first. These cover the config
-# endpoint answering it directly instead.
+# lark-oapi is the optional [feishu] extra. The badge cannot report it missing while
+# the channel is disabled (maybe_start_feishu returns before the ImportError branch),
+# so the config endpoint answers it directly.
 
 
 def _get_config(monkeypatch, *, connected: bool = False) -> dict:

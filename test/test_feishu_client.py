@@ -14,9 +14,7 @@ import pytest
 
 from kiro_crew.testing.wait import async_wait_until
 
-# ---------------------------------------------------------------------------
 # Fake lark_oapi SDK -- installed into sys.modules for the duration of tests
-# ---------------------------------------------------------------------------
 
 
 class _FakeLogLevel:
@@ -269,7 +267,7 @@ class _FakeWS:
     Client = _FakeWSClient
 
 
-# -- Reply request stubs ---------------------------------------------------
+# Reply request stubs
 
 
 class _FakeReplyMessageRequestBuilder:
@@ -318,9 +316,7 @@ class _FakeReplyMessageRequestBody:
         return _FakeReplyMessageRequestBodyBuilder()
 
 
-# ---------------------------------------------------------------------------
 # Fixture: inject fake lark_oapi into sys.modules
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(autouse=True)
@@ -379,14 +375,11 @@ def _fake_lark_sdk():
     # Force-remove cached import in the client module if it was imported
     if "kiro_crew.feishu.client" in sys.modules:
         mod = sys.modules["kiro_crew.feishu.client"]
-        # Clear any cached lark ref from module-level
         if hasattr(mod, "_lark_mod_cache"):
             delattr(mod, "_lark_mod_cache")
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 
 def _make_event(
@@ -459,9 +452,7 @@ def _make_event(
     return data
 
 
-# ---------------------------------------------------------------------------
 # Tests: __init__
-# ---------------------------------------------------------------------------
 
 
 class TestInit:
@@ -477,7 +468,6 @@ class TestInit:
 
     def test_import_error_without_sdk(self) -> None:
         """When lark_oapi is absent, ImportError with install hint is raised."""
-        # Temporarily remove the fake SDK
         saved = {}
         keys = [
             "lark_oapi",
@@ -489,11 +479,7 @@ class TestInit:
             saved[k] = sys.modules.pop(k, None)
 
         try:
-            # Patch the import inside __init__ by making the lazy import fail.
-            # The code does `import lark_oapi as lark` at the top of __init__.
-            # With no lark_oapi in sys.modules, a fresh import will raise.
-            # But since the module is already imported, we use a different
-            # approach: patch builtins.__import__ to block lark_oapi.
+            # __init__ imports lark_oapi lazily; block it via builtins.__import__.
             import builtins
 
             from kiro_crew.feishu.client import LarkClient
@@ -512,15 +498,12 @@ class TestInit:
             finally:
                 builtins.__import__ = original_import
         finally:
-            # Restore fake SDK modules
             for k in keys:
                 if saved[k] is not None:
                     sys.modules[k] = saved[k]
 
 
-# ---------------------------------------------------------------------------
 # Tests: send_reply
-# ---------------------------------------------------------------------------
 
 
 class TestSendReply:
@@ -576,9 +559,7 @@ class TestSendReply:
         assert result is False
 
 
-# ---------------------------------------------------------------------------
 # Tests: send_reply -- fence safety (split_markdown_safe integration)
-# ---------------------------------------------------------------------------
 
 
 def _fence_balanced(chunk: str) -> bool:
@@ -717,9 +698,7 @@ class TestSendReplyFenceSafety:
         assert sent == text
 
 
-# ---------------------------------------------------------------------------
 # Tests: _sync_reply
-# ---------------------------------------------------------------------------
 
 
 class TestSyncReply:
@@ -745,9 +724,7 @@ class TestSyncReply:
         assert req._body._content == '{"text": "回复 text"}'
 
 
-# ---------------------------------------------------------------------------
 # Tests: _handle_receive_v1
-# ---------------------------------------------------------------------------
 
 
 class TestHandleReceiveV1:
@@ -891,9 +868,7 @@ class TestHandleReceiveV1:
         assert len(received) == 0
 
 
-# ---------------------------------------------------------------------------
 # Tests: _handle_receive_v1 drop logging
-# ---------------------------------------------------------------------------
 
 
 class TestHandleReceiveV1DropLogging:
@@ -1026,9 +1001,7 @@ class TestHandleReceiveV1DropLogging:
         assert any("resolved text is empty" in r.message for r in caplog.records)
 
 
-# ---------------------------------------------------------------------------
 # Tests: start()
-# ---------------------------------------------------------------------------
 
 
 class TestStart:
@@ -1099,9 +1072,7 @@ class TestStart:
             lark_mod.ws.Client = original_client  # type: ignore[attr-defined]
 
 
-# ---------------------------------------------------------------------------
 # Tests: health transitions (on_state_change)
-# ---------------------------------------------------------------------------
 
 
 class TestHealthTransitions:
@@ -1183,9 +1154,7 @@ class TestHealthTransitions:
         client._notify_state(True, "")
 
 
-# ---------------------------------------------------------------------------
 # Tests: close()
-# ---------------------------------------------------------------------------
 
 
 class TestClose:
@@ -1236,12 +1205,8 @@ class TestClose:
     async def test_ws_stop_is_offloaded_off_the_event_loop_thread(self) -> None:
         """The synchronous ws.stop() must not run on the gateway event loop.
 
-        lark-oapi's stop() closes the socket and can block on a wedged peer.
-        On the loop that freezes every task, and the caller's asyncio.wait_for
-        cannot rescue it — a timeout only fires at an await point, so a
-        synchronous call inside the coroutine runs to completion regardless.
-        Asserting the calling THREAD (rather than trusting the source line)
-        keeps the guarantee even if the call is refactored.
+        stop() can block on a wedged peer, freezing every task, and wait_for cannot
+        interrupt a synchronous call. So the test asserts the calling thread.
         """
         import threading
 
@@ -1273,7 +1238,6 @@ class TestClose:
     async def test_close_tolerates_ws_stop_raising(self) -> None:
         from kiro_crew.feishu.client import LarkClient
 
-        # Patch ws module to use the raising variant
         lark_mod = sys.modules["lark_oapi"]
 
         class _RaisingWS:
@@ -1284,7 +1248,6 @@ class TestClose:
         try:
             client = LarkClient(app_id="a", app_secret="s")
             await client.start()
-            # Should not raise
             await client.close()
             assert client._closed is True
             client._thread.join(timeout=1.0)
@@ -1301,9 +1264,7 @@ class TestClose:
         assert client._closed is True
 
 
-# ---------------------------------------------------------------------------
 # Tests: threshold clamping
-# ---------------------------------------------------------------------------
 
 
 class TestThresholdClamp:
@@ -1354,9 +1315,7 @@ class TestThresholdClamp:
             ), f"drift at soft={soft} hard={hard}"
 
 
-# ---------------------------------------------------------------------------
 # Tests: mention resolution
-# ---------------------------------------------------------------------------
 
 
 class TestMentionResolution:
@@ -1472,12 +1431,9 @@ class TestMentionResolution:
     def test_reply_payload_is_utf8_not_escaped(self) -> None:
         """A CJK reply must serialize to its UTF-8 size, not its escaped size.
 
-        The splitter bounds a reply in CHARACTERS; Feishu bounds the request in
-        serialized payload size. With ``ensure_ascii`` left at its default every
-        CJK char becomes ``\\uXXXX`` -- 6 bytes instead of 3 -- so an ordinary
-        4000-char Chinese reply serializes to roughly double and the reply API
-        rejects it outright. Asserted on the byte length, because character count
-        is exactly the measure that hides this.
+        The splitter bounds a reply in characters but Feishu bounds the payload size.
+        Default ``ensure_ascii`` turns each CJK char into 6-byte ``\\uXXXX``, roughly
+        doubling the payload, and the reply API rejects it.
         """
         import json as _json
 
@@ -1531,9 +1487,7 @@ class TestMentionResolution:
         assert seen == ["do the thing"]
 
 
-# ---------------------------------------------------------------------------
 # Tests: the group @-mention gate (bot identity + bot_mentioned)
-# ---------------------------------------------------------------------------
 
 
 def _parse_one(client: Any, data: Any) -> Any:
