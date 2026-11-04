@@ -110,16 +110,10 @@ _UPLOAD_REQ_PREFIX = "aibot_upload_media-"
 # body could otherwise run ~20 min instead of seconds).
 _UPLOAD_ACK_TIMEOUT_SECS = 30.0
 
-# Whole-HANDSHAKE deadline (init + all chunks + finish) — bounds upload_media
-# alone, NOT the full send_document (the caller adds a file-push ACK wait and,
-# for a caption, a second proactive-send ACK wait after this returns). Its job is
-# to stop a STALLED handshake from running for minutes, not to guarantee the send
-# beats any caller's HTTP timeout. It is DERIVED from the plan, never a flat
-# literal: a 20 MB body is ~41 serialized round trips carrying ~27 MB of base64,
-# so a fixed 25 s would time out a legitimate large upload after transferring most
-# of the bytes. The budget is _UPLOAD_ACK_TIMEOUT_SECS (a full per-frame wait for
-# init/finish latency) plus a per-chunk allowance times the chunk count, so it is
-# always strictly greater than the per-frame wait and scales with real work.
+# Whole-HANDSHAKE deadline (init + all chunks + finish) for upload_media alone,
+# not the full send_document. It stops a STALLED handshake; it is DERIVED from the
+# plan because a 20 MB body is ~41 round trips, so a flat 25 s would kill a
+# legitimate upload. Budget: _UPLOAD_ACK_TIMEOUT_SECS plus a per-chunk allowance.
 _UPLOAD_PER_CHUNK_BUDGET_SECS = 5.0
 
 
@@ -476,13 +470,10 @@ class WeComClient:
         there marks the stream dead (see :meth:`stream_is_dead`), which is the
         only way a caller can learn that a bubble stopped taking writes.
 
-        There is deliberately no per-frame ACK wait here. Every frame of a turn
-        replays the same inbound ``req_id``, and that is the only correlation key an
-        ACK carries, so a waiter for one frame can be resolved by another frame's
-        ACK — reporting success for a refusal, which is worse than not asking. Only
-        ``send_proactive`` waits, because it mints its OWN unique req_id and the
-        correlation is therefore exact. A stream caller instead rotates its bubble
-        before the platform expires it.
+        No per-frame ACK wait: every frame of a turn replays the same inbound
+        ``req_id``, the ACK's only correlation key, so a waiter could be resolved by
+        another frame's ACK. ``send_proactive`` waits because its req_id is unique;
+        a stream caller instead rotates its bubble before the platform expires it.
         """
         ws = self._ws
         if ws is None or ws.closed or not req_id:
@@ -529,9 +520,7 @@ class WeComClient:
         answer. It arrives with group support, together with the sessions and
         allow-list that make a group safe to write to.
 
-        This is what makes the dashboard mirror, cron delivery and threshold
-        notices reachable on WeCom at all; before it, every reply had to be an
-        answer to a live ``req_id``.
+        This carries the dashboard mirror, cron delivery and threshold notices.
         """
         ws = self._ws
         if ws is None or ws.closed or not chat_id:
@@ -729,14 +718,9 @@ class WeComClient:
         reply would be persisted as part of the assistant's turn and replayed as
         though the model had said it.
 
-        Delivered as a PROACTIVE PUSH first, because that is the only path whose
-        acceptance can be confirmed: a push mints its own ``req_id``, so its ACK is
-        exactly correlatable, where a stream frame replays the inbound one and its
-        refusal arrives with nothing to attribute it to and no later frame to notice
-        it on. An ack that silently vanishes is worse here than anywhere else — the
-        user pressed a command and got nothing back, which reads as the command not
-        existing. The conversation is warm by construction: this only runs on a turn
-        the user just sent.
+        Delivered as a PROACTIVE PUSH first, the only path whose acceptance can be
+        confirmed (its own ``req_id``); a lost command ack reads as the command not
+        existing. The conversation is warm: the user just wrote.
 
         Falls back to a sealed stream frame, then to ``response_url``, so a
         deployment where the push is unavailable still gets its ack.
@@ -806,9 +790,7 @@ class WeComClient:
             if owns_session and session is not None:
                 await session.close()
 
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
+    # -- Internal --
 
     async def _run_loop(self) -> None:
         """Reconnect loop with exponential backoff."""
@@ -1174,9 +1156,7 @@ class WeComClient:
             logger.exception("WeCom on_message handler raised for userid=%s", inbound.userid)
 
 
-# ------------------------------------------------------------------
 # Frame builders (pure functions, no side effects)
-# ------------------------------------------------------------------
 
 
 def _build_subscribe_frame(bot_id: str, secret: str) -> dict:
