@@ -27,22 +27,44 @@ export type NeedsMeAsk =
        *  cannot name it, and the card shows the ask without buttons. */
       requestMid?: string
       tool: string
+      /** What the agent says the call is for, when it said. */
+      purpose: string
       command: string
       /** The row was already settled when it was read (another tab, the session). */
       resolved?: string
     }
   | { kind: 'question'; questions: CardQuestion[] }
   | { kind: 'form'; asker: string; message: string; fields: ElicitationField[] }
-  | { kind: 'reply'; text: string }
+  | { kind: 'reply'; text: string; options: string[] }
 
 /** Whether a row is in a state the person owes: an approval, an open question
- *  card, or an unanswered question from the session. A blocked row (a safety
+ *  card, or an idle session whose last reply asks for a choice
+ *  (`replyOptions`, the Command Center's rule). A blocked row (a safety
  *  rule refused a call, or the session waits on other work) is not one, and a
  *  row whose only pending approval turns out to be a safety-rule refusal gets no
  *  card either: `collectAsks` drops that ask, and the card shows only when at
  *  least one ask remains. */
-export function slotNeedsMe(slot: Pick<ChatSlot, 'pending_approval' | 'needs_input'>, hasQuestion: boolean): boolean {
-  return !!slot.pending_approval || !!slot.needs_input || hasQuestion
+/** The last reply's text, when that reply ends in options the person has not
+ *  answered: same rule as the Command Center's follow-up ask (`buildCommandCenter`)
+ *  -- an idle, uninterrupted session with nothing queued, and at least one option
+ *  that is not a slash command. */
+export function replyOptions(slot: Pick<ChatSlot, 'has_options' | 'options' | 'running' | 'interrupted' | 'queue_depth'>): string[] {
+  const labels = slot.has_options ? (slot.options || []).filter(label => label && !label.trimStart().startsWith('/')) : []
+  if (!labels.length || slot.running || slot.interrupted || (slot.queue_depth ?? 0) > 0) return []
+  return labels
+}
+
+/** The newest assistant reply in a transcript window, in full. The slot row's
+ *  `last_message` is a short preview, never the question itself. */
+export function lastAssistantText(messages: readonly ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant' && typeof messages[i].content === 'string') return messages[i].content
+  }
+  return ''
+}
+
+export function slotNeedsMe(slot: Parameters<typeof replyOptions>[0] & Pick<ChatSlot, 'pending_approval' | 'needs_input'>, hasQuestion: boolean): boolean {
+  return !!slot.pending_approval || !!slot.needs_input || hasQuestion || replyOptions(slot).length > 0
 }
 
 function str(v: unknown): string {
@@ -78,7 +100,7 @@ function approvalCommand(meta: Record<string, unknown>): string {
 export function collectAsks(
   messages: readonly ChatMessage[],
   questions: readonly CardQuestion[] | undefined,
-  opts: { settled?: ReadonlySet<string>; lastReply?: string } = {},
+  opts: { settled?: ReadonlySet<string>; reply?: { text: string; options: string[] } } = {},
 ): NeedsMeAsk[] {
   const asks: NeedsMeAsk[] = []
   for (const m of messages) {
@@ -92,7 +114,7 @@ export function collectAsks(
       const resolved = str(meta.resolved)
       const key = approvalKey(requestId, requestMid)
       if (resolved && !opts.settled?.has(key)) continue
-      asks.push({ kind: 'approval', requestId, requestMid, tool: approvalTool(m, meta), command: approvalCommand(meta), ...(resolved ? { resolved } : {}) })
+      asks.push({ kind: 'approval', requestId, requestMid, tool: approvalTool(m, meta), purpose: str(meta.tool_purpose), command: approvalCommand(meta), ...(resolved ? { resolved } : {}) })
     } else if (m.role === 'elicitation') {
       const em = meta as ElicitationMeta
       if (em.resolved) continue
@@ -105,13 +127,13 @@ export function collectAsks(
     }
   }
   if (questions && questions.length > 0) asks.push({ kind: 'question', questions: [...questions] })
-  if (opts.lastReply) asks.push({ kind: 'reply', text: opts.lastReply })
+  if (opts.reply && (opts.reply.text || opts.reply.options.length)) asks.push({ kind: 'reply', ...opts.reply })
   return asks
 }
 
 /** One identity per approval row: a request id can recur, the row id cannot. */
 export function approvalKey(requestId: string, requestMid: string | undefined): string {
-  return `${requestId}\u0000${requestMid ?? ''}`
+  return [requestId, requestMid ?? ''].join('\u0000')
 }
 
 /** The recap: the newest live intent's goal and what is true now. Falls back to
