@@ -9,8 +9,9 @@
  *
  * @module appFrame/sandboxFrame
  */
-import { withBase } from '../lib/basePath'
+import { BASE_PATH, withBase } from '../lib/basePath'
 import { tagged } from './frameProtocol'
+import { relayNonce, serveFrameRelay } from './frameRelay'
 
 /** The only sandbox grant. Never `allow-same-origin`: with `allow-scripts` it would
  *  let the frame remove its own sandbox. */
@@ -24,7 +25,13 @@ export interface Minted {
   frameId?: string
   capability: string | null
   ttl: number
+  /** The frame document itself, for `srcdoc` (a first mint only; a renewal has none). */
+  document?: string
 }
+
+/** Stands for this page's origin in a srcdoc frame document's policy (`SRCDOC_SELF`
+ *  in `apps/app_frame.py`); replaced with `location.origin` before it is set. */
+export const SRCDOC_SELF = '__kirocrew_frame_self__'
 
 /** A point name (the manifest key under `contributes`) and an entry id. Mirrors
  *  `POINT_RE` / `POINT_ID_RE` in `apps/app_frame.py`. */
@@ -64,6 +71,17 @@ export async function mintAppFrame(
     ...(typeof data.frameId === 'string' ? { frameId: data.frameId } : {}),
     capability: typeof data.capability === 'string' ? data.capability : null,
     ttl: typeof data.ttl === 'number' && data.ttl > 0 ? data.ttl : 3600,
+    ...(typeof data.document === 'string' && data.document ? { document: data.document } : {}),
+  }
+}
+
+/** The app a minted `/app-frame/<app>/...` path is for. */
+export function frameAppName(frame: string): string {
+  const seg = frame.slice(FRAME_PATH_PREFIX.length).split('/')[0] ?? ''
+  try {
+    return decodeURIComponent(seg)
+  } catch {
+    return ''
   }
 }
 
@@ -100,15 +118,32 @@ export function loadMintedFrame(
   opts: { theme: () => 'dark' | 'light'; onNavigatedAway: () => void },
 ): void {
   let loads = 0
+  const relay = minted.document ? relayNonce() : null
   el.addEventListener('load', () => {
     loads += 1
     if (loads === 1) {
-      postToFrame(el, { type: 'init', capability: minted.capability, theme: opts.theme() })
+      postToFrame(el, {
+        type: 'init',
+        capability: minted.capability,
+        theme: opts.theme(),
+        ...(relay ? { relay, base: BASE_PATH } : {}),
+      })
       return
     }
     // The frame's contents are no longer the gateway's document.
     opts.onNavigatedAway()
   })
+  if (minted.document && relay) {
+    // The document the mint returned, set as `srcdoc`: the frame's own request for
+    // `/app-frame/...` would carry no cookie, and an authenticating reverse proxy in
+    // front of this page answers that with its login page. Same sandbox, same
+    // policy (a <meta> copy of the frame's), `'self'` spelled as this page's origin.
+    el.srcdoc = minted.document.split(SRCDOC_SELF).join(window.location.origin)
+    root.appendChild(el)
+    // Its module and its ctx.fetch come through this page (`frameRelay.ts`).
+    serveFrameRelay(el, frameAppName(minted.frame), relay)
+    return
+  }
   // The URL is the gateway's own: mintAppFrame accepts only a same-origin
   // `/app-frame/` path, and the frame is sandboxed to an opaque origin.
   // nosemgrep: semgrep.kirocrew.frontend-external-script-inject
