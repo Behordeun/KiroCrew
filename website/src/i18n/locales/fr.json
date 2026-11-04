@@ -16012,6 +16012,8 @@
       "diff_env_added": "Env ajoutée : {{names}}",
       "diff_env_removed": "Env retirée : {{names}}",
       "remove_mark": "Retirer",
+      "stop_sharing": "Arrêter le partage",
+      "stop_sharing_hint": "Rien n'est approuvé ; chaque chat garde sa propre copie.",
       "footprint_failed": "Impossible de lire la mémoire utilisée par les serveurs MCP.",
       "footprint_owner_only": "Seul le propriétaire de la crew voit les chiffres de mémoire.",
       "review_what_approve_does": "Approuver : une seule copie l’exécute pour tous les chats, hors de leur bac à sable. Ignorer : il continue de tourner dans chaque chat.",

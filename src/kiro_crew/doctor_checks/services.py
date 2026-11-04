@@ -389,7 +389,19 @@ def _doctor_configuration(cfg: KiroCrewConfig, issues: list[str]) -> DashboardBi
     # Dashboard auth mode. Both this section and the Slack section key off the
     # SAME credential read and the same token pair, so the two can never
     # disagree about whether Slack is configured.
-    creds = cfg.load_credentials()
+    # A denied credentials read keeps the credentials the process environment
+    # holds instead of ending the whole report on a traceback; the shared
+    # data-home helper decides whether the denial is a skip or an issue.
+    from kiro_crew.config import loader_credentials
+    from kiro_crew.doctor_checks import confinement
+
+    creds = loader_credentials.resolve_env_credentials(
+        {k: v for k in loader_credentials.CREDENTIAL_KEYS if (v := os.environ.get(k, ""))}
+    )
+    with render._unreadable_skips_section(
+        issues, "credentials", confined=confinement._doctor_vantage_confined
+    ):
+        creds = cfg.load_credentials()
     _has_slack = bool(creds.get("SLACK_APP_TOKEN") and creds.get("SLACK_BOT_TOKEN"))
     _local = cli_doctor.is_local_only(_host, _has_slack)
     if _local:
