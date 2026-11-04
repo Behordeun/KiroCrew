@@ -11,8 +11,6 @@ import { Btn, Toggle } from '../../components/ui'
 import ErrorNotice from '../../components/ErrorNotice'
 import { INHERIT_MODEL } from '../../components/crew/useCrewEditor'
 import { useAvailableModelsQuery } from '../../hooks/useAvailableModels'
-import { usePreviewFlag } from '../../hooks/usePreviewFlag'
-import { PREVIEW_CREWMATE_HARNESS } from '../../utils/previewFlags'
 import { acpBackendName } from '../../api/acpBackend'
 import { EFFORT_LEVELS, effortLabel, modelSupportsEffort } from '../../lib/effort'
 import { crewDisplayName } from '../../components/AgentSelector'
@@ -115,10 +113,6 @@ export default function CrewProfileSettings({ member, slotKey, waiting = false }
   // The crewmate's own harness can be another harness's member route: its model is
   // `harness_model`, not the configured backend's `model`.
   const resolved = served?.harness_model === undefined ? served : { ...served, model: served.harness_model }
-  // A developer preview (Settings > Developer > Feature Previews): the Harness row.
-  // The pin itself is read from the owner-only readout above whatever the flag
-  // says, so a saved pin always scopes the model lists below.
-  const harnessRowOn = usePreviewFlag(PREVIEW_CREWMATE_HARNESS)
   const stored = {
     approval_mode: String(member.approval_mode || 'trust'),
     acp_backend: String(resolved?.acp_backend || INHERIT_HARNESS),
@@ -143,6 +137,19 @@ export default function CrewProfileSettings({ member, slotKey, waiting = false }
     queryFn: () => api.harnessModels(harness),
     enabled: !!harness,
   })
+  // The model names *target* serves, read raw from that harness's own list. A
+  // list that cannot be read throws, so the save stops and no pin is cleared on
+  // a guess. Inherited serves nothing here: the server judges an unpinned Bot's
+  // models on a route this card cannot see, so both pins go back to Inherited,
+  // which the server always accepts.
+  const harnessServes = async (target: string): Promise<Set<string>> => {
+    if (!target) return new Set()
+    const names = (await queryClient.fetchQuery({
+      queryKey: ['available-models', 'harness', target],
+      queryFn: () => api.harnessModels(target),
+    })).map((m) => m.model_name)
+    return new Set(names.filter(Boolean))
+  }
   const listedModels = (harness
     ? (harnessModels.data || []).map((m) => m.model_name)
     : (models.data || []).map((m) => m.name)
@@ -229,15 +236,19 @@ export default function CrewProfileSettings({ member, slotKey, waiting = false }
       // The permission is compare-and-set: the server applies it only if the
       // record still holds what this card read, so a stale card can never
       // undo a newer pick. Model and effort are plain last-write-wins.
-      // A harness pick also returns both model pins to Inherited: a model chosen
-      // for one harness is rarely served by another, and the server would refuse
-      // the pick. The person then picks from the new harness's own list.
-      const resetModels = key === 'acp_backend'
-        ? {
-            ...(value('model') !== INHERIT_MODEL ? { model: '' } : {}),
-            ...(value('worker_model') !== SAME_AS_CREWMATE ? { worker_model: '' } : {}),
-          }
-        : {}
+      // A harness pick moves each model pin to the new harness's default
+      // (Inherited), unless that harness serves the pinned model too: then the
+      // pin stays. The server refuses a model the new harness does not serve.
+      let resetModels: { model?: string; worker_model?: string } = {}
+      if (key === 'acp_backend') {
+        const served = await harnessServes(next)
+        const pinnedModel = value('model')
+        const pinnedWorker = value('worker_model')
+        resetModels = {
+          ...(pinnedModel !== INHERIT_MODEL && !served.has(pinnedModel) ? { model: '' } : {}),
+          ...(pinnedWorker !== SAME_AS_CREWMATE && pinnedWorker !== WORKER_AUTO && !served.has(pinnedWorker) ? { worker_model: '' } : {}),
+        }
+      }
       const body = key === 'approval_mode'
         ? { approval_mode: wire, expected_approval_mode: String(member.approval_mode ?? '') }
         : { [key]: wire, ...resetModels }
@@ -298,7 +309,23 @@ export default function CrewProfileSettings({ member, slotKey, waiting = false }
   const modelLabel = (m: string) => (m === INHERIT_MODEL ? t('pages.kiroCrewAgentsPage.inherited') : m)
   const harnessLabel = (h: string) => (h === INHERIT_HARNESS ? t('pages.kiroCrewAgentsPage.inherited') : acpBackendName({ id: h }))
   const workerHarnesses = resolved?.worker_harnesses
-  const harnessOptions = withCurrent([INHERIT_HARNESS, ...(resolved?.harnesses || [])], harness)
+  // The server's one list (`crewmate_harnesses`): the picker never adds its own.
+  const offeredHarnesses = resolved?.harnesses || []
+  // Only harnesses a Bot can run on: a stored pin outside the list is not a
+  // choice. The notice below names it instead.
+  const harnessOptions = [INHERIT_HARNESS, ...offeredHarnesses]
+  // A stored pin the list does not offer (hand-edited, or since denied) stays
+  // named, marked unavailable, rather than hidden. Only the server's list
+  // decides this: `harnesses` arrives with the readout.
+  const harnessUnavailable = (h: string) => h !== INHERIT_HARNESS && !!resolved && (
+    (!!resolved.harness_error && h === resolved.acp_backend) || !offeredHarnesses.includes(h)
+  )
+  // The known limits of a harness, under its label, before it is picked.
+  const harnessLimit = (h: string) => {
+    if (harnessUnavailable(h)) return t('pages.membersPage.profile_harness_cannot_start')
+    if (workerHarnesses && !workerHarnesses.includes(h)) return t('pages.membersPage.profile_harness_no_workers', { name })
+    return undefined
+  }
   const workerModelLabel = (m: string) => (
     m === SAME_AS_CREWMATE ? t('pages.membersPage.profile_worker_same_as', { name }) : m === WORKER_AUTO ? t('pages.membersPage.profile_worker_auto') : m
   )
@@ -321,31 +348,32 @@ export default function CrewProfileSettings({ member, slotKey, waiting = false }
             : t('pages.membersPage.profile_mode_trust_desc', { name }),
       })),
     },
-    ...(harnessRowOn ? [{
-      key: 'acp_backend' as const,
+    {
+      key: 'acp_backend',
       label: t('pages.membersPage.profile_harness'),
-      icon: <Cpu size={16} />, tone: 'accent' as const,
+      icon: <Cpu size={16} />, tone: 'accent',
       // "Agent harness" alone does not say what it is: the row says so under
       // its label, and an Inherited value names the harness it resolves to.
       sub: t('pages.membersPage.profile_harness_sub', { name }),
       value: harness,
       valueLabel: harness === INHERIT_HARNESS && resolved?.inherited_harness
         ? t('pages.membersPage.profile_harness_inherited_value', { harness: acpBackendName({ id: resolved.inherited_harness }) })
-        : harnessLabel(harness),
-      // Inherited names what it resolves to; a harness that cannot run this
-      // crewmate's workers says so under its label, before it is picked. The
-      // saved pin that cannot start on this gateway says only that: "can chat"
-      // under it would contradict the notice that its chats don't start.
+        : harnessUnavailable(harness)
+          ? t('pages.membersPage.profile_harness_unavailable_value', { harness: harnessLabel(harness) })
+          : harnessLabel(harness),
+      // Inherited names what it resolves to; every other harness names its known
+      // limits under its label, before it is picked. The saved pin that cannot
+      // start on this gateway says only that: "can chat" under it would
+      // contradict the notice that its chats don't start.
       options: harnessOptions.map((h) => ({
-        value: h, label: harnessLabel(h),
+        value: h,
+        label: harnessUnavailable(h) ? t('pages.membersPage.profile_harness_unavailable_value', { harness: harnessLabel(h) }) : harnessLabel(h),
         desc: h === INHERIT_HARNESS
           ? (resolved?.inherited_harness ? t('pages.membersPage.profile_harness_inherited_hint', { harness: acpBackendName({ id: resolved.inherited_harness }) }) : undefined)
-          : resolved?.harness_error && h === resolved.acp_backend
-            ? t('pages.membersPage.profile_harness_cannot_start')
-            : workerHarnesses && !workerHarnesses.includes(h) ? t('pages.membersPage.profile_harness_no_workers', { name }) : undefined,
+          : harnessLimit(h),
       })),
       caption: t('pages.membersPage.profile_harness_hint', { name }),
-    }] : []),
+    },
     {
       key: 'model',
       label: t('pages.kiroCrewAgentsPage.model'),
@@ -480,9 +508,12 @@ export default function CrewProfileSettings({ member, slotKey, waiting = false }
       <ErrorNotice
         message={resolved?.harness_error && resolved.acp_backend
           ? t('pages.membersPage.profile_harness_unavailable', { name, harness: acpBackendName({ id: resolved.acp_backend }) })
-          : null}
+          : resolved?.acp_backend && !offeredHarnesses.includes(resolved.acp_backend)
+            // Stored by hand, outside the list a Bot can run on: not a choice above.
+            ? t('pages.membersPage.profile_harness_not_supported', { name, harness: acpBackendName({ id: resolved.acp_backend }) })
+            : null}
         testId="crew-profile-settings-harness-error"
-        footer={harnessRowOn && page !== 'acp_backend' ? (
+        footer={page !== 'acp_backend' ? (
           <Btn type="button" onClick={() => openPage('acp_backend')} data-testid="crew-profile-settings-harness-fix">
             {t('pages.membersPage.profile_harness_choose')}
           </Btn>
@@ -536,8 +567,11 @@ export default function CrewProfileSettings({ member, slotKey, waiting = false }
           {/* A radio group: one Tab stop (the checked option), arrows between the
               options, Enter/Space pick. */}
           <div role="radiogroup" aria-label={p.label} aria-disabled={busy || undefined}>
-            {p.options.map((o) => {
+            {p.options.map((o, i) => {
               const on = o.value === p.value
+              // No option checked (a stored pin the list leaves out): the first
+              // one still takes Tab, so a keyboard user can reach the choices.
+              const tabStop = on || (i === 0 && !p.options.some((x) => x.value === p.value))
               return (
                 <button
                   key={o.value || 'inherit'}
@@ -545,7 +579,7 @@ export default function CrewProfileSettings({ member, slotKey, waiting = false }
                   role="radio"
                   aria-checked={on}
                   aria-disabled={busy || undefined}
-                  tabIndex={on ? 0 : -1}
+                  tabIndex={tabStop ? 0 : -1}
                   onKeyDown={moveBetweenOptions}
                   onClick={() => { if (!on && !busy) void save(p.key, o.value) }}
                   className={cn(
