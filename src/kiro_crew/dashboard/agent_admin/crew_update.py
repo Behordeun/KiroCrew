@@ -390,9 +390,6 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
         harness_moves = pending_backend is not None and pending_backend != (
             cfg.agents[name].acp_backend or ""
         )
-        harness_pinned = bool(
-            pending_backend if pending_backend is not None else cfg.agents[name].acp_backend
-        )
         try:
             # The editor sends `model` with every save. Without a harness move an
             # inherit value or the stored value judges nothing, so a stored pin that
@@ -406,7 +403,6 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
                     request,
                     cfg.agent.provider,
                     backend=_pin_entitlement_backend(cfg, name, pending_backend),
-                    harness_pinned=harness_pinned,
                 )
                 if model_reason:
                     return web.json_response(
@@ -425,7 +421,6 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
                     request,
                     cfg.agent.provider,
                     backend=_pin_entitlement_backend(cfg, name, pending_backend, for_workers=True),
-                    harness_pinned=harness_pinned,
                 )
                 if model_reason:
                     return web.json_response(

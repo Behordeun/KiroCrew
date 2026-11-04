@@ -1840,7 +1840,6 @@ def _model_pin_rejected(
     provider: str,
     *,
     backend: str | None = None,
-    harness_pinned: bool = False,
 ) -> str | None:
     """Reason a crew's model pin is unusable, or ``None`` to allow it.
 
@@ -1879,8 +1878,9 @@ def _model_pin_rejected(
     # absent from that set and would otherwise produce a less actionable error.
     from kiro_crew.crewmate_harness import kiro_spelling_applies
 
-    # A crew *harness_pinned* to a harness with its own ids has no kiro-cli spelling to fix.
-    spelled = kiro_spelling_applies(backend, harness_pinned)
+    # *backend* is the harness the pin runs on; one with its own ids has no
+    # kiro-cli spelling to fix.
+    spelled = kiro_spelling_applies(backend)
     correction = model_registry.acp_id_correction(model) if spelled else None
     if correction:
         # Deliberately NOT prescriptive. Upstream naming does not line up across

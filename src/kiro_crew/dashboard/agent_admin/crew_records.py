@@ -212,20 +212,29 @@ async def api_kirocrew_agent_resolved_model(request: web.Request) -> web.Respons
         from kiro_crew.crewmate_harness import (
             CrewmateHarnessUnavailable,
             crewmate_backend_pin,
+            crewmate_inherited_source,
             crewmate_pin_for,
+            kas_pin_harnesses,
+            pinned_backend,
             selectable_harnesses,
             worker_harnesses,
         )
 
         pin = crewmate_pin_for(cfg, crew)
+        inherited = crewmate_inherited_source(cfg, crew)
         out: dict[str, object] = {
             "acp_backend": pin.display_stored if pin is not None else "",
             # What Inherited gives, pinned or not, so the picker can always say it.
-            "inherited_harness": backend_to_stored(
-                resolve_selected_backend(cfg.agent.member_acp_backend)
-            ),
+            "inherited_harness": inherited.harness,
+            # Where Inherited comes from: the legacy agent.member_acp_backend, the
+            # Settings harness, KAS because crewmates cannot run on that one, or
+            # KAS because it cannot apply this crewmate's worker tool limits.
+            "inherited_source": inherited.source,
+            "settings_harness": inherited.settings_harness,
             "harnesses": selectable_harnesses(),
             "worker_harnesses": worker_harnesses(),
+            # A pin to one of these runs the Bot on KAS, so its models are KAS's.
+            "kas_pin_harnesses": kas_pin_harnesses(),
         }
         key: str | None = None
         if getattr(cfg.agents[crew], "member_id", ""):
@@ -234,10 +243,8 @@ async def api_kirocrew_agent_resolved_model(request: web.Request) -> web.Respons
             except ValueError:
                 key = None
         try:
-            runtime = (
-                pin.resolve()
-                if pin is not None
-                else resolve_selected_backend(cfg.agent.member_acp_backend)
+            runtime = pinned_backend(
+                cfg, crew, resolve_selected_backend(cfg.agent.member_acp_backend)
             )
             # The backend session start picks for the crewmate's DM key, through the same gate.
             session_backend = (

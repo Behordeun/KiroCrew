@@ -1001,6 +1001,13 @@ async def _get_or_create_impl(
         # confirmed v3 reloads the live config), so a waiting spawn takes the
         # factory in force now, not the one it copied before waiting.
         factory = owner._provider_factory or factory
+        if self._is_member_key(key) or _is_crewmate_worker_key(key):
+            # A Bot's backend can depend on its files on disk (worker hooks, tool
+            # limits): read that answer fresh, off the loop, before the factory's
+            # in-memory read picks the backend (``crewmate_harness.worker_spec_forces_kas``).
+            from kiro_crew.crewmate_harness import refresh_session_verdict
+
+            await refresh_session_verdict(key)
         provider = factory(
             key,
             agent=agent,

@@ -877,7 +877,8 @@ def crewmate_worker_backend(config: KiroCrewConfig, crewmate: str | None = None)
     ``crewmate_harness.crewmate_backend_pin`` does for the worker's own session
     before ``members.select_provider_backend`` runs.
     Without a pin it is ``agent.member_acp_backend`` as the loader reads it (a
-    stored ``kiro`` already reads as KAS) crossed through
+    stored ``kiro`` already reads as KAS; with none stored it follows
+    ``agent.acp_backend``, or KAS when crewmates cannot run there) crossed through
     ``resolve_selected_backend``, the same gate the member route applies.
 
     *config* is the whole loaded config, never its ``agent`` section: the pin
@@ -935,6 +936,35 @@ def crewmate_tool_limited_servers(member_id: str) -> tuple[str, ...]:
     except agent_specs.AgentSpecUnreadable:
         return ()
     return tool_limits_of(spec)
+
+
+def kas_only_worker_fields(member_id: str, backend: str) -> tuple[str, ...]:
+    """What crewmate *member_id*'s own file sets that *backend* cannot carry for its worker.
+
+    The fields :func:`resolve_worker_spec` refuses on *backend*: ``tool limits``
+    (:func:`tool_limits_of`, outside ``ACP_BACKENDS_MATE_WORKER_TOOL_LIMITS``) and
+    each of ``hooks``, ``permissions`` and ``toolsSettings`` the file sets
+    (``mate_spec_policy.policy_of``) where ``applies_spec_policy`` is false. One
+    read of the file. Blocking.
+    """
+    from kiro_crew.acp_backends import ACP_BACKENDS_MATE_WORKER_TOOL_LIMITS
+    from kiro_crew.agent_sdk import agent_specs
+    from kiro_crew.config import paths as paths_mod
+    from kiro_crew.mate_spec_policy import applies_spec_policy, policy_of
+
+    name = mate_file_for_member(member_id) if member_id else ""
+    if not name:
+        return ()
+    try:
+        spec = agent_specs.load_agent_spec(paths_mod.mate_agents_dir(), name)
+    except agent_specs.AgentSpecUnreadable:
+        return ()
+    fields: list[str] = []
+    if backend not in ACP_BACKENDS_MATE_WORKER_TOOL_LIMITS and tool_limits_of(spec):
+        fields.append("tool limits")
+    if not applies_spec_policy(backend):
+        fields.extend(sorted(policy_of(spec)))
+    return tuple(fields)
 
 
 def tool_limits_of(spec: dict[str, Any]) -> tuple[str, ...]:
