@@ -1114,24 +1114,16 @@ async def reprobe_notice(slug: str) -> Artifact:
     ``notice`` up to date. Best-effort — never raises; returns the (possibly
     updated) artifact.
 
-    Fixes the happy-path staleness gap: ``notice`` / ``notice_code`` are reset
-    on pull / overwrite / visibility-change, but an ordinary publish that
-    later finishes rolling out has no path that revisits them, so the amber
-    "still rolling out" banner would persist forever after the link works. This
-    asks the provider what the CURRENT notice is (:meth:`PublishProvider.serving_notice`)
-    and reconciles the stored record to that truth. It does NOT clear on a timer
-    or on read without checking:
+    Nothing else revisits a publish ``notice`` once the rollout finishes, so the
+    banner would stay forever. This asks :meth:`PublishProvider.serving_notice`
+    and reconciles the record, never on a timer or without checking:
 
-    - Provider re-checks and returns an EMPTY pair -> the condition has cleared,
-      so ``notice`` / ``notice_code`` are cleared.
-    - Provider returns a non-empty pair -> still (or now differently) unhealthy;
-      the stored notice is refreshed to match rather than cleared.
-    - Provider returns ``None`` (cannot re-check) or is unavailable -> the stored
-      notice is left exactly as it was; we never clear a notice we could not
-      verify.
+    - EMPTY pair -> the condition cleared; ``notice`` / ``notice_code`` are cleared.
+    - Non-empty pair -> the stored notice is refreshed to match.
+    - ``None`` or provider unavailable -> left as it was; an unverified notice is
+      never cleared.
 
-    A publication that carries no notice is a no-op (nothing to reconcile), so
-    the re-probe never issues a needless store write for the common case.
+    A publication with no notice is a no-op, with no store write.
     """
     store = get_default_store()
     art = await asyncio.to_thread(store.get, slug)
@@ -1185,25 +1177,17 @@ class DeleteWithdrawal(enum.Enum):
     """Outcome of ``delete_for_artifact`` -- the four states the caller must
     tell apart to decide whether the local delete may proceed.
 
-    The rule is one sentence: the local delete proceeds ONLY when there is nothing
-    left to withdraw, or the destination confirmed the withdrawal. Anything else
-    refuses, loudly, because a refused delete is recoverable while a world-readable
-    copy whose only handle we just erased is not.
-
-    "Recoverable" means the user can retry once the destination answers again. It does
-    NOT mean there is a way to accept the exposure and move on: ``unpublish`` is not
-    that escape hatch either, since it keeps the record unless a removal or a confirmed
-    absence says otherwise (see its own docstring). No such exit exists today, and
-    giving an owner one needs the positive absence probe tracked with the
-    publication-existence contract.
+    The local delete proceeds ONLY when there is nothing left to withdraw or the
+    destination confirmed the withdrawal. Anything else refuses: a refused delete can
+    be retried once the destination answers, while a world-readable copy whose only
+    handle was erased cannot. There is no "accept the exposure" exit (``unpublish``
+    keeps the record too).
 
     - ``NOTHING_PUBLISHED`` -- there is nothing to withdraw: the artifact was never
       published, or the destination it was bound to is CONFIRMED gone (a typed
       ``DriveNotFound``, never a string match on an error message). Delete proceeds.
     - ``UNREACHABLE`` -- the destination could not be reached, so the withdrawal was
-      never attempted. The copy may still be served. Delete is REFUSED. This
-      deliberately covers more cases than a narrower reading would, and the wider
-      population is the accepted cost of not stranding copies silently.
+      never attempted. The copy may still be served. Delete is REFUSED.
     - ``WITHDRAWN`` -- the destination confirmed the removal. Delete proceeds.
     - ``FAILED`` -- the destination was reachable and rejected the withdrawal. A later
       retry can succeed, so the record is the retry handle. Delete is REFUSED.
@@ -1531,17 +1515,9 @@ async def pull_upstream(
     upstream_ahead = isinstance(cur_v, int) and expected_v is not None and cur_v > expected_v
     if not upstream_ahead:
         return {"pulled": False, "reason": "up to date", "source": source, "cloud_version": cur_v}
-    # No hard conflict — we NEVER refuse a pull. Local edits are append-only
-    # history, so pulling can't destroy them; it just adds a newer version on
-    # top. If the live content has unsaved working edits (live_dirty), snapshot
-    # them FIRST as a local-only checkpoint so they land in history, THEN pull
-    # the upstream as the next version.
-    #
-    # This checkpoint goes straight through the store — NOT the auto-pushing
-    # update endpoint — so it is push-suppressed even when auto_sync is on. That
-    # closes the auto-sync race: snapshotting your working edits to preserve them
-    # must never upload them over the very upstream you're about to pull. Pull
-    # never pushes; your NEXT explicit snapshot (the reconciled result) does.
+    # Never refuse a pull: unsaved edits (live_dirty) are snapshotted FIRST as a
+    # local-only checkpoint, straight through the store so auto_sync cannot upload
+    # them over the upstream being pulled.
     preserved_version: int | None = None
     if art.live_dirty:
         try:
