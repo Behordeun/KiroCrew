@@ -6569,6 +6569,7 @@
       "try_a_different_search_or_category": "Try a different search or category.",
       "uninstall_app_title": "Uninstall “{{name}}”?",
       "uninstall": "Uninstall",
+      "update_needs_trust": "{{name}} needs trust to update. Use its own Update button to review and grant trust.",
       "update_one": "{{count}} update",
       "update_other": "{{count}} updates",
       "v": "v",
