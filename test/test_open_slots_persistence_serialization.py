@@ -15,16 +15,9 @@ from chat_test_helpers import _make_state
 
 # ── a serialization failure in the slots flush must name its offender ────────
 #
-# The evidenced failure class behind a slots-broadcast 500 is a non-serializable
-# value in slot state: json.dumps raises deep in the flush, every slots read
-# path is equally broken, and the stock TypeError names neither the slot nor
-# the field. Worse, when the flush fails while a suspend block is unwinding
-# over the body's own exception, the flush's exception REPLACES the body's in
-# the caller's view (the original demoted to __context__), which is how such a
-# failure reads as a broadcast bug. These pin the two diagnostics: the offender
-# note on BOTH coalescing branches, and the unwinding-over note.
-# Semantics stay untouched: same exception types, same propagation, same
-# chaining, no caught-and-swallowed anything.
+# The stock TypeError names neither slot nor field, and a flush failing while a suspend
+# block unwinds replaces the body's exception. These pin the offender note on both
+# coalescing branches and the unwinding-over note; exception types and chaining are unchanged.
 
 
 def _poison_slots_projection(state):

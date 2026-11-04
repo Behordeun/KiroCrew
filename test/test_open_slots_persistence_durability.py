@@ -35,12 +35,8 @@ from kiro_crew.testing.wait import async_wait_until
 def test_persist_fsyncs_the_file_and_its_directory(tmp_path, monkeypatch):
     """The snapshot write asks for both fsyncs, which is what survives a power loss.
 
-    ``atomic_write`` alone is atomic against a concurrent READER -- the rename
-    publishes all of the file or none of it -- and that is a different property from
-    surviving an unclean reboot. Without the file fsync the data blocks need not have
-    reached the disk when the rename does; without the directory fsync the rename
-    itself need not have. A filesystem that commits metadata ahead of data then
-    brings the file back present and ZERO-LENGTH, which is the reported failure.
+    ``atomic_write`` is atomic only against a reader. Without the file and directory
+    fsyncs, a filesystem committing metadata first brings the file back ZERO-LENGTH.
     """
     monkeypatch.setenv("KIROCREW_HOME", str(tmp_path))
     state = _make_state(tmp_path / "sessions")
@@ -79,21 +75,9 @@ def test_persist_fsyncs_the_file_and_its_directory(tmp_path, monkeypatch):
 def test_a_device_that_refuses_the_directory_sync_keeps_the_write_retryable(tmp_path, monkeypatch):
     """An ``EIO`` from the directory fsync must not publish the write as durable.
 
-    POSIX only, and that is the platform behaviour rather than a gap: Windows has no
-    directory descriptor to open, so ``fsync_dir`` returns before it reaches
-    ``os.fsync`` and there is no refusal to inject. Stubbing the open, the sync and
-    the close to force this path there would pin a sequence that platform cannot
-    produce. What Windows does instead -- skip the directory sync quietly and still
-    publish the write -- is what the other persist tests in this file assert when
-    they run there.
-
-    The skip that keeps the fsync pair off the 5s cadence reads a cache of the set
-    last written. Published after a directory sync that FAILED, it suppresses the
-    retry of the very write whose rename may not have reached the disk -- so the
-    power loss the sync exists for finds the newly opened tab missing. The cache has
-    to be forgotten instead, which is what the failure reaching the caller's
-    ``except`` does. The helper is quiet where a directory sync cannot be expressed
-    at all (Windows, a filesystem that rejects it), so nothing is traded for this.
+    The skip-unchanged cache, published after a failed directory sync, would
+    suppress the retry of a rename that may not have reached the disk. POSIX only:
+    Windows has no directory descriptor, so there is no refusal to inject.
     """
     monkeypatch.setenv("KIROCREW_HOME", str(tmp_path))
     state = _make_state(tmp_path / "sessions")
@@ -923,22 +907,9 @@ def test_a_refused_current_generation_does_not_authorize_pruning(tmp_path, monke
 def test_interleaved_writers_leave_the_cache_matching_the_file(tmp_path, monkeypatch):
     """The periodic flush and the pre-restart save are serialized against each other.
 
-    ``atomic_write`` makes each write atomic against a READER, which says nothing
-    about two writers. Unserialized, the damage lands in the CACHE rather than in the
-    file: the writer that sampled ``[A, B]`` can publish that as "what is on disk"
-    after the writer that sampled ``[A]`` has already landed. Every later flush then
-    compares against ``[A, B]``, matches, and skips the write that would have
-    repaired the file -- so B is gone at the next boot, from a cache line, with the
-    file never corrupt at any instant.
-
-    The interleaving is forced rather than hoped for: the first writer is parked
-    inside its own write, and the second is observed BLOCKING on the section's lock
-    rather than inferred to be blocked from still being alive after a short join. A
-    liveness check is a statement about the scheduler -- on a loaded runner the main
-    thread can be held past the park's own deadline, and the first writer would then
-    have released the lock before the check runs, reporting broken serialization that
-    did not happen. The park's deadline is also asserted, so an expired park fails as
-    itself instead of as the thing it was holding still.
+    Unserialized, the loser's sampled set lands in the skip cache, and later flushes
+    skip the write that would repair the file. The first writer is parked in its
+    write and the second is observed BLOCKING on the lock, not inferred from a join.
     """
     monkeypatch.setenv("KIROCREW_HOME", str(tmp_path))
     state = _make_state(tmp_path / "sessions")
@@ -1066,12 +1037,8 @@ def _seeded_three(tmp_path, monkeypatch) -> list[str]:
 def test_cancelling_before_the_first_tab_cannot_prune_the_registry(tmp_path, monkeypatch, victim):
     """A shutdown landing on either pre-loop await leaves the file intact.
 
-    These two awaits are suspension points like any other, and they sit AHEAD of
-    the per-tab loop -- so the carry guard that protects a mid-loop cancellation has
-    nothing to carry at the first (the seed is not read yet) and was not yet armed at
-    the second. With the latch flipping unconditionally, the next flush then saw an
-    empty slot map it was licensed to treat as authoritative and wrote ``[]``, which
-    the boot after that reads as a registry the user deliberately emptied.
+    Both awaits sit ahead of the per-tab carry guard; if the restored latch flips,
+    the next flush writes ``[]``, which the next boot reads as a deliberate empty.
     """
     keys = _seeded_three(tmp_path, monkeypatch)
     state2 = _make_state(tmp_path / "sessions")
