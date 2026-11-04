@@ -625,8 +625,12 @@ def _project_mcp_servers(
     stub_server_names: frozenset[str],
     session_key: str = "",
     withheld_out: WithheldOut | None = None,
+    connections_out: list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """The spec's ``mcpServers``, minus stubbed names and minus two field classes.
+
+    *connections_out*, when given, is extended with each server projected as a
+    Crew-owned Connection bridge (``connections.crew_oauth``, off by default).
 
     *withheld_out*, when given, maps each declared server Crew did not author that
     lost something to the credential filter onto ``(env key names, fields, stdio)``. Names
@@ -830,6 +834,18 @@ def _project_mcp_servers(
                 projected.setdefault("env", {})["KIROCREW_PORT"] = bound_port
             if session_key:
                 projected.setdefault("env", {})["KIROCREW_SESSION_KEY"] = session_key
+        elif session_key and (slug := kas_env_launch.crew_connection_slug(name, entry)):
+            projected = kas_env_launch.relay_crew_connection(
+                projected,
+                session_key=session_key,
+                agent_id=agent_id,
+                server=name,
+                slug=slug,
+                port=gateway_bound_port(),
+                headers=entry.get("headers"),
+            )
+            withheld = []
+            (connections_out if connections_out is not None else []).append(name)
         elif session_key:
             # The withheld env values stay on this machine: the engine is handed
             # Crew's launcher and a reference, never the values (kas_env_launch).
@@ -1257,11 +1273,21 @@ def to_client_custom_agent(
         if entries:
             out["resources"] = entries
 
+    connections: list[str] = []
     mcp_servers = _project_mcp_servers(
-        spec, agent_id, stub_server_names, session_key, withheld_out=withheld_out
+        spec,
+        agent_id,
+        stub_server_names,
+        session_key,
+        withheld_out=withheld_out,
+        connections_out=connections,
     )
     if mcp_servers:
         out["mcpServers"] = mcp_servers
+    if connections:
+        out["permissions"] = kas_env_launch.with_connection_asks(
+            out.get("permissions"), connections
+        )
 
     return out
 
