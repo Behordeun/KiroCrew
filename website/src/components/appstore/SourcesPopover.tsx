@@ -13,12 +13,13 @@ import { recordEvent } from '../../rum'
 import { Btn, Input, IconButton } from '../ui'
 import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover'
 import RegistryManager from '../RegistryManager'
+import { MarketInstallEntry } from './MarketInstallModal'
 import { backendRefusedNotice } from './backendRefused'
 
 import { i18nT } from '../../i18n/t'
 import { uiLocation } from '../../uiLocations/uiLocation'
 import { useImeGuard } from '../../hooks/useImeGuard'
-export default function SourcesPopover({ open, onOpenChange, onError, onInstalled }: {
+export default function SourcesPopover({ open, onOpenChange, onError, onInstalled, onMarketInstall }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onError: (message: string) => void
@@ -26,6 +27,9 @@ export default function SourcesPopover({ open, onOpenChange, onError, onInstalle
   // install and steer the user to the Library tab — without it the popover just
   // closes and a freshly-installed (disabled) app is invisible in the sidebar.
   onInstalled?: (name: string) => void
+  // Opens the marketplace install dialog. The section shows only on a build
+  // whose edition installs marketplace listings.
+  onMarketInstall?: () => void
 }) {
   const ime = useImeGuard()
   const [installPath, setInstallPath] = useState('')
@@ -82,6 +86,9 @@ export default function SourcesPopover({ open, onOpenChange, onError, onInstalle
             </Btn>
           </div>
         </div>
+        {onMarketInstall && (
+          <MarketInstallEntry onOpen={() => { onOpenChange(false); onMarketInstall() }} />
+        )}
       </PopoverContent>
     </Popover>
   )
