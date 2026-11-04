@@ -57,6 +57,7 @@ from kiro_crew.dashboard.urls import (  # noqa: F401
     resolve_dashboard_host,
     should_canonicalize_host,
 )
+from kiro_crew.shared_crew.contracts import SSM_GUEST_REQUEST_KEY, SSM_REQUEST_KEY, SsmGuest
 
 if TYPE_CHECKING:  # aiohttp is needed for annotations only
     from collections.abc import Iterable
@@ -88,6 +89,20 @@ _PROXY_FORWARD_HEADERS = (
 )
 
 
+def is_ssm_request(request: web.Request) -> bool:
+    """Whether the SSM listener admitted *request*.
+
+    An AWS Systems Manager port forward reaches the gateway as a loopback
+    connection with no forwarding header, the exact shape of the machine's own
+    user. The listener marks what it admits, and no peer-address test may trust
+    such a request as local.
+    """
+    read = getattr(request, "get", None)
+    if read is None:
+        return False
+    return read(SSM_REQUEST_KEY) is True or isinstance(read(SSM_GUEST_REQUEST_KEY), SsmGuest)
+
+
 def is_direct_local_request(request: web.Request) -> bool:
     """Return ``True`` only for a request made directly from this machine.
 
@@ -98,7 +113,8 @@ def is_direct_local_request(request: web.Request) -> bool:
     ``Forwarded``/``X-Forwarded-*``/``X-Real-IP`` headers; a browser talking
     to localhost directly never does. So: loopback peer AND no forwarding
     headers ⇒ direct local. Anything else is treated as remote (fail-closed
-    for the secret-reveal and config-write gates).
+    for the secret-reveal and config-write gates). A request the SSM listener
+    admitted is never direct local (:func:`is_ssm_request`).
 
     Known limits: an SSH port-forward (``ssh -L``), socat relay, or a proxy
     that strips all forwarding headers is indistinguishable from a local
@@ -111,7 +127,7 @@ def is_direct_local_request(request: web.Request) -> bool:
     headers. Hosted/multi-user deployments should force read-only via a
     server-side policy regardless of request origin.
     """
-    if not is_loopback(request.remote or ""):
+    if is_ssm_request(request) or not is_loopback(request.remote or ""):
         return False
     return not any(h in request.headers for h in _PROXY_FORWARD_HEADERS)
 
