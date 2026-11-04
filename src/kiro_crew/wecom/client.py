@@ -613,24 +613,14 @@ class WeComClient:
         over the long connection and returns the ``media_id`` a send frame then
         references. The id is valid for three days.
 
-        Takes BYTES, never a path — the same security contract every channel's
-        ``send_file`` keeps: the bytes handed here are exactly what a caller
-        validated, and nothing can substitute different content between validation
-        and upload. Raises :class:`WeComUploadError` on any refusal or transport
-        failure, so the caller never sends a frame referencing an id that was
-        never issued.
+        Takes BYTES, never a path, like every channel's ``send_file``: nothing can
+        swap content between the caller's validation and the upload. Raises
+        :class:`WeComUploadError` on any refusal or transport failure, so no frame
+        ever references an id that was never issued.
 
-        The prepare step (md5 + chunking) is CPU-bound on a multi-megabyte body,
-        so it runs off the event loop, matching how :mod:`kiro_crew.wecom.media`
-        keeps AES-CBC off it.
-
-        ``WECOM_MAX_PLAINTEXT_BYTES`` (20 MiB) is only an outer bound passed in;
-        inside :func:`prepare_upload` the effective ceiling is
-        ``min(WECOM_MAX_PLAINTEXT_BYTES, type-cap)``, and the per-type cap
-        (image/voice 2 MB, file/video 20 MB — see ``media_upload.MAX_BYTES_BY_TYPE``,
-        decimal-MB, all ≤ 20 MB) is always the smaller, so the type cap is what
-        actually applies. An oversize object is refused before the handshake rather
-        than accepted here and rejected by the platform mid-upload.
+        The CPU-bound prepare step (md5 + chunking) runs off the event loop. The
+        per-type cap in ``media_upload.MAX_BYTES_BY_TYPE`` is always below the
+        ``WECOM_MAX_PLAINTEXT_BYTES`` outer bound, so it is what applies.
         """
         upload: MediaUpload = await asyncio.to_thread(
             prepare_upload, data, media_type, filename, max_bytes=WECOM_MAX_PLAINTEXT_BYTES
