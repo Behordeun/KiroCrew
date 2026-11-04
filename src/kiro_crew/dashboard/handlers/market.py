@@ -32,7 +32,11 @@ from kiro_crew.dashboard.handlers._shared import (
     require_owner_dashboard_request,
 )
 from kiro_crew.external_text import redact_external_text as _redact_external
-from kiro_crew.platform.capability_bound import market_install_id
+from kiro_crew.platform.capability_bound import (
+    MarketAppPending,
+    market_install_id,
+    pinned_app_version,
+)
 from kiro_crew.sel import sel as _sel
 
 #: ``<namespace>/<name>`` and an optional ``@<version or bounded range>``
@@ -102,6 +106,7 @@ async def _gate(
     if body_err is not None:
         return body_err
     assert body is not None  # read_bounded_json returns (dict, None) on success
+    request["market_body"] = body
     ref = body.get("ref")
     if not isinstance(ref, str) or ".." in ref or not VALID_MARKET_REF_RE.match(ref):
         return web.json_response(
@@ -134,7 +139,7 @@ def _strs(value: object) -> bool:
 _ITEM_STR_FIELDS = ("ref", "kind", "semver", "sha256", "reason", "target", "action")
 #: The kinds a plan may carry. Anything else is refused as malformed, so an item
 #: no governance check knows about can never reach consent (fail closed).
-MARKET_KINDS = frozenset({"skill", "mcp", "theme"})
+MARKET_KINDS = frozenset({"skill", "mcp", "theme", "app"})
 
 
 def _item_is_showable(item: object) -> bool:
@@ -148,8 +153,12 @@ def _item_is_showable(item: object) -> bool:
         and isinstance(publisher.get("display"), str)
         and _strs(item.get("requiredBy"))
         # A skill or MCP item must say what it is installed as, so governance
-        # asks it under the same id a direct install uses (fail closed).
-        and (item.get("kind") == "theme" or market_install_id(item) is not None)
+        # asks it under the same id a direct install uses (fail closed). A theme
+        # or an app has no such id: an app goes to the app installer instead.
+        and (item.get("kind") in ("theme", "app") or market_install_id(item) is not None)
+        # An app item must pin the integer release the person approves, or the
+        # listing's current release could be installed instead.
+        and (item.get("kind") != "app" or pinned_app_version(item) is not None)
     )
 
 
@@ -256,6 +265,14 @@ async def api_capability_market_apply(request: web.Request) -> web.Response:
         res = await mgr.market_apply(ref, digest)
     except Exception as exc:  # an edition fault or the install bound, answered as JSON
         return _edition_failed("capability_market_apply", ref, exc)
+    if isinstance(res, MarketAppPending):
+        # An app: verified and unpacked in staging, NOT installed. The dashboard
+        # shows ``confirm`` and installs only through /market/confirm.
+        _audit("capability_market_apply", "prepared", ref)
+        return web.json_response(
+            {"needsConfirm": True, "ref": ref, "token": res.token, "confirm": res.confirm},
+            status=202,
+        )
     if not res.ok:
         _audit("capability_market_apply", "refused", ref)
         message = _redact_external((res.message or "refused")[:500])
@@ -266,3 +283,43 @@ async def api_capability_market_apply(request: web.Request) -> web.Response:
     spec_rewritten = await asyncio.to_thread(rebuild_agent_spec, "capability_market_apply")
     request.app["state"].push_refresh("agents")
     return web.json_response({"ok": True, "ref": ref, "agent_spec_rewritten": spec_rewritten})
+
+
+async def api_capability_market_confirm(request: web.Request) -> web.Response:
+    """POST /api/capability/market/confirm -- the yes for a prepared marketplace app.
+
+    Body: ``ref``, ``plan_digest``, the ``token`` /market/apply returned, and
+    ``confirmed`` (must be the JSON value ``true``). The plan digest is re-checked
+    before anything is installed; the app is installed disabled and nothing is
+    registered, so no agent spec is rebuilt here.
+    """
+    gated = await _gate(request, "capability_market_confirm", needs_digest=True)
+    if isinstance(gated, web.Response):
+        return gated
+    ref, digest = gated
+    body = request.get("market_body") or {}
+    token = body.get("token")
+    if body.get("confirmed") is not True or not isinstance(token, str) or not token:
+        return web.json_response(
+            {
+                "error": "confirm needs the token from apply and confirmed: true",
+                "code": "market_confirm_invalid",
+            },
+            status=400,
+        )
+    mgr = _capability_manager()
+    complete = getattr(mgr, "market_app_complete", None)
+    if not mgr.market_available() or not callable(complete):
+        return web.json_response(
+            {"error": _UNAVAILABLE, "code": "capability_unavailable"}, status=503
+        )
+    try:
+        res = await complete(ref, digest, token, confirmed=True)
+    except Exception as exc:  # an edition fault or the install bound, answered as JSON
+        return _edition_failed("capability_market_confirm", ref, exc)
+    if not res.ok:
+        _audit("capability_market_confirm", "refused", ref)
+        message = _redact_external((res.message or "refused")[:500])
+        return web.json_response({"error": message, "code": "market_refused"}, status=409)
+    _audit("capability_market_confirm", "ok", ref)
+    return web.json_response({"ok": True, "ref": ref, "enabled": False})
