@@ -740,6 +740,7 @@ async def _serve_ws(
         CHECK_STATUS_TTL_SECS,
         ensure_gitlab_hosts_loaded,
         gitlab_hosts_generation,
+        is_host_owner_dashboard_request,
         is_owner_dashboard_request,
         schedule_visibility_refresh,
     )
@@ -750,6 +751,9 @@ async def _serve_ws(
     )
 
     owner_request = is_owner_dashboard_request(request)
+    # Provider status probes run on the host owner's credentials. A guest's socket
+    # reads the cached public-repo status only.
+    host_owner_request = is_host_owner_dashboard_request(request)
     ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)
 
@@ -804,7 +808,10 @@ async def _serve_ws(
             await ws.close(code=WSCloseCode.POLICY_VIOLATION, message=b"app disabled")
             return ws
 
-    state.register_ws(ws, owner=owner_request)
+    # The owner set is the host owner's alone: host-only frames (credentials,
+    # config, live browser) go to it. A guest's socket gets the crew frames
+    # (``collaborators.broadcast_to_collaborators``) and the ordinary broadcasts.
+    state.register_ws(ws, owner=host_owner_request)
     registered.append(ws)
 
     # Store app identity on the WS connection so the broadcast chokepoint can
@@ -871,7 +878,7 @@ async def _serve_ws(
     try:
         is_dashboard_user = ws.get("_is_dashboard_user", False)
         all_slots = state.serialize_slots(
-            include_check_status=owner_request, dashboard_user=is_dashboard_user
+            include_check_status=host_owner_request, dashboard_user=is_dashboard_user
         )
         if is_dashboard_user:
             slots_data = all_slots
@@ -973,10 +980,11 @@ async def _serve_ws(
                 await state.send_members_subscribed(ws)
             except Exception:
                 logger.debug("members_subscribed baseline not sent", exc_info=True)
-            try:
-                await _send_browser_live_snapshot(ws)
-            except Exception:
-                logger.debug("browser_live snapshot not sent", exc_info=True)
+            if host_owner_request:
+                try:
+                    await _send_browser_live_snapshot(ws)
+                except Exception:
+                    logger.debug("browser_live snapshot not sent", exc_info=True)
         if is_dashboard_user:
             # The same shape for SLOT folds, and the same reason: a revision floor the
             # client holds BEFORE it issues a baseline read, so a read already on the
@@ -1010,7 +1018,7 @@ async def _serve_ws(
                 # `is_repo_public` gate in `_project_source_links`. A repo the
                 # owner has never classified stays owner-only for non-owners
                 # (fail closed) — no non-owner-driven credentialed probe.
-                if owner_request:
+                if host_owner_request:
                     schedule_visibility_refresh(urls, state.push_slots_update)
                     # Idle slots' chips (every restored tab, until it is opened
                     # or runs a turn) go to the slow tier, so a reconnect does
@@ -1166,7 +1174,7 @@ async def _serve_ws(
     # non-owner dashboard connection renders the resulting cached PUBLIC-repo
     # status read-only (via the fail-closed is_repo_public gate) and spawns no
     # provider subprocess. App tokens never render status either way.
-    _run_status_driver = owner_request
+    _run_status_driver = host_owner_request
     check_task = asyncio.create_task(_refresh_check_loop()) if _run_status_driver else None
 
     # Background task, ONLY for a connection that declared the `sessions` scope:

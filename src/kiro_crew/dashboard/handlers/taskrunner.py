@@ -186,10 +186,14 @@ async def _gate_auto_approve(
     ``claimed_source=None`` means the endpoint carries no source claim (e.g.
     ``/execute`` operates on an existing run) — only the app-context check applies.
     """
+    from kiro_crew.shared_crew.guest_scope import is_guest_session
+
     request_app = request.get("app", "")
     granted = requested
     if requested and (
-        request_app != "" or (claimed_source is not None and claimed_source != "dashboard")
+        request_app != ""
+        or (claimed_source is not None and claimed_source != "dashboard")
+        or is_guest_session(request)
     ):
         granted = False
     if requested:

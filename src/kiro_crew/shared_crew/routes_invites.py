@@ -19,7 +19,7 @@ import binascii
 import functools
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
 from aiohttp import web
@@ -27,8 +27,13 @@ from aiohttp import web
 from kiro_crew.shared_crew import access_set
 from kiro_crew.shared_crew import tailscale_invite_store as store
 from kiro_crew.shared_crew import tailscale_invites as invites
-from kiro_crew.shared_crew.contracts import Provenance
-from kiro_crew.shared_crew.identity import PROVIDER_TAILSCALE, viewer_principal
+from kiro_crew.shared_crew.contracts import Provenance, principal_id_for
+from kiro_crew.shared_crew.guest_scope import guest_job_tag, record_guest_revocation
+from kiro_crew.shared_crew.identity import (
+    PROVIDER_TAILSCALE,
+    TAILNET_ISSUER,
+    viewer_principal,
+)
 from kiro_crew.shared_crew.preview import preview_only
 from kiro_crew.shared_crew.tailscale_api import CODE_RATE_LIMITED, TailscaleApiError
 
@@ -129,14 +134,14 @@ async def _owner_refusal(request: web.Request) -> web.Response | None:
 
 async def _owner_refusal_decision(request: web.Request) -> web.Response | None:
     from kiro_crew.dashboard.handlers._shared import _is_restricted_session
-    from kiro_crew.dashboard.handlers.source_providers import is_owner_dashboard_request
+    from kiro_crew.dashboard.handlers.source_providers import is_host_owner_dashboard_request
 
     if not _dashboard_user(request) or request.get("app") != "":
         return _error(403, "forbidden")
     state = request.app.get("state")
     if state is None or _is_restricted_session(state, request):
         return _error(403, "restricted_session")
-    if not is_owner_dashboard_request(request):
+    if not is_host_owner_dashboard_request(request):
         return _error(403, "owner_only")
     viewer = viewer_principal(request)
     if viewer.provenance is Provenance.LOCAL_OPERATOR:
@@ -288,6 +293,7 @@ async def api_revoke(request: web.Request) -> web.Response:
         # The share is gone at Tailscale, but the seed could not be cleared.
         return _error(503, exc.code)
     await close_revoked_sockets(request.app, withdrawn)
+    await pause_revoked_schedules(request.app, tailnet_principal_ids(withdrawn))
     return web.json_response(result)
 
 
@@ -325,6 +331,45 @@ async def close_revoked_sockets(app: web.Application, logins: frozenset[str]) ->
         except Exception:  # noqa: BLE001 -- one socket never blocks the rest
             logger.debug("closing a revoked person's socket failed", exc_info=True)
     return closed
+
+
+async def pause_revoked_schedules(app: web.Application, principal_ids: Iterable[str]) -> int:
+    """Pause the schedules the revoked people created. Never raises.
+
+    *principal_ids* names the people by principal id, whatever path admitted them
+    (Tailscale, SSM). A schedule a guest created is stamped with the guest's
+    principal (``guest_scope.guest_job_tag``) and would otherwise keep running,
+    with the owner's approvals, after the guest lost access. The owner resumes one
+    that should keep running.
+    """
+    principal_ids = tuple(principal_ids)
+    record_guest_revocation(principal_ids)
+    state = app.get("state")
+    crons = getattr(state, "crons", None)
+    tags = {guest_job_tag(pid) for pid in principal_ids if pid}
+    if not tags or crons is None:
+        return 0
+    paused = 0
+    try:
+        jobs = await crons.list_jobs_async()
+        # An unreadable store lists as empty: say so rather than report nothing to pause.
+        crons.raise_if_store_unreadable()
+        for job in jobs:
+            if job.created_by in tags and await crons.enable_job_async(job.id, enabled=False):
+                paused += 1
+        if paused:
+            state.push_refresh("crons")
+    except Exception:  # noqa: BLE001 -- the revoke itself has already succeeded
+        logger.warning("pausing a revoked person's schedules failed", exc_info=True)
+    return paused
+
+
+def tailnet_principal_ids(logins: Iterable[str]) -> frozenset[str]:
+    """The principal ids of the tailnet *logins* a revoke withdrew."""
+    return frozenset(
+        principal_id_for(PROVIDER_TAILSCALE, TAILNET_ISSUER, login.strip().lower())
+        for login in logins
+    )
 
 
 @preview_only

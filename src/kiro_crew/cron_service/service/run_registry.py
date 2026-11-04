@@ -195,7 +195,9 @@ def set_timeout_alert(self: CronService, cb: Any) -> None:
     self._timeout_alert = cb
 
 
-def run_job(self: CronService, job_id: str) -> Coroutine[Any, Any, bool]:
+def run_job(
+    self: CronService, job_id: str, *, require_attended: bool = False
+) -> Coroutine[Any, Any, bool]:
     """Manually trigger a job via _run_job_isolated (records history).
 
     A plain ``def`` that returns the coroutine, on purpose: the claim on the
@@ -218,11 +220,19 @@ def run_job(self: CronService, job_id: str) -> Coroutine[Any, Any, bool]:
     if job_id in self._claims:
         return _manual_run_refused()
     claim = self._claim_run(job_id, "manual")
+    if require_attended:
+        return self._run_claimed_manual(job_id, claim, require_attended=True)
     return self._run_claimed_manual(job_id, claim)
 
 
-async def _run_claimed_manual(self: CronService, job_id: str, claim: _RunClaim) -> bool:
-    """Body of :meth:`run_job`, entered with the claim already taken."""
+async def _run_claimed_manual(
+    self: CronService, job_id: str, claim: _RunClaim, *, require_attended: bool = False
+) -> bool:
+    """Body of :meth:`run_job`, entered with the claim already taken.
+
+    With ``require_attended`` (a Shared Crew guest's run) a job that runs
+    unattended is not started: the record judged is the snapshot about to run.
+    """
     # Refresh the store off the loop, then resolve + spawn on the loop.
     #
     # The locked _sync() + snapshot runs in a worker thread (_synced_snapshot
@@ -256,6 +266,9 @@ async def _run_claimed_manual(self: CronService, job_id: str, claim: _RunClaim) 
         return False
     job = next((j for j in snapshot if j.id == job_id), None)
     if not job:
+        self._runs.release(job_id, claim)
+        return False
+    if require_attended and (job.approval_mode == "auto" or job.script or job.command):
         self._runs.release(job_id, claim)
         return False
     task = asyncio.create_task(self._run_job_isolated(job, claim))

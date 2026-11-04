@@ -602,14 +602,17 @@ async def load_routed_slot_window(request: web.Request) -> None:
 
 @web.middleware
 async def slot_ownership_middleware(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """Refuse an app caller on a per-slot route it may not act on, before the handler.
+    """Refuse a guest's write to an owner-only route, and an app caller on a per-slot
+    route it may not act on, before the handler.
 
     Registered inner to ``token_auth_middleware``, which publishes the ``app``
     claim this reads, and inner to ``sel_audit_middleware`` so a refusal here is in
     that request record too. A request the checkpoint admits then has its slot's
     pending window loaded (:func:`load_routed_slot_window`).
     """
-    denied = await slot_route_denial(request)
+    from kiro_crew.shared_crew.guest_scope import guest_write_denial
+
+    denied = guest_write_denial(request) or await slot_route_denial(request)
     if denied is not None:
         return denied
     await load_routed_slot_window(request)
