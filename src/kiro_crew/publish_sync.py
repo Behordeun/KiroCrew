@@ -1200,22 +1200,13 @@ class DeleteWithdrawal(enum.Enum):
 
 
 async def delete_for_artifact(art: Artifact) -> DeleteWithdrawal:
-    """Attempt the destination withdrawal for an artifact being deleted locally,
-    and REPORT which of :class:`DeleteWithdrawal` happened.
+    """Withdraw the published copy of an artifact being deleted locally; return the
+    :class:`DeleteWithdrawal` outcome, which the caller uses to allow or refuse the delete.
 
-    Unlike ``unpublish`` this does NOT touch the local store (the artifact is the
-    caller's to delete) and NEVER raises -- provider resolution, the availability
-    probe, and the withdrawal call are all inside the guard, so a caller that
-    cannot act on an exception gets a value instead. But it does not *swallow*
-    the distinction: the caller uses the returned outcome to decide whether the
-    local delete may proceed.
-
-    An unreachable or unregistered destination is reported as ``UNREACHABLE``,
-    not ``FAILED``: nothing was attempted, so there is no rejection to retry. It is
-    NOT "gone for good" -- the copy may still be served -- and the caller refuses the
-    delete on it just as it does on ``FAILED``. Only a reachable destination that
-    rejects the call yields ``FAILED``; only a typed ``DriveNotFound`` means there is
-    genuinely nothing left to withdraw.
+    Never touches the local store and never raises. ``UNREACHABLE`` (nothing was
+    attempted, the copy may still be served) and ``FAILED`` (a reachable destination
+    rejected it) both refuse the delete; only a typed ``DriveNotFound`` means nothing
+    is left to withdraw.
     """
     if art.publication is None:
         return DeleteWithdrawal.NOTHING_PUBLISHED
@@ -1468,28 +1459,18 @@ async def pull_upstream(
 ) -> dict[str, object]:
     """Pull an upstream-ahead version into a NEW local append-only snapshot.
 
-    The unified pull half of bidirectional sync — works for a fork's ``origin``
-    lineage AND my own ``publication`` (a collaborator edited my cloud copy).
-    ``source`` selects which tracked upstream to pull (``auto`` = publication if
-    present else origin). Rules:
+    Works for a fork's ``origin`` and my own ``publication``; ``source`` picks one
+    (``auto`` = publication if present, else origin). Rules:
 
-    - Upstream strictly ahead → pull into a new local snapshot (prior versions
-      stay in history). Never auto-republishes the pulled bytes
-      (content-laundering law); an owned publication's NEXT explicit snapshot
-      pushes normally.
-    - NEVER refuses: unsaved working edits (``live_dirty``) are snapshotted as a
-      LOCAL-ONLY, push-suppressed checkpoint FIRST (preserved in history), then
-      the upstream lands as the next version. The checkpoint goes straight
-      through the store, not the auto-pushing update endpoint, so preserving your
-      edits can't upload them over the upstream being pulled (the auto-sync
-      race). Pull never pushes; your next explicit snapshot does.
-    - Non-text content types are refused up front (would be UTF-8 mojibake).
-    - File-backed (``source_path``) artifacts participate fully: the pulled
-      content is written through to the backing file (under the store's
-      ``resolve()`` + ``is_sensitive_path`` write guards), so upstream edits
-      reach the working file. The file's pre-pull bytes are preserved — as the
-      ``live_dirty`` checkpoint when they drifted from the last snapshot, else
-      in the existing snapshot history.
+    - Pulls only when upstream is strictly ahead. Never auto-republishes the pulled
+      bytes (content-laundering law); the next explicit snapshot pushes normally.
+    - Never refuses: ``live_dirty`` edits are first saved as a local-only checkpoint,
+      written straight through the store so auto-sync cannot upload them over the
+      upstream being pulled.
+    - Non-text content types are refused (they would become UTF-8 mojibake).
+    - File-backed (``source_path``) artifacts get the pulled content written to the
+      file under the store's ``resolve()`` + ``is_sensitive_path`` guards; the
+      pre-pull bytes stay in history.
 
     Best-effort: never raises for provider failures.
     """
@@ -1626,21 +1607,14 @@ _clone_lock = LoopBoundLock()
 async def clone_from_remote(artifact_id: str, *, provider_name: str = DEFAULT_PROVIDER) -> Artifact:
     """Clone a remote artifact into the local store as a bidirectional copy.
 
-    "Clone locally": bring a remote artifact I can access down to this device.
-    The local copy links to the SAME remote copy via a ``publication`` — I pull
-    collaborators' edits down, and my snapshots push back up.
+    The local copy links to the same remote copy via a ``publication``: pulls bring
+    collaborators' edits down, snapshots push back up.
 
-    ``auto_sync`` is the user's INTENT to keep the two copies in sync; a clone
-    always turns it on (cloning is a deliberate two-way link), and it is never
-    set or cleared by permission. Whether a given snapshot actually writes back
-    is the publishing provider's call at push time: ``push_version`` attempts the
-    push and the provider allows or denies it. So permission is evaluated live on
-    every push — a grant or revoke over time is honoured automatically, with no
-    permission verdict frozen at clone time. (A read of the remote's sharing can
-    prove I *can* write, but never that I *can't*: edit rights may come via a
-    group we can't resolve locally, so we never pre-disable a push from a read.)
-    A denied push records a clear ``last_error`` and leaves the edits local;
-    Fork is the path for a copy you intend to diverge from rather than sync with.
+    A clone always turns ``auto_sync`` on, and permission never changes it. The
+    provider decides each push live, so later grants and revokes apply. A sharing
+    read cannot prove I lack write access (rights may come via a group we cannot
+    resolve), so no push is disabled up front; a denied push sets ``last_error`` and
+    leaves the edits local. Fork is for a copy meant to diverge.
     Idempotent via ``find_by_artifact_id``.
     """
     store = get_default_store()
