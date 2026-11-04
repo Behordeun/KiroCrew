@@ -1440,11 +1440,13 @@ turn's refusal recovery carries it. A consumer that writes its OWN audit row whe
 `approve_tool` returns `False` (the dashboard chat path in
 `dashboard/chat_turn/tool_approval.py` and `permission_prompt.py`, the Slack
 ladder in `slack/handler_runtime/permission_ladder.py`) reads the kept reason
-back through `take_batch_refusal` and `batch_guard.refusal_outcome`, so that row
-records `rejected_batch_guard` (with `mechanism=batch_write_guard`) when the
-guard refused and keeps `rejected_transport_floor` only when the security floor
-did. The reason is taken once, so each refused request asks for it at exactly one
-such row.
+back and maps it through `batch_guard.refusal_outcome`, so that row records
+`rejected_batch_guard` (with `mechanism=batch_write_guard`) when the guard
+refused and keeps `rejected_transport_floor` only when the security floor did.
+`batch_guard.take_client_refusal(client, request_id)` is the one place the kept
+reason is asked of a client — the audit consumers and `tool_permission` all call
+it rather than repeat the getattr/take-once/string-check steps — and it takes the
+reason once, so each refused request reads it at exactly one site.
 
 Coverage: the tables name kiro-cli and KAS built-ins and Kiro Crew's own MCP
 tools, so the guard is expected to work on the kiro-cli and KAS harnesses. On a
