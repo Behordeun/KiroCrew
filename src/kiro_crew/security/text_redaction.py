@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import re
 import string
-from typing import TYPE_CHECKING
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 from kiro_crew.security import _submodule
 
@@ -91,7 +92,29 @@ _CRED_CLASS: frozenset[str] = frozenset(
 # bounds latency/memory for a pathologically long unbroken run (only affects a
 # single >512-char secret with no delimiter, which no supported provider issues).
 _STREAM_HOLDBACK_MAX = 512
-_TS = "redaction_rules.stream"  # the rule table's stream side, loaded on first use
+_TS = "redaction_rules.stream"  # the rule table's stream side, loaded only while it is on
+_ID = lambda *a: a[-1]  # noqa: E731
+# Its hooks as the legacy stream has them: nothing held, every window redacted alone.
+_NO_READ = SimpleNamespace(open=(), strong=(), keep_pairs=_ID, floor_past_pairs=_ID)
+_NO_TABLE = SimpleNamespace(
+    line_context=lambda c, t: "", redact_window=lambda r, c, t: r(t), discard_run_res=_ID,
+    discard_carry=lambda k, c, b="": c, discard_end=_ID, read_buffer=lambda c, b: _NO_READ,
+)  # fmt: skip
+
+
+def _table_stream(kinds: tuple[str, ...] | None = None) -> Any:
+    """The table's stream side while the table is on or a value it armed is being dropped.
+
+    Otherwise, or when it cannot be imported, the legacy stream's hooks.
+    """
+    try:
+        on = _submodule("redaction_rules.compat").use_rule_table()
+        return (
+            _submodule(_TS) if on or any(k.startswith("table-") for k in kinds or ()) else _NO_TABLE
+        )
+    except Exception:  # an import that fails leaves the legacy stream
+        return _NO_TABLE
+
 
 # PEM header hold-back: matches an in-progress "BEGIN [type] PRIVATE KEY"
 # phrase in the tail of the commit buffer.  When found, we refuse to commit
@@ -255,11 +278,11 @@ class StreamRedactor:
 
     def _redact_window(self, text: str) -> str:
         """Redact one context-incomplete window without URL-prefix exemptions."""
-        redaction = _submodule("redaction")
-        ctx, self._ctx = self._ctx, _submodule(_TS).line_context(self._ctx, text)
+        redaction, ts = _submodule("redaction"), _table_stream()
+        ctx, self._ctx = self._ctx, ts.line_context(self._ctx, text)
         suspension = redaction._TOKEN_PARAM_EXEMPT_SUSPENDED.set(True)
         try:
-            return _submodule(_TS).redact_window(self._redact, ctx, text)
+            return ts.redact_window(self._redact, ctx, text)
         finally:
             redaction._TOKEN_PARAM_EXEMPT_SUSPENDED.reset(suspension)
 
@@ -282,7 +305,8 @@ class StreamRedactor:
         # to Phase A as an anchorless run, which the 512 floor streams raw.
         if self._discarding:
             assert self._discard_kind is not None
-            res = _submodule(_TS).discard_run_res(_STREAM_DISCARD_RUN_RES)
+            ts = _table_stream(self._discard_kind)
+            res = ts.discard_run_res(_STREAM_DISCARD_RUN_RES)
             run, kinds = stream_aws_anchor.discard_run(self._discard_kind, self._buf, res)
             # A credential label glued to the dropped run (`.../Authorization:`,
             # `...SecretAccessKey = `) must survive it: its own value follows
@@ -304,7 +328,7 @@ class StreamRedactor:
                 # Keep the tail still in the discard, so a label split across
                 # chunks is seen whole on the next pass.
                 carry = stream_aws_anchor.LABEL_CARRY if "aws-keyed" in kinds else 0
-                carry = _submodule(_TS).discard_carry(kinds, carry)
+                carry = ts.discard_carry(kinds, carry, self._buf)
                 self._buf = self._buf[max(0, len(self._buf) - carry) :]
                 self._discard_kind = kinds
                 if self._discarded < _STREAM_DISCARD_MAX:
@@ -313,8 +337,8 @@ class StreamRedactor:
                 return _redaction._REDACTED_CREDENTIAL_TAG
             self._discarding = False
             self._discard_kind = None
-            self._buf = self._buf[run:]
-            self._ctx = _submodule(_TS).line_context(self._ctx, _redaction._REDACTED_CREDENTIAL_TAG)
+            self._buf = self._buf[ts.discard_end(kinds, self._buf, run) :]
+            self._ctx = ts.line_context(self._ctx, _redaction._REDACTED_CREDENTIAL_TAG)
 
         # PHASE A -- SAFETY CUT.
         # Invariant: every candidate can only move the cut backward. Bytes before
@@ -399,7 +423,7 @@ class StreamRedactor:
                 weak_token_anchor = token_anchor
 
         # With the rule table on, its open values are held too (`redaction_rules.stream`).
-        table = _submodule(_TS).read_buffer(self._ctx, self._buf)
+        table = (ts := _table_stream()).read_buffer(self._ctx, self._buf)
         base_cuts = list(safety_cuts)
         safety_cuts.extend(v.cut for v in table.open)
 
@@ -535,10 +559,12 @@ class StreamRedactor:
                         aws_keyed_anchor.start("val"),
                         len(self._buf) - stream_aws_anchor.LABEL_CARRY,
                     )
+                elif credential_reaches_end:  # carry a table value's escape or END-line state
+                    drop_end = max(i, drop_end - ts.discard_carry(tuple(armed), 0, self._buf))
                 commit, self._buf = self._buf[:i], self._buf[drop_end:]
                 out = self._redact_window(commit) if commit else ""
                 tag = _redaction._REDACTED_CREDENTIAL_TAG
-                self._ctx = _submodule(_TS).line_context(self._ctx, tag)
+                self._ctx = ts.line_context(self._ctx, tag)
                 return out + tag
             i = len(self._buf) - cap
             i -= self._buf.startswith("${", i - 1)  # keep a JS/TS `${` placeholder whole

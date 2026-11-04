@@ -935,6 +935,20 @@ class TestSessionCookie:
         for text in ("session=abc", "sessionid=<session-id>", "session: ${SESSION}"):
             assert redact(text).text == text
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # A bare `session` is a cookie only in a cookie header (owner ruling):
+            # elsewhere it names a chat or a routing target.
+            "session=chat-1830",
+            "session=ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "{'session': 'origin'}",
+            "session='origin'",
+        ],
+    )
+    def test_a_bare_session_outside_a_cookie_header_is_kept(self, text: str) -> None:
+        assert redact(text).text == text
+
 
 class TestNonCredentialValuesUnderCredentialNames:
     @pytest.mark.parametrize(
@@ -955,11 +969,11 @@ class TestNonCredentialValuesUnderCredentialNames:
             "password=enabledXYZ",
             "password=requiredpass",
             "secret=hiddenvalue",
-            "session=chat-1830",
+            "Cookie: session=chat-1830",
             "tmux_session: main-work",
             "password=hunter2",
             '"access_token": "{v}"',
-            "session={v}",
+            "Cookie: session={v}",
             "password=${{X}} hunter2-tail",
         ],
     )
@@ -991,7 +1005,7 @@ class TestNonCredentialValuesUnderCredentialNames:
             ("Authorization: Basic hunter", "hunter"),
             ("api_key=abcdefghijklmnopqrstuvwx", "abcdefghijklmnop"),
             ("PHPSESSID=abcdefghijklmnopqrstuvwxyz", "abcdefghijklmnop"),
-            ("session=ABCDEFGHIJKLMNOPQRSTUVWXYZ", "ABCDEFGHIJKLMNOP"),
+            ("Set-Cookie: session=ABCDEFGHIJKLMNOPQRSTUVWXYZ", "ABCDEFGHIJKLMNOP"),
             ("JSESSIONID=0123456789012345678901234567", "0123456789012345"),
             ("password=${{ a }}REALPASS}} next=1", "REALPASS"),
             ("password={{ a }}REALPASS}} next=1", "REALPASS"),

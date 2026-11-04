@@ -38,28 +38,40 @@ NESTED = "table-nested"
 FLAG = "table-flag"
 QUOTE_DOUBLE = "table-quote-double"
 QUOTE_SINGLE = "table-quote-single"
+#: A value opened by an escaped quote (``\\"``), which the same escaped quote closes.
+QUOTE_DOUBLE_ESCAPED = "table-quote-double-escaped"
+QUOTE_SINGLE_ESCAPED = "table-quote-single-escaped"
 XML = "table-xml"
+#: A private-key block. Its open value's kind is ``PEM + ":" + key type``
+#: (``table-pem:RSA ``), so its discard ends only at the matching END line.
 PEM = "table-pem"
 #: Not open: a whole pair at the buffer's end, kept from being cut in two.
 CLOSED = "table-closed"
 
-#: Value bytes of each kind, for the stream's sticky discard.
+#: Value bytes of each kind, for the stream's sticky discard. A quoted value
+#: reads a backslash as escaping the next character, as the batch pass does;
+#: a backslash at the end of the buffer waits for that character.
 DISCARD_RUN_RES: dict[str, re.Pattern[str]] = {
     LINE: re.compile(r"[^\r\n]*"),
     NESTED: re.compile(r"[^\s\"'`,;&)\]}]*"),
     FLAG: re.compile(r"[^\s\"'`]*"),
-    QUOTE_DOUBLE: re.compile(r"[^\"\r\n]*"),
-    QUOTE_SINGLE: re.compile(r"[^'\r\n]*"),
+    QUOTE_DOUBLE: re.compile(r"(?:[^\"\\\r\n]|\\[^\r\n]|\\\Z)*"),
+    QUOTE_SINGLE: re.compile(r"(?:[^'\\\r\n]|\\[^\r\n]|\\\Z)*"),
+    QUOTE_DOUBLE_ESCAPED: re.compile(r"[^\"\r\n]*"),
+    QUOTE_SINGLE_ESCAPED: re.compile(r"[^'\r\n]*"),
     XML: re.compile(r"[^<\r\n]*"),
-    # Up to the END line, which is kept: it alone is not key material.
-    PEM: re.compile(r"(?:(?!-----END )[\s\S])*"),
 }
 #: Bytes of a private-key discard kept buffered, so an END line split across
 #: chunks is seen whole on the next one.
 PEM_CARRY = 96
+#: The most of a trailing backslash run a quoted discard keeps buffered; the
+#: run's parity decides whether the next quote is escaped.
+_ESCAPE_CARRY = 64
 
 _SHAPE_KIND = {d.LINE: LINE, d.NESTED: NESTED, d.FLAG: FLAG}
 _QUOTE_KIND = {'"': QUOTE_DOUBLE, "'": QUOTE_SINGLE}
+_ESCAPED_QUOTE_KIND = {'"': QUOTE_DOUBLE_ESCAPED, "'": QUOTE_SINGLE_ESCAPED}
+_ESCAPING_KINDS = frozenset({QUOTE_DOUBLE, QUOTE_SINGLE})
 
 #: A private-key header and END line, as the table's PEM rows read them.
 _PEM_HEADER_RE = re.compile(r"-----BEGIN (?P<k>[A-Z ]{0,60})PRIVATE KEY-----")
@@ -74,6 +86,8 @@ _KEY_TAIL_RE = re.compile(r"(?:\\[\"']?|[\"'])?[ \t]{0,8}\Z")
 _VALUE_FIELD_REACH = 200
 _NAME_FIELD_REACH = 400
 _LINE_BREAK = re.compile(r"[\r\n]")
+#: An opening bracket run, or a ``{{`` placeholder not closed yet, ending the buffer.
+_BRACKET_HEAD_RE = re.compile(r"(?:[\[{(]{1,8}|\{\{(?:[^}\r\n]|\}(?!\})){0,200})\Z")
 _BLANK = re.compile(r"\s")
 
 
@@ -132,13 +146,23 @@ def _shape_cut(text: str, key_start: int, heads: list[tuple[int, int]]) -> int:
     """
     line_start = max(text.rfind("\n", 0, key_start), text.rfind("\r", 0, key_start)) + 1
     cut = max(line_start, key_start - d._LEAD_MAX - 1)
+    if not d._LINE_LEAD_RE.fullmatch(text, line_start, key_start):
+        # Mid-line the pair reads nested in any window (`window_prefix`), so
+        # only the key's own word (an entity lead glued to it) need be held.
+        cut = max(cut, text.rfind(" ", cut, key_start) + 1, text.rfind("\t", cut, key_start) + 1)
     for start, end in heads:
         if start < cut < end:
             cut = start
     return cut
 
 
-def _region_open(text: str, vstart: int, shape: str) -> tuple[bool, str]:
+def _param_scheme(text: str, vstart: int) -> re.Match[str] | None:
+    """An auth scheme at ``vstart`` whose secret is one named parameter, or None."""
+    scheme = d._SCHEME_RE.match(text, vstart)
+    return scheme if scheme and scheme.group(1).lower() in d._SCHEME_PARAM else None
+
+
+def _region_open(text: str, vstart: int, shape: str, name: str = "") -> tuple[bool, str]:
     """Whether a value starting at ``vstart`` on the last line can still change, and its kind."""
     n = len(text)
     if vstart >= n:
@@ -152,10 +176,14 @@ def _region_open(text: str, vstart: int, shape: str) -> tuple[bool, str]:
         # The region stops at its closing quote, or in front of `\"` for an
         # escaped value; an unclosed one runs to the end of the text.
         closed = region is not None and region[1] < n and text[region[1]] in (q, "\\")
-        return (not closed), _QUOTE_KIND[q]
+        return (not closed), (_ESCAPED_QUOTE_KIND if lead > vstart else _QUOTE_KIND)[q]
     if shape == d.LINE:
         return True, LINE
-    span = d.labelled_value(text, vstart, shape)
+    span = d.named_value(text, vstart, shape, name)
+    if span is None and _param_scheme(text, vstart) is not None:
+        # `Digest ...` / `AWS4-HMAC-SHA256 ...`: the secret is a parameter
+        # (`response=`, `Signature=`) still to come on this line.
+        return not _LINE_BREAK.search(text, vstart), LINE
     if span is None:
         rest = text[vstart:]
         pending = len(rest) <= _PENDING_VALUE_MAX and not set(rest) & set("[{(")
@@ -196,16 +224,22 @@ def _pair_values(text: str, wanted, heads: list[tuple[int, int]]) -> list[OpenVa
             found.append(OpenValue(cut, n, NESTED, strong=False))
             continue
         pos = sep.end()
+        if _BRACKET_HEAD_RE.match(text, sep.end()):
+            # Only an opening bracket or a placeholder's head so far: it may become
+            # a nested structure (not a value), or a placeholder with text glued
+            # on (`{{x}}hunter2`), which is a value.
+            found.append(OpenValue(cut, n, NESTED, strong=False))
+            continue
         shape = d._key_shape(text, m.start(), bool(m.group("dash")), name)
-        is_open, kind = _region_open(text, sep.end(), shape)
+        is_open, kind = _region_open(text, sep.end(), shape, name)
         if is_open and _token_param_placeholder(text, sep.end()):
             # Pass 4's, held by the stream's own `token=` anchor, as the batch defers it.
             continue
         if is_open:
-            start = _replaced_start(text, sep.end(), shape)
+            start = _replaced_start(text, sep.end(), shape, name)
             found.append(OpenValue(cut, start, kind, strong=True, key_start=m.start()))
         else:
-            end = _closed_end(text, sep.end(), shape)
+            end = _closed_end(text, sep.end(), shape, name)
             if end is not None and name == d._AUTHORIZATION:
                 held = _authorization_hold(text, sep.end(), shape, cut, end)
                 if held is not None:
@@ -236,13 +270,13 @@ def _authorization_hold(text: str, vstart: int, shape: str, cut: int, end: int) 
     return OpenValue(cut, word + 1, CLOSED, False, cut, word + 1)
 
 
-def _closed_end(text: str, vstart: int, shape: str) -> int | None:
+def _closed_end(text: str, vstart: int, shape: str, name: str = "") -> int | None:
     """Where a closed value read from ``vstart`` ends, its closing quote included.
 
     A window that ends inside an escaped closing quote (``\\"``) would read the
     backslash as part of the value.
     """
-    span = d.labelled_value(text, vstart, shape)
+    span = d.named_value(text, vstart, shape, name)
     if span is None:
         return None
     end = span[1]
@@ -251,14 +285,18 @@ def _closed_end(text: str, vstart: int, shape: str) -> int | None:
     return end + 1 if text[end : end + 1] in ('"', "'") else end
 
 
-def _replaced_start(text: str, vstart: int, shape: str) -> int:
+def _replaced_start(text: str, vstart: int, shape: str, name: str = "") -> int:
     """Where the batch pass's replacement of the value read from ``vstart`` starts."""
     # Lazy: `compat` imports `security.redaction`.
     from kiro_crew.security.redaction_rules import compat
 
-    span = d.labelled_value(text, vstart, shape)
+    span = d.named_value(text, vstart, shape, name)
+    scheme = _param_scheme(text, vstart) if span is None else None
     if span is not None:
         start = span[0]
+    elif scheme is not None:
+        # The scheme word and the parameters before the secret one are kept.
+        start = len(text)
     else:
         region = d._value_region(text, vstart)
         start = region[0] if region is not None else vstart
@@ -281,8 +319,13 @@ def _xml_values(text: str, wanted) -> list[OpenValue]:  # type: ignore[no-untype
 def _name_value_pairs(text: str, wanted) -> list[OpenValue]:  # type: ignore[no-untyped-def]
     found: list[OpenValue] = []
     n = len(text)
-    for m in d._NAME_FIELD_RE.finditer(text, max(0, n - _NAME_FIELD_REACH)):
-        if not wanted(d.normalise_name(m.group("name"))):
+    # An open value lies on the last line, which its `value` field starts too,
+    # so its name field stays in reach however long the value grows when the
+    # scan starts a name field's reach before the last line, not the buffer end.
+    last_line_start = _last_line_start(text)
+    for m in d._NAME_FIELD_RE.finditer(text, max(0, last_line_start - _NAME_FIELD_REACH)):
+        name = d.normalise_name(m.group("name"))
+        if not wanted(name):
             continue
         value = d._VALUE_FIELD_RE.match(text, m.end())
         if value is None:
@@ -290,11 +333,14 @@ def _name_value_pairs(text: str, wanted) -> list[OpenValue]:  # type: ignore[no-
             if n - m.end() <= _VALUE_FIELD_REACH:
                 found.append(OpenValue(m.start(), n, NESTED, strong=False))
             continue
-        if _LINE_BREAK.search(text, value.end()):
+        if value.end() < last_line_start:
             continue
-        is_open, kind = _region_open(text, value.end(), d.NESTED)
+        is_open, kind = _region_open(text, value.end(), d.NESTED, name)
         if is_open:
             found.append(OpenValue(m.start(), value.end(), kind, strong=True))
+        elif (end := _closed_end(text, value.end(), d.NESTED, name)) is not None:
+            # Whole: the name field and its value reach one window together.
+            found.append(OpenValue(m.start(), end, CLOSED, False, m.start(), end))
     return found
 
 
@@ -305,7 +351,7 @@ def _private_key(text: str) -> list[OpenValue]:
         end_line = f"-----END {m.group('k')}PRIVATE KEY-----"
         at = text.find(end_line, m.end())
         if at == -1:
-            found.append(OpenValue(m.start(), m.end(), PEM, strong=True))
+            found.append(OpenValue(m.start(), m.end(), f"{PEM}:{m.group('k')}", strong=True))
             break
         end = at + len(end_line)
         found.append(OpenValue(m.start(), end, CLOSED, False, m.start(), end))
@@ -326,15 +372,18 @@ _NAME_FIELD_TAIL_RE = re.compile(
 _ENTITY_TAIL_RE = re.compile(
     r"&(?:#[0-9A-Fa-fXx]{0,16};?|[A-Za-z]{0,8};?)(?:&(?:#[0-9A-Fa-fXx]{0,16};?|[A-Za-z]{0,8};?))*\Z"
 )
+#: A private-key header still arriving after its ``BEGIN `` (``-----BEGIN
+#: ENCRYPTED ``): the key type holds blanks, which the stream commits at.
+_PEM_HEADER_TAIL_RE = re.compile(r"-----BEGIN [A-Z ]{0,60}-{0,4}\Z")
 _TAIL_REACH = 600
 
 
 def _partial_heads(text: str) -> list[OpenValue]:
-    """Weak holds for an element tag or a ``name`` field cut off at the buffer's end."""
+    """Weak holds for an element tag, a ``name`` field or a key header cut off at the end."""
     n = len(text)
     lo = max(0, n - _TAIL_REACH)
     found = []
-    for pattern in (_XML_PARTIAL_RE, _NAME_FIELD_TAIL_RE, _ENTITY_TAIL_RE):
+    for pattern in (_XML_PARTIAL_RE, _NAME_FIELD_TAIL_RE, _ENTITY_TAIL_RE, _PEM_HEADER_TAIL_RE):
         m = pattern.search(text, lo)
         if m is not None:
             found.append(OpenValue(m.start(), n, NESTED, strong=False))
@@ -356,19 +405,26 @@ def _partial_heads(text: str) -> list[OpenValue]:
 #: context still reads as "not a line start".
 CONTEXT_MAX = d._LEAD_MAX + 2
 NOT_A_LINE_START = "|"
+#: A bounded context marker, never emitted, for a cookie header already committed.
+_COOKIE_CONTEXT = "Cookie: "
 
 
 def window_prefix(context: str) -> str:
-    """``""`` when ``context`` reads as a line's lead, else :data:`NOT_A_LINE_START`."""
+    """The line lead a window needs, including any cookie header already committed."""
+    if d._COOKIE_HEADER_RE.search(context):
+        return _COOKIE_CONTEXT
     if len(context) <= d._LEAD_MAX and d._LINE_LEAD_RE.fullmatch(context):
         return ""
     return NOT_A_LINE_START
 
 
 def line_context(context: str, committed: str) -> str:
-    """The line context after ``committed`` is emitted following ``context``."""
+    """The bounded last-line context, carrying cookie context past a forced commit."""
     joined = context + committed
-    return joined[joined.rfind("\n") + 1 :][-CONTEXT_MAX:]
+    start = _last_line_start(joined)
+    if d._COOKIE_HEADER_RE.search(joined, start):
+        return _COOKIE_CONTEXT
+    return joined[start:][-CONTEXT_MAX:]
 
 
 def table_active() -> RuleTable | None:
@@ -404,6 +460,17 @@ def buffer_open_values(table: RuleTable, context: str, buf: str) -> list[OpenVal
 
 def open_values(table: RuleTable, text: str) -> list[OpenValue]:
     """Every value in ``text`` the table reads whose end has not arrived, by cut."""
+    outer = getattr(d._SCAN, "scan", None)
+    d._SCAN.scan = d._Scan(text)
+    try:
+        return _open_values(table, text)
+    finally:
+        # Release this buffer and restore a caller's scan, including on errors.
+        d._SCAN.scan = outer
+
+
+def _open_values(table: RuleTable, text: str) -> list[OpenValue]:
+    """Read every value with one shared newline index and value-run cache."""
     wanted = _wanted(table)
     heads = d.url_head_spans(text)
     found = [
@@ -413,6 +480,11 @@ def open_values(table: RuleTable, text: str) -> list[OpenValue]:
         *_private_key(text),
         *_partial_heads(text),
     ]
+    # Keep the header even before a cookie-only pair starts: committing it
+    # would leave a later `session` pair with no cookie context in its window.
+    cookie = d._COOKIE_HEADER_RE.search(text, _last_line_start(text))
+    if cookie is not None:
+        found.append(OpenValue(cookie.start(), len(text), LINE, strong=False))
     return sorted(found, key=lambda v: (v.cut, not v.strong))
 
 
@@ -459,7 +531,7 @@ class BufferRead:
         the name as the batch pass does, or where a legacy carrier starts. A
         legacy carrier cut at a field name the table also reads keeps that name.
         """
-        starts = [v.cut if v.kind == PEM else v.value_start for v in self.strong]
+        starts = [v.cut if is_pem(v.kind) else v.value_start for v in self.strong]
         i = min(base_cuts + (starts if table_only else []))
         if not table_only:
             for v in self.strong:
@@ -497,11 +569,54 @@ def redact_window(redact: Callable[[str], str], context: str, text: str) -> str:
     return redact(text)
 
 
+def is_pem(kind: str) -> bool:
+    """Whether ``kind`` is a private-key block's (``table-pem:<key type>``)."""
+    return kind.startswith(PEM + ":")
+
+
+class _RunRes(dict):  # type: ignore[type-arg]
+    """Discard-run regexes; a private-key kind's is built for its own END line."""
+
+    def __missing__(self, kind: str) -> re.Pattern[str]:
+        if not is_pem(kind):
+            raise KeyError(kind)
+        # Up to the matching END line (`discard_end` then drops it, as the batch
+        # pass does). An END line of another key type inside the block is not its end.
+        end = re.escape(f"-----END {kind[len(PEM) + 1 :]}PRIVATE KEY-----")
+        pattern = self[kind] = re.compile(rf"(?:(?!{end})[\s\S])*")
+        return pattern
+
+
 def discard_run_res(legacy: dict[str, re.Pattern[str]]) -> dict[str, re.Pattern[str]]:
     """The stream's discard-run regexes with the table's kinds added."""
-    return {**legacy, **DISCARD_RUN_RES}
+    return _RunRes({**legacy, **DISCARD_RUN_RES})
 
 
-def discard_carry(kinds: tuple[str, ...], carry: int) -> int:
-    """How much of a discard to keep buffered: a private-key END line may be split."""
-    return max(carry, PEM_CARRY) if PEM in kinds else carry
+def discard_end(kinds: tuple[str, ...], buf: str, run: int) -> int:
+    """Where a discard that stopped at ``run`` ends: past a private key's END line.
+
+    The batch pass replaces a whole block, its END line included.
+    """
+    for kind in kinds:
+        if is_pem(kind):
+            end_line = f"-----END {kind[len(PEM) + 1 :]}PRIVATE KEY-----"
+            if buf.startswith(end_line, run):
+                return run + len(end_line)
+    return run
+
+
+def discard_carry(kinds: tuple[str, ...], carry: int, buf: str = "") -> int:
+    """How much of a discard to keep buffered.
+
+    A private-key END line may be split across chunks; a quoted value's
+    trailing backslashes decide whether the next quote is escaped, so the run
+    is kept (bounded, its parity kept) for the next chunk to be read after.
+    """
+    if any(is_pem(k) for k in kinds):
+        carry = max(carry, PEM_CARRY)
+    if _ESCAPING_KINDS.intersection(kinds):
+        run = len(buf) - len(buf.rstrip("\\"))
+        if run > _ESCAPE_CARRY:
+            run = _ESCAPE_CARRY - (run - _ESCAPE_CARRY) % 2
+        carry = max(carry, run)
+    return carry

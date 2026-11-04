@@ -16,7 +16,8 @@ The transcript itself is never touched: verdicts live in ``display-verdicts/``
 under the data home, two files per session named after the transcript stem.
 
 Trust. A verdict is only ever looked up by its TAG, a 128-bit slice of
-``HMAC(K, "tag" || 0 || rules_version || len(text) || text || 0 || exempt hosts)``. ``K`` is a
+``HMAC(K, "tag" || 0 || rules_version || len(text) || text || 0 || exempt hosts || engine)``
+(``engine`` is :func:`engine_mark`, the live credential-engine switch). ``K`` is a
 subkey of the dashboard token-signing secret, which the agent sandbox masks and
 the file tools fence, so a same-uid agent that can write the sidecar still
 cannot mint a tag for text it chose: a "clean" tag can only come from this
@@ -153,6 +154,24 @@ def rules_version() -> bytes:
         b"table=" + str(int(compat.use_rule_table())).encode(),
     ]
     return hashlib.sha256(b"\0".join(parts)).digest()[:_VER]
+
+
+#: What :func:`engine_mark` adds to a cache key while the rule table runs. The
+#: ``\x02`` separator is never part of a host or a token-parameter prefix.
+_TABLE_ENGINE_MARK = b"\x02table"
+
+
+def engine_mark() -> bytes:
+    """The live credential-engine switch, as bytes every display cache key folds in.
+
+    Empty while pass 1 runs, so a key with the switch off is the key it always
+    was. :func:`rules_version` reads the switch once, at :func:`enable`; the
+    switch can move after that, and a verdict cached under one engine must not
+    answer under the other, so every key names the engine that computed it.
+    """
+    from kiro_crew.security.redaction_rules import compat
+
+    return _TABLE_ENGINE_MARK if compat.use_rule_table() else b""
 
 
 def _derive_key() -> bytes | None:

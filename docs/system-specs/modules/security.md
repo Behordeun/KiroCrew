@@ -877,9 +877,20 @@ Two mechanisms make "the split changed nothing for a caller" a tested claim rath
   placeholder is read to the end of the line, so a credential later on the same
   line is still redacted. `labelled.secret_field`'s allow list holds the
   status words (`required`, `expired`) a credential field carries in place of a value,
-  matched against the whole value, so `enabledXYZ` is still redacted. Every value under
-  a `session` key is redacted at any length, including an app's own session name such
-  as `session=chat-1830`. It judges a key's name before reading its value, so text full
+  matched against the whole value, so `enabledXYZ` is still redacted.
+  A bare scheme word stays visible only under an authorization-suffixed label;
+  under `password`, `api_key` and other credential labels it is an ordinary value.
+  A bare `session` label is judged only in cookie context, while named session
+  cookies are judged everywhere. Streaming keeps a cookie header with the rest of
+  its open line so a later `session` pair retains that context. If the hold
+  reaches its bound, a fixed cookie-context marker carries the header into later
+  windows until the next line break. The stream's
+  name/value scan computes the last-line boundary once and tests value offsets
+  against it, retaining the name-field lookback without suffix rescans. Each
+  `open_values` call shares one detector scan across its value readers, so unquoted
+  values reuse the buffer's newline index and run caches. The call restores any
+  outer scan in `finally`, releasing its own buffer even on errors. It judges
+  a key's name before reading its value, so text full
   of unrelated pairs stays linear. `redact.hits` resolves overlaps by tier, then
   detector certainty, then length, then position, then rule id; it drops a hit inside
   or cutting across an existing `[REDACTED…]` placeholder but keeps one that encloses a

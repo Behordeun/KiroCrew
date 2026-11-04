@@ -646,7 +646,11 @@ def _url_payload_command(n: int) -> str:
 #: the whole-text fail-closed placeholder; ``text_redaction`` (+22) asks the table's
 #: stream glue where to hold a buffer, which does nothing while the switch is off.
 #: The table itself lives in a subpackage this budget does not count.
-_PACKAGE_LINE_BUDGET = 33_792
+#: Raised by 26, from 33,792, for ``text_redaction`` loading the table's stream
+#: glue only while the table is on: the legacy hooks it uses otherwise (and when
+#: the glue cannot be imported), the loader, and the carry of a dropped table
+#: value's escape and END-line state. No check was relaxed.
+_PACKAGE_LINE_BUDGET = 33_818
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second

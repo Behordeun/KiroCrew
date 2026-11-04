@@ -433,12 +433,22 @@ def _scrub_dict_key(keys: tuple[str, ...], key: str, home: str) -> str:
     base64 tail, an over-long token -- is replaced. Outside a credential
     context the key gets the same shape check as any value.
     """
+    from kiro_crew.security.redaction_rules import compat
+
     for ancestor in keys:
         if _is_credential_key(ancestor):
             if _FIELD_NAME_RE.match(key):
                 break
             return "[REDACTED: credential]"
     for ancestor in keys:
+        if compat.use_rule_table() and _FIELD_NAME_RE.match(key):
+            from kiro_crew.security.redaction_rules.detectors import is_authorization_name
+            from kiro_crew.security.redaction_rules.rules import normalise_name
+
+            # A field name is not an Authorization value. Other ancestors
+            # still supply their own credential context to the joined check.
+            if is_authorization_name(normalise_name(ancestor)):
+                continue
         joined = f"{ancestor}: {key}"
         if redact_text(joined) != joined:
             return "[REDACTED: credential]"

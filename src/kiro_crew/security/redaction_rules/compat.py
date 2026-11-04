@@ -22,6 +22,9 @@ Shapes kept
   the replaced span as it was in pass 1.
 
 Identifier hits (AWS access key IDs, Twilio account SIDs) are resolved and kept.
+A hit inside a private-key block is folded into the block, which is replaced
+whole. A name-keyed value that encloses a ``token=`` parameter is replaced
+around that parameter, which pass 4 handles.
 
 Fail-closed
 -----------
@@ -56,8 +59,9 @@ import threading
 from collections.abc import Collection
 
 import kiro_crew.security.redaction as redaction
+from kiro_crew.security.redaction_rules.detectors import detect
 from kiro_crew.security.redaction_rules.model import NAME_DETECTORS, Detector, Hit
-from kiro_crew.security.redaction_rules.redact import hits
+from kiro_crew.security.redaction_rules.redact import _PLACEHOLDER_RE, hits
 from kiro_crew.security.redaction_rules.rules import RuleTable, load_table
 
 logger = logging.getLogger(__name__)
@@ -273,37 +277,154 @@ def _fail_closed(text: str, exc: BaseException) -> _Plan:
     )
 
 
+#: The rows that match a whole private-key block. Everything between a block's
+#: armour lines is key material, so the block is replaced whole.
+_KEY_BLOCK_RULES = ("pem.private_key", "pgp.private_key", "pem.private_key_unterminated")
+
+#: Characters trimmed from the edges of what is left of a name-keyed value once
+#: a ``token=`` parameter is cut out of it.
+_PIECE_EDGE = " \t,;"
+
+
+_block_tables: dict[int, tuple[RuleTable, RuleTable]] = {}
+
+
+def _block_table(table: RuleTable) -> RuleTable:
+    """``table`` cut down to its key-block rows (built once per loaded table)."""
+    held = _block_tables.get(id(table))
+    if held is not None and held[0] is table:
+        return held[1]
+    rows = tuple(r for r in table.rules if r.id in _KEY_BLOCK_RULES)
+    blocks = RuleTable(rules=rows, allow=table.allow, label_exclude=table.label_exclude)
+    _block_tables.clear()
+    _block_tables[id(table)] = (table, blocks)
+    return blocks
+
+
+def _key_blocks(text: str, table: RuleTable, resolved: list[Hit]) -> list[Hit]:
+    """Every private-key block in ``text``, outermost first, as hits.
+
+    The resolution keeps the more certain detector where hits overlap, so a
+    vendor key written inside a block (a token in a PGP ``Comment:`` line) would
+    otherwise win its few characters and leave the rest of the block in the
+    clear. The blocks are found by the table's own detector over its key-block
+    rows, so they are exactly the hits the resolution dropped. Nothing is
+    scanned again when every resolved hit is already a block. A block that cuts
+    across an existing placeholder is skipped, as the resolution skips it.
+    """
+    if "PRIVATE" not in text or all(h.rule_id in _KEY_BLOCK_RULES for h in resolved):
+        return []
+    placeholders = [m.span() for m in _PLACEHOLDER_RE.finditer(text)]
+    blocks = [
+        block
+        for block in detect(_block_table(table), text)
+        if not any(
+            block.start < e and s < block.end and not (block.start <= s and e <= block.end)
+            for s, e in placeholders
+        )
+    ]
+    blocks.sort(key=lambda h: (h.start, -h.end))
+    outer: list[Hit] = []
+    for block in blocks:
+        if not outer or block.start >= outer[-1].end:
+            outer.append(block)
+    return outer
+
+
+def _with_key_blocks(resolved: list[Hit], blocks: list[Hit]) -> list[Hit]:
+    """``resolved`` with every hit a key block overlaps folded into that block."""
+    if not blocks:
+        return resolved
+    out: list[Hit] = []
+    pending = list(resolved)
+    for block in blocks:
+        start, end = block.start, block.end
+        rest: list[Hit] = []
+        for hit in pending:
+            if hit.start < end and start < hit.end:
+                start, end = min(start, hit.start), max(end, hit.end)
+            else:
+                rest.append(hit)
+        pending = rest
+        out.append(Hit(block.rule_id, block.tier, block.detector, start, end))
+    out.extend(pending)
+    out.sort(key=lambda h: (h.start, h.end))
+    # Folding a straddling hit can make two blocks meet; join them.
+    joined: list[Hit] = []
+    for hit in out:
+        if joined and hit.start < joined[-1].end:
+            last = joined[-1]
+            joined[-1] = Hit(
+                last.rule_id, last.tier, last.detector, last.start, max(last.end, hit.end)
+            )
+        else:
+            joined.append(hit)
+    return joined
+
+
+def _outside_token_params(hit: Hit, text: str, params: list[tuple[int, int]]) -> list[Hit]:
+    """The pieces of a name-keyed ``hit`` outside every ``token=`` parameter it overlaps.
+
+    A ``token=`` parameter's value is pass 4's, with its companion prefix seam,
+    template-placeholder edge and stream deferral, so the table leaves that
+    parameter alone. The rest of an enclosing value (``password=abc&token=...``)
+    is still this hit's and is still replaced.
+    """
+    pieces: list[Hit] = []
+    cursor = hit.start
+    for p_start, p_end in params:
+        if p_end <= cursor or p_start >= hit.end:
+            continue
+        pieces.append(Hit(hit.rule_id, hit.tier, hit.detector, cursor, max(cursor, p_start)))
+        cursor = max(cursor, p_end)
+    pieces.append(Hit(hit.rule_id, hit.tier, hit.detector, cursor, max(cursor, hit.end)))
+    kept: list[Hit] = []
+    for piece in pieces:
+        value = text[piece.start : piece.end]
+        lead = len(value) - len(value.lstrip(_PIECE_EDGE))
+        trail = len(value) - len(value.rstrip(_PIECE_EDGE))
+        start, end = piece.start + lead, piece.end - trail
+        if start < end:
+            kept.append(Hit(hit.rule_id, hit.tier, hit.detector, start, end))
+    return kept
+
+
 def _table_pass(text: str) -> _Plan:
     """Pass 1's ``(taken, warnings, rules)``, from the rule table's hits."""
     taken: list[_Span] = []
     warnings: list[str] = []
     rules: dict[int, tuple[str, str]] = {}
-    token_values: list[tuple[int, int]] | None = None
+    token_params: list[tuple[int, int]] | None = None
     code_text = not redaction.bare_secret_pass_enabled()
-    for hit in hits(text, _table()):
-        if not hit.tier.redacts:
+    table = _table()
+    resolved = hits(text, table)
+    for found in _with_key_blocks(resolved, _key_blocks(text, table, resolved)):
+        if not found.tier.redacts:
             continue
-        if code_text and hit.detector in NAME_DETECTORS and _is_code_literal(text, hit):
+        if code_text and found.detector in NAME_DETECTORS and _is_code_literal(text, found):
             # Inside `redaction_switch.code_text()` an ordered alphabet or a data
             # URI payload is code as its author wrote it, whatever name it sits
             # under, as the legacy passes left it.
             continue
-        if hit.detector in NAME_DETECTORS:
-            if token_values is None:
-                token_values = [m.span(1) for m in redaction._TOKEN_PARAM_RE.finditer(text)]
-            if any(
-                s < hit.end and hit.start < e for s, e in token_values
-            ) or is_token_param_placeholder(text, hit.start):
-                # A `token=` value is pass 4's, with its companion prefix seam,
-                # template-placeholder edge and stream deferral.
+        pieces = [found]
+        if found.detector in NAME_DETECTORS:
+            if is_token_param_placeholder(text, found.start):
+                # A `${` placeholder under `token=` is pass 4's to keep.
                 continue
-        rule, label, start = _rule_and_span(hit, text)
-        if taken and start < taken[-1][1]:
-            # A label never reaches into an earlier span: keep the value alone.
-            rule, label, start = _OLD_RULE.get(hit.rule_id, "credential_pattern"), "", hit.start
-        taken.append((start, hit.end, redaction.REDACTED_CREDENTIAL_TAG))
-        rules[start] = (rule, label)
-        warnings.append(f"Redacted credential pattern ({hit.end - start} chars)")
+            if token_params is None:
+                token_params = [m.span() for m in redaction._TOKEN_PARAM_RE.finditer(text)]
+            if any(s < found.end and found.start < e for s, e in token_params):
+                pieces = _outside_token_params(found, text, token_params)
+        for hit in pieces:
+            rule, label, start = _rule_and_span(hit, text)
+            if (taken and start < taken[-1][1]) or hit is not pieces[0]:
+                # A label never reaches into an earlier span, and only the first
+                # piece of a split value sits right after its label: keep the
+                # value alone.
+                rule, label, start = _OLD_RULE.get(hit.rule_id, "credential_pattern"), "", hit.start
+            taken.append((start, hit.end, redaction.REDACTED_CREDENTIAL_TAG))
+            rules[start] = (rule, label)
+            warnings.append(f"Redacted credential pattern ({hit.end - start} chars)")
     return taken, warnings, rules
 
 

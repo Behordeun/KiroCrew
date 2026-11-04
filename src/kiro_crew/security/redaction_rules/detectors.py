@@ -59,7 +59,14 @@ _SEP_RE = re.compile(r"(?:\\?[\"'])?[ \t]{0,8}(?:=>|:(?![:/])|=(?!=))[ \t]{0,8}"
 #: unless the next word is another flag.
 _FLAG_SEP_RE = re.compile(r"[ \t]{1,8}(?=[^\s\-])")
 
-_SCHEME_RE = re.compile(r"(?i:(bearer|basic|token|digest|aws4-hmac-sha256))[ \t]{1,8}")
+#: An auth scheme word and its separator. A no-break space separates as a space
+#: does, and a scheme word alone at the end of its value region (a bare
+#: ``Authorization: Bearer``, a quoted value holding only the scheme) is a scheme
+#: with no credential after it on that line.
+_SCHEME_RE = re.compile(r"(?i:(bearer|basic|token|digest|aws4-hmac-sha256))(?:[ \t\u00a0]{1,8}|\Z)")
+#: The token on the line after a bare ``Bearer``, as the legacy ``Bearer\s+token`` read it.
+_NEXT_LINE_TOKEN_RE = re.compile(r"[ \t\u00a0]{0,64}\r?\n\s{0,16}(?=[A-Za-z0-9._~+/\-]{4})")
+_BLANKS_TO_END_RE = re.compile(r"[ \t\u00a0]{0,64}\Z")
 #: Schemes whose credentials are a parameter list: only the named parameter is
 #: secret, and the rest (an AWS key ID and credential scope, a Digest realm) is
 #: kept.
@@ -105,6 +112,9 @@ _TEMPLATE_RE = re.compile(
 #: A template run with text glued after it (``{{ x }}hunter2``) is a value, read
 #: through the trailing text, so the allow list does not keep it as a template.
 _GLUED_TEMPLATE_RE = re.compile(rf"{_TEMPLATE_ONE}{{1,8}}[^\s\"'`,;&)\]}}]{{1,{_N}}}")
+#: An angle-bracket placeholder (``<hidden sha256:...>``) is read whole, blanks
+#: included, so the table's ``<...>`` allow entry sees it as written.
+_ANGLE_RE = re.compile(r"<[^<>\r\n]{1,200}>(?=[\s\"'`,;&)\]}]|$)")
 _LINE_BREAK_RE = re.compile(r"[\r\n]")
 #: ``<password>value</password>``: the tag name is the key, the text up to the
 #: matching close tag is the value.
@@ -251,6 +261,19 @@ def _value_region(text: str, i: int) -> tuple[int, int, bool] | None:
     return i, scan.line_end(i), False
 
 
+def _token68_end(text: str, start: int, hi: int) -> int:
+    """Where the token68 credential starting at ``start`` ends, its ``=`` padding included."""
+    end = _scan_for(text).run_end(_TOKEN68_RUN_RE, start, hi)
+    if end > start:
+        while end < hi and text[end] == "=":
+            end += 1
+    return end
+
+
+def _min_len(start: int, end: int) -> tuple[int, int] | None:
+    return (start, end) if end - start >= MIN_NAMED_VALUE_LEN else None
+
+
 def labelled_value(text: str, i: int, shape: str = NESTED) -> tuple[int, int] | None:
     """The span of the value after a separator ending at ``i``, auth scheme stripped.
 
@@ -273,20 +296,29 @@ def labelled_value(text: str, i: int, shape: str = NESTED) -> tuple[int, int] | 
             m = param.search(text, scheme.end(), hi)
             return m.span(1) if m else None
         start = scheme.end()
+        if _BLANKS_TO_END_RE.match(text, start, hi):
+            # A scheme word with nothing after it on its line: only a bare
+            # unquoted ``Bearer`` takes the token on the next line.
+            nxt = None
+            if not quoted and scheme.group(1).lower() == "bearer":
+                nxt = _NEXT_LINE_TOKEN_RE.match(text, start)
+            if nxt is None:
+                return None
+            start, hi = nxt.end(), _scan_for(text).line_end(nxt.end())
+            return _min_len(start, _token68_end(text, start, hi))
         if start < hi and text[start] in _NOT_A_VALUE_START:
             return None
         if scheme.group(1).lower() in _TOKEN68_SCHEMES:
-            end = _scan_for(text).run_end(_TOKEN68_RUN_RE, start, hi)
+            end = _token68_end(text, start, hi)
             if end > start:
-                while end < hi and text[end] == "=":
-                    end += 1
-                return (start, end) if end - start >= MIN_NAMED_VALUE_LEN else None
+                return _min_len(start, end)
     if quoted or shape == LINE:
         end = len(text[start:hi].rstrip()) + start
     else:
         value_re = _FLAG_VALUE_RE if shape == FLAG else _UNQUOTED_RE
         m = (
             _TEMPLATE_RE.match(text, start, hi)
+            or _ANGLE_RE.match(text, start, hi)
             or _GLUED_TEMPLATE_RE.match(text, start, hi)
             or value_re.match(text, start, hi)
         )
@@ -298,6 +330,18 @@ def labelled_value(text: str, i: int, shape: str = NESTED) -> tuple[int, int] | 
             # A run that reached the cap goes on to its natural end.
             end = _scan_for(text).run_end(run, end, hi)
     return (start, end) if end - start >= MIN_NAMED_VALUE_LEN else None
+
+
+def named_value(text: str, i: int, shape: str, name: str) -> tuple[int, int] | None:
+    """Read a labelled value, treating a bare scheme as a value outside auth fields."""
+    if not is_authorization_name(name):
+        region = _value_region(text, i)
+        if region is not None:
+            lo, hi, _ = region
+            scheme = _SCHEME_RE.match(text, lo, hi)
+            if scheme and _BLANKS_TO_END_RE.match(text, scheme.end(), hi):
+                return _min_len(lo, lo + len(text[lo:hi].rstrip()))
+    return labelled_value(text, i, shape)
 
 
 #: Field names (as a suffix of the normalised name) whose line-oriented value is
@@ -365,11 +409,16 @@ def entity_led_name(text: str, key_start: int, key: str) -> tuple[str, bool]:
 _AUTHORIZATION = "authorization"
 
 
+def is_authorization_name(name: str) -> bool:
+    """Whether a normalised name matches the table's authorization label suffix."""
+    return name.endswith(_AUTHORIZATION)
+
+
 def is_authorization_prose(text: str, name: str, vstart: int, span: tuple[int, int]) -> bool:
     """Whether ``span`` is a scheme-less word of prose under ``authorization``."""
     if (
         name != _AUTHORIZATION
-        or _SCHEME_RE.match(text, vstart)
+        or _SCHEME_RE.match(text, vstart, _line_end(text, vstart))
         or text[vstart : vstart + 1] in "\"'\\"
     ):
         return False
@@ -408,7 +457,7 @@ def label_candidates(
         if name is None or not wanted(name) or urls.contains(m.start()):
             continue
         shape = _key_shape(text, m.start(), bool(m.group("dash")), name)
-        span = labelled_value(text, sep.end(), shape)
+        span = named_value(text, sep.end(), shape, name)
         if span is not None and not is_authorization_prose(text, name, sep.end(), span):
             found.append(_Named(name, *span))
     found.extend(_xml_elements(text, urls, wanted))
@@ -445,7 +494,7 @@ def _name_value_pairs(text: str, urls: _Spans, wanted: Callable[[str], bool]) ->
         value = _VALUE_FIELD_RE.match(text, m.end())
         if value is None:
             continue
-        span = labelled_value(text, value.end())
+        span = named_value(text, value.end(), NESTED, name)
         if span is not None:
             yield _Named(name, *span)
 
@@ -501,12 +550,33 @@ def _allowed(table: RuleTable, rule: Rule, value: str) -> bool:
     return table.allow.permits(value) or rule.allow.permits(value)
 
 
+#: A cookie header before a pair on its line: ``Cookie:``, ``Set-Cookie:``,
+#: ``"Cookie": "...``, ``document.cookie = "...``, ``curl --cookie ...``.
+_COOKIE_HEADER_RE = re.compile(r"(?i)(?<![A-Za-z0-9_])cookie[\"']?[ \t]{0,8}[:=]|--cookie[ \t=]")
+
+
+def in_cookie_header(text: str, i: int, headers: Sequence[int]) -> bool:
+    """Whether one of ``headers`` (cookie-header ends, sorted) opens ``i``'s line before it."""
+    k = bisect.bisect_right(headers, i) - 1
+    return k >= 0 and _line_end(text, headers[k]) >= i
+
+
+def _cookie_headers(text: str) -> list[int]:
+    return [m.end() for m in _COOKIE_HEADER_RE.finditer(text)]
+
+
 def _named_hits(
     table: RuleTable, rule: Rule, text: str, pairs: Sequence[_Named], suffix: bool
 ) -> Iterator[Hit]:
+    headers: list[int] | None = None
     for pair in pairs:
         if not _name_matches(pair.name, rule.labels, table.label_exclude, suffix):
             continue
+        if pair.name in rule.cookie_only:
+            if headers is None:
+                headers = _cookie_headers(text)
+            if not in_cookie_header(text, pair.start, headers):
+                continue
         if _allowed(table, rule, text[pair.start : pair.end]):
             continue
         yield Hit(rule.id, rule.tier, rule.detector, pair.start, pair.end)

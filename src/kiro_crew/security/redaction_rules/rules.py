@@ -61,6 +61,7 @@ _ROW_FIELDS = frozenset(
         "allow",
         "corpus",
         "through_end",
+        "cookie_only",
     }
 )
 _ALLOW_FIELDS = frozenset({"values", "suffixes", "patterns"})
@@ -261,6 +262,9 @@ class Rule:
     through_end: bool = False
     #: A :data:`CONTEXT_VALIDATORS` check, given ``(text, start, end)`` of the value.
     validate_at: Callable[[str, int, int], bool] | None = None
+    #: Labels (normalised) that name a credential only inside a cookie header:
+    #: a pair whose whole name is one of them is judged only there.
+    cookie_only: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -418,6 +422,16 @@ def _build_rule(index: int, data: Any) -> Rule:
             normalise_name(s) for s in _string_list(f"{where}.labels", data["labels"])
         )
 
+    cookie_only: frozenset[str] = frozenset()
+    if "cookie_only" in data:
+        if detector is not Detector.LABELLED:
+            raise _fail(where, f"cookie_only does not apply to detector {detector.value}")
+        cookie_only = frozenset(
+            normalise_name(s) for s in _string_list(f"{where}.cookie_only", data["cookie_only"])
+        )
+        if not cookie_only <= labels:
+            raise _fail(where, "cookie_only names must also be labels")
+
     through_end = data.get("through_end", False)
     if not isinstance(through_end, bool):
         raise _fail(where, "through_end must be true or false")
@@ -445,6 +459,7 @@ def _build_rule(index: int, data: Any) -> Rule:
         corpus=corpus,
         through_end=through_end,
         validate_at=validate_at,
+        cookie_only=cookie_only,
     )
 
 

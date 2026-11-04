@@ -16,6 +16,8 @@
 #   through_end structural + replace: match only: the hit runs from the match
 #               to the end of the text (a block with no closing line).
 #   allow       values that look like a match but are not secrets.
+#   cookie_only labelled only: labels whose exact name is a credential only
+#               inside a `Cookie:` / `Set-Cookie:` header on the same line.
 #   corpus      rules/<id>: the rule's true positives, known false positives
 #               and bypass shapes.
 #
@@ -35,6 +37,9 @@ allow:
     # An environment-variable reference. Upper case only, so a password that
     # starts with `$` is not mistaken for one.
     - '\$[A-Z_][A-Z0-9_]{0,127}'
+    # A vault reference (`secret://<name>`): it names a stored secret, the
+    # value itself never appears.
+    - 'secret://[^\s"''`]{1,256}'
     - '<[^<>\r\n]{1,200}>'
     - '%[A-Za-z_][A-Za-z0-9_]{0,127}%'
     - '\*{3,200}'
@@ -48,6 +53,18 @@ label_exclude:
   - next_token
   - page_token
   - max_tokens
+  # Model settings and cursors spelled in the singular. An entry also excludes
+  # every name ending in it, so `min_token` (`admin_token`) and `end_token`
+  # (`backend_token`) are not listed.
+  - max_token
+  - stop_token
+  - eos_token
+  - eot_token
+  - bos_token
+  - pad_token
+  - unk_token
+  - continuation_token
+  - pagination_token
   - input_tokens
   - output_tokens
   - token_endpoint
@@ -242,11 +259,12 @@ rules:
 
   # Any scheme, glued to the text before it or not, an empty user, and a
   # password holding `@` (read to the last `@` of the authority), as the legacy
-  # pass read it. Only the password is replaced.
+  # pass read it. Only the password is replaced. A `'` is part of the user or
+  # password (`https://user:ab'cd@host/`), as the legacy pass read it.
   - id: url.userinfo_password
     tier: secret
     detector: structural
-    pattern: '[A-Za-z][A-Za-z0-9+.-]{0,31}://[^\s:/@"''<>`]{0,256}:(?P<v>[^\s/"''<>`]{1,256})@'
+    pattern: '[A-Za-z][A-Za-z0-9+.-]{0,31}://[^\s:/@"<>`]{0,256}:(?P<v>[^\s/"<>`]{1,256})@'
     corpus: rules/url.userinfo_password
 
   - id: jwt
@@ -364,19 +382,25 @@ rules:
 
   # An AWS secret-key or session-token field name glued to the end of a longer
   # run (`...Ab1SecretAccessKey = <value>`), which the labelled detector does not
-  # read as a field name: the legacy pass's spelling, label included.
+  # read as a field name, or a field name whose `:`/`=` opens the next line
+  # (`SecretAccessKey\n: <value>`, a display form that dropped a heading marker
+  # between them): the legacy pass's spelling, label included.
   - id: aws.secret_field_glued
     tier: secret
     detector: structural
-    pattern: '(?<=[A-Za-z0-9_.\-])(?:SecretAccessKey|aws_secret_access_key|SessionToken|aws_session_token)["'']?\s{0,8}[:=]\s{0,8}["'']?[^\s"'',}]{1,20000}'
+    pattern: '(?:(?<=[A-Za-z0-9_.\-])(?:SecretAccessKey|aws_secret_access_key|SessionToken|aws_session_token)["'']?\s{0,8}|(?:SecretAccessKey|aws_secret_access_key|SessionToken|aws_session_token)["'']?[ \t]{0,8}[\r\n]\s{0,8})[:=]\s{0,8}["'']?[^\s"'',}]{1,20000}'
     replace: match
     corpus: rules/aws.secret_field_glued
 
-  # A two-segment link token whose payload is not a JSON object.
+  # A two-segment link token whose payload is not a JSON object. After a `.`
+  # (`see the link.eyJ...`) it is taken only with what a dotted identifier
+  # chain does not have, as the legacy pass read it: a `-` in either segment,
+  # or a payload shaped as base64url of ASCII JSON (each 4th character from the
+  # 5th in `A-Za-f`).
   - id: link_token.unverified
     tier: bearer_link
     detector: structural
-    pattern: '(?<![A-Za-z0-9_.-])(?P<v>eyJ[A-Za-z0-9_-]{96,5000}\.[A-Za-z0-9_-]{43})(?![A-Za-z0-9_-])'
+    pattern: '(?<![A-Za-z0-9_-])(?!(?<=\.)(?!eyJ[A-Za-z0-9_]{0,5000}-)(?!eyJ[A-Za-z0-9_-]{0,5000}\.[A-Za-z0-9_]{0,42}-)(?!eyJ[A-Za-z0-9_-](?:[A-Za-f][A-Za-z0-9_-]{3}){0,1250}(?:[A-Za-f][A-Za-z0-9_-]{1,2})?\.))(?P<v>eyJ[A-Za-z0-9_-]{96,5000}\.[A-Za-z0-9_-]{43})(?![A-Za-z0-9_-])'
     corpus: rules/link_token.unverified
 
   # ── labelled ──
@@ -427,13 +451,21 @@ rules:
       # A documented example key (`...EXAMPLEKEY`) under a credential name is
       # still replaced, as the legacy pass replaced it: a real key can end the
       # same way, and the label says it is a secret.
+      # A permission decision is kept too: a tool permission map names commands
+      # (`{"bash": {"pwd": "deny"}}`) whose names match a credential label.
       values: [required, optional, expired, revoked, invalid, missing, disabled,
-               enabled, hidden, redacted, unset, empty, string]
+               enabled, hidden, redacted, unset, empty, string,
+               allow, deny, always_allow, ask_before, never_allow]
     corpus: rules/labelled.secret_field
 
+  # A bare `session` field is a cookie only in a `Cookie:` / `Set-Cookie:`
+  # header on its line; elsewhere (`{'session': 'origin'}`, `in this session:
+  # ...`) it names a chat or a routing target and is kept. The named session
+  # cookies are read everywhere.
   - id: labelled.session_cookie
     tier: secret
     detector: labelled
+    cookie_only: [session]
     labels:
       - session
       - sessionid
