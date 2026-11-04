@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from kiro_crew.config import loader_credentials
+from kiro_crew.config import loader
 from kiro_crew.config.loader_credentials import CREDENTIAL_KEYS
 from kiro_crew.doctor_checks import confinement, services
 
@@ -98,7 +98,7 @@ def test_unreadable_credentials_resolve_environment_secret_references(monkeypatc
         seen.append(dict(values))
         return {k: v for k, v in values.items() if not v.startswith("secret://")}
 
-    monkeypatch.setattr(loader_credentials, "resolve_env_credentials", _resolve)
+    monkeypatch.setattr(loader, "resolve_env_credentials", _resolve)
     binding = services._doctor_configuration(_cfg("http://localhost:8080"), [])
 
     assert seen and seen[0]["SLACK_APP_TOKEN"] == "secret://missing-name"
