@@ -496,5 +496,6 @@
   "components.pastedChip.collapse_pasted_lines",
   "components.pastedChip.expand_pasted_lines",
   "pages.settings.instancesPanel.warm_cap_count",
-  "pages.settings.postureDisclosure.show_more_count"
+  "pages.settings.postureDisclosure.show_more_count",
+  "pages.settings.securityPanel.rule_count"
 ]
