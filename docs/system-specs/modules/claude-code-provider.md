@@ -765,6 +765,18 @@ installed plugins' MCP servers beside the wire array, and each helper call start
 fresh session, so those servers would start on every call in a session that runs no
 tool. Only the wire array mounts; nothing else in the envelope changes.
 
+### `/clear` is answered by the dashboard
+
+A dashboard `/clear` on a claude session never reaches the adapter: claude is in
+`ACP_BACKENDS_LOCAL_CLEAR`, so the slash gate runs the dashboard's own reset (the
+discard `reset_conversation` queues, the todo pill dropped, the "Conversation
+cleared" row) before any session work. Sent on as `session/prompt` text, a clear the
+Agent SDK ran would leave Crew's history, todo state and next-turn replay
+untouched, because the adapter sends no clear status frame and has no
+`_kiro.dev/commands/execute`. claude runs one adapter per session, so the discard
+drops that adapter's conversation either way. Every other claude command keeps
+the prompt path. Pinned by `test/test_slash_command_no_channel.py`.
+
 ### Known gap: the user's global `~/.claude` is inherited
 
 With no `CLAUDE_CONFIG_DIR` set by the core, the adapter and the SDK read the
