@@ -692,7 +692,7 @@ def _is_row_candidate(line: str) -> bool:
         return False
     if _is_markdown_block_starter(stripped):
         return False
-    if stripped.startswith(_PROTOCOL_PREFIXES):
+    if stripped.startswith(_PROTOCOL_PREFIXES) or stripped[:15].upper() == "[OPTION-ACTIONS":
         return False
     if _html_block_opener(line) is not None:
         return False

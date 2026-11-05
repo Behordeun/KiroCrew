@@ -45,6 +45,7 @@ from kiro_crew.dashboard.state_parts.transcript_rows import (
 )
 from kiro_crew.dashboard.system_notices import is_system_notice
 from kiro_crew.history import latest_transcript_ts, mint_row_mid, monotonic_transcript_ts
+from kiro_crew.option_action_marker import strip_option_action_markers
 from kiro_crew.shared_crew.attribution import with_request_author
 
 if TYPE_CHECKING:
@@ -167,6 +168,7 @@ _OPTIONS_HEAD = "[OPTIONS:"
 
 def _strip_options(text: str) -> str:
     """*text* without its ``[OPTIONS: ...]`` marker lines, stripped."""
+    text = strip_option_action_markers(text)
     if _OPTIONS_HEAD not in text:
         return text.strip()
     return _OPTIONS_RE.sub("", text).strip()

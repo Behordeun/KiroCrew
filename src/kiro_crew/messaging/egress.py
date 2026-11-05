@@ -12,8 +12,9 @@ target and the wire has one owner rather than a copy per leg.
 
 What this owns, in order:
 
-1. **Strip trailing control-tag lines.** These legs carry output authored under
-   dashboard rules to a client that renders HTML comments literally.
+1. **Strip trailing control-tag lines and ``[OPTION-ACTIONS:]`` markers.** These
+   legs carry output authored under dashboard rules to a client that renders
+   HTML comments literally and has no action chip to draw.
    Strip-then-redact matches ``display_safe``.
 2. **Redact in DISPLAY form** (``redact_for_display``). No renderer runs on this
    path, and a renderer is where a turn normally gets that floor; a literal-only
@@ -50,6 +51,7 @@ from kiro_crew.constants import strip_control_comments
 from kiro_crew.messaging.display_safety import redact_for_display
 from kiro_crew.messaging.renderer import chunk_for_transport, render_options_as_text
 from kiro_crew.messaging.transport import delivery_confirmed
+from kiro_crew.option_action_marker import strip_option_action_markers
 from kiro_crew.platform.context import redact_via_context
 
 
@@ -62,7 +64,8 @@ async def channel_egress_parts(
     because a long reply makes the fence-safe split and its seam redaction
     measurable work.
     """
-    safe, _ = redact_for_display(strip_control_comments(text), redact_via_context)
+    stripped = strip_control_comments(strip_option_action_markers(text))
+    safe, _ = redact_for_display(stripped, redact_via_context)
     if number_options:
         safe = render_options_as_text(safe, capabilities)
     return await asyncio.to_thread(

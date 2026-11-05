@@ -5344,6 +5344,18 @@ this helper would silently stop matching a marker that ends a line mid-message.
 Different grammar, not a duplicate. `test_options_cap_contract.py::TestOnlyOneTrailerParseExists`
 greps the tree for a re-derived parse and records both exemptions.
 
+**`[OPTION-ACTIONS: close=<label>]` is stripped, never rendered.** The dashboard
+draws it as a local action chip; no channel can. `option_action_marker.strip_option_action_markers`
+removes it, and every `[OPTIONS:]` strip calls it first: `split_options_trailer`,
+`extract_options`, the WhatsApp strip, the unattended egress leg and the preview
+strips. It runs first because a trailing action line would break the trailer's
+end anchor. Slack's live stream drops a complete action tag the way it drops an
+`[OPTIONS:]` tag, and a streaming frame holds an unfinished `[OPTION-ACTIONS` tail.
+The refusals match the web grammar: the head is case-insensitive, a marker in a
+code fence or a `<mcwidget>` stays as written, an unbalanced body stays, and a
+marker that ends before a sibling head is stripped only when the rest of its line
+is accepted markers.
+
 **Proactive push works, per-target.** `aibot_send_msg` needs no token and has no
 expiry, but WeCom only delivers into a conversation the user has already written
 to. So `supports_proactive_send` is `True` (the transport CAN push) while

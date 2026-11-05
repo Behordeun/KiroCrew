@@ -605,6 +605,7 @@ MARKER_STRUCTURE_CHARS: frozenset[str] = frozenset(
 #: whose partner would end the marker, so the line is declined and left whole.
 _MARKER_LABEL_CONTINUES = rf"(?=[ \t]*[|,]|{_MARKER_CLOSE_CLASS})"
 
+
 #: A closer MATCHED by its paired opener earlier in the same label. One level
 #: deep. There is one alternative PER opener/closer pair (see
 #: :data:`MARKER_OPENERS`): each opens on its own opener, its interior excludes
@@ -630,11 +631,16 @@ _MARKER_LABEL_CONTINUES = rf"(?=[ \t]*[|,]|{_MARKER_CLOSE_CLASS})"
 #: lookalike openers cannot spell the head, so the guard is a no-op on them; it
 #: rides them anyway so the alternatives are one shape and the property does not
 #: depend on which opener carries it.
-_MARKER_LABEL_PAIR = "|".join(
-    rf"{re.escape(_open)}(?!OPTIONS:)[^{_MARKER_BRACKETS}\n]*"
-    rf"{re.escape(_close)}(?![ \t]*[|,]|{_MARKER_CLOSE_CLASS})"
-    for _open, _close in zip(MARKER_OPENERS, MARKER_CLOSERS)
-)
+def _marker_label_pair(head_guard: str) -> str:
+    """The matched-pair alternatives, each opener refusing the heads *head_guard* names."""
+    return "|".join(
+        rf"{re.escape(_open)}{head_guard}[^{_MARKER_BRACKETS}\n]*"
+        rf"{re.escape(_close)}(?![ \t]*[|,]|{_MARKER_CLOSE_CLASS})"
+        for _open, _close in zip(MARKER_OPENERS, MARKER_CLOSERS)
+    )
+
+
+_MARKER_LABEL_PAIR = _marker_label_pair("(?!OPTIONS:)")
 
 #: The marker TAIL, spelled once so the patterns below and anything reasoning
 #: about where a marker ends agree by construction. ``_MARKER_STRAY_TIC`` is the
@@ -646,6 +652,7 @@ _MARKER_STRAY_TIC = r"(?:\([^\s()]*\))?"
 #: tic, a continuation of that tail, not prose.
 _STRAY_TIC_HEAD_RE = re.compile(r"\([^\s()]*\)")
 _MARKER_WRAP_RUN = rf"{_MARKER_WRAP_CLASS}{{0,3}}"
+
 
 #: Label body, spelled once per regex so LINE and TRAILER cannot drift. LINE
 #: stops at a newline; TRAILER spans them (``DOTALL``, as the old ``.*`` did).
@@ -668,16 +675,17 @@ _MARKER_WRAP_RUN = rf"{_MARKER_WRAP_CLASS}{{0,3}}"
 #: failed pair attempt scans at most to the next bracket. So there is never more
 #: than one way to consume a character, and each lookahead is entered only at a
 #: bracket and bounded by the run it scans.
-_MARKER_BODY_LINE = (
-    rf"(?:{_MARKER_LABEL_PAIR}|{_MARKER_OPEN_CLASS}(?!OPTIONS:)"
-    rf"|{_MARKER_CLOSE_CLASS}{_MARKER_LABEL_CONTINUES}"
-    rf"|[^{_MARKER_BRACKETS}\n])*"
-)
-_MARKER_BODY_TRAILER = (
-    rf"(?:{_MARKER_LABEL_PAIR}|{_MARKER_OPEN_CLASS}(?!OPTIONS:)"
-    rf"|{_MARKER_CLOSE_CLASS}{_MARKER_LABEL_CONTINUES}"
-    rf"|[^{_MARKER_BRACKETS}])*"
-)
+def _marker_body(head_guard: str, *, ordinary: str) -> str:
+    """A label body whose openers refuse *head_guard*; *ordinary* is its plain-char class."""
+    return (
+        rf"(?:{_marker_label_pair(head_guard)}|{_MARKER_OPEN_CLASS}{head_guard}"
+        rf"|{_MARKER_CLOSE_CLASS}{_MARKER_LABEL_CONTINUES}"
+        rf"|{ordinary})*"
+    )
+
+
+_MARKER_BODY_LINE = _marker_body("(?!OPTIONS:)", ordinary=rf"[^{_MARKER_BRACKETS}\n]")
+_MARKER_BODY_TRAILER = _marker_body("(?!OPTIONS:)", ordinary=rf"[^{_MARKER_BRACKETS}]")
 
 # The ``labels`` group is NAMED because the ``lwrap`` conditional group
 # necessarily precedes it, shifting positional numbering: consumers read
@@ -1356,10 +1364,13 @@ def _rightmost_unfinished_marker(text: str) -> int:
         pos = text.rfind(sentinel)
         if pos != -1:
             cursors.append((pos, sentinel, prefix_re))
+    from kiro_crew.option_action_marker import unfinished_option_action_start
+
+    action = unfinished_option_action_start(text)
     while cursors:
         cursors.sort()
         pos, sentinel, prefix_re = cursors.pop()  # rightmost overall
-        if pos <= last_close:
+        if pos <= last_close or pos < action:
             # ASCII-only unfinished gate (see the closer comment in
             # ``split_trailing_protocol_suffix``): a ``]`` at/after this
             # occurrence means the tail is not still-streaming -- and every
@@ -1370,7 +1381,7 @@ def _rightmost_unfinished_marker(text: str) -> int:
         nxt = text.rfind(sentinel, 0, pos)
         if nxt != -1:
             cursors.append((nxt, sentinel, prefix_re))
-    return -1
+    return action
 
 
 def _leading_wrapper_start(text: str, idx: int) -> int:
@@ -1426,9 +1437,13 @@ def split_trailing_protocol_suffix(text: str) -> tuple[str, str]:
     if idx != -1:
         suffix_start = _leading_wrapper_start(text, idx)
 
+    from kiro_crew.option_action_marker import _peel_trailing_option_actions
+
+    # An action marker after the trailer would hide it from the end anchor.
+    suffix_start = _peel_trailing_option_actions(text, suffix_start)
     options = OPTIONS_RE_TRAILER.search(text[:suffix_start])
     if options:
-        suffix_start = options.start()
+        suffix_start = _peel_trailing_option_actions(text, options.start())
 
     # Control-tag lines are protocol too, and they can sit on EITHER side of
     # the OPTIONS trailer (both prompt rules say "final line"; a message that

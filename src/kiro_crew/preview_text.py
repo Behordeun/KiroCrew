@@ -19,7 +19,12 @@ import re
 import unicodedata
 from typing import Callable
 
-from kiro_crew.constants import OPTIONS_RE_LINE, md_link_destination, strip_control_comments
+from kiro_crew.constants import (
+    OPTIONS_RE_LINE,
+    md_link_destination,
+    strip_control_comments,
+)
+from kiro_crew.option_action_marker import strip_option_action_markers
 
 # Fenced code blocks — ```lang ... ``` or a line-anchored ~~~lang ... ~~~ (or
 # unterminated, running to the end of the message). Replaced with a short
@@ -210,7 +215,7 @@ def strip_markdown_preview(text: str) -> str:
     # routing, plan_task_id anchors) — never all comments, and never inside
     # inline code: a tag an assistant quotes in inline code renders literally
     # and is visible content. Shared implementation; see constants.py.
-    t = strip_control_comments(t)
+    t = strip_control_comments(strip_option_action_markers(t))
     # The quick-reply line goes before code is protected: a backtick-wrapped
     # ``[OPTIONS: ...]`` line still renders as buttons, not as text.
     t = _OPTIONS_RE.sub("", t)

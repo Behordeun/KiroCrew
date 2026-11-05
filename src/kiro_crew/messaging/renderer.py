@@ -55,6 +55,10 @@ from kiro_crew.constants import (
 from kiro_crew.messaging.display_safety import redact_for_display
 from kiro_crew.messaging.tables import render_tables, render_tables_with_metadata
 from kiro_crew.messaging.transport import TransportCapabilities
+from kiro_crew.option_action_marker import (
+    strip_option_action_markers,
+    unfinished_option_action_start,
+)
 from kiro_crew.security import (
     CREDENTIAL_REDACTION_TAGS,
     EXFILTRATION_REDACTION_TAG_PREFIX,
@@ -750,12 +754,23 @@ def split_options_trailer(text: str, *, hide_partial: bool = False) -> tuple[str
     Stripping a genuine steering frame is ``TurnDriver``'s job and happens before
     a renderer sees the text.
     """
-    text = relocate_glued_tail_marker(text)
+    stripped = strip_option_action_markers(text)
+    if stripped != text:
+        # A control tag the removed action marker was hiding is now the tail.
+        stripped = strip_control_comments(stripped)
+    text = relocate_glued_tail_marker(stripped)
     match = OPTIONS_RE_TRAILER.search(text)
     if match:
         choices = [c.strip() for c in match.group("labels").split("|") if c.strip()]
         return text[: match.start()].rstrip(), choices
     if hide_partial:
+        action = unfinished_option_action_start(text)
+        if action != -1:
+            text = text[:action].rstrip()
+            match = OPTIONS_RE_TRAILER.search(text)
+            if match:
+                choices = [c.strip() for c in match.group("labels").split("|") if c.strip()]
+                return text[: match.start()].rstrip(), choices
         idx = text.rfind("[OPTIONS")
         # "Holds no CLOSER at all", over the whole ``MARKER_CLOSERS`` set rather
         # than ASCII ``]`` alone. A tail that already holds a closer is not in

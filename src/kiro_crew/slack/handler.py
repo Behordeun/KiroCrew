@@ -71,6 +71,7 @@ from kiro_crew.config.paths import kiro_agents_dir, peek_data_home
 from kiro_crew.constants import (  # noqa: F401 - read by the owners
     DENY_CAUSE_APPROVAL_TIMEOUT,
     DENY_CAUSE_POLICY,
+    OPTIONS_RE_LINE,
     STEER_NOTICE_BOUND_SECS,
     is_control_tag_tail,
     strip_control_comments,
@@ -156,6 +157,7 @@ from kiro_crew.messaging.session_trust import (  # noqa: F401 - read by the owne
     is_session_trusted,
 )
 from kiro_crew.messaging.turn_ceiling import TurnCeilingExceeded
+from kiro_crew.option_action_marker import strip_option_action_markers_after
 from kiro_crew.parent_turns import note_turn_landed, settle_turn
 from kiro_crew.permission_floor import OUTCOME_REJECTED_TRANSPORT_FLOOR
 from kiro_crew.platform import current_context

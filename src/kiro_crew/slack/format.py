@@ -10,7 +10,10 @@ from dataclasses import dataclass, replace
 from functools import partial
 from typing import Any, Callable, NamedTuple, Sequence
 
-from kiro_crew.constants import OPTIONS_RE_LINE, relocate_glued_tail_marker
+from kiro_crew.constants import (
+    OPTIONS_RE_LINE,
+    relocate_glued_tail_marker,
+)
 from kiro_crew.messaging.display_safety import (
     DISPLAY_SETTLING_PASSES,
     SLACK_MARKDOWN_LINK,
@@ -31,6 +34,7 @@ from kiro_crew.messaging.tables import (
     _is_row_candidate,
     _table_run_end,
 )
+from kiro_crew.option_action_marker import strip_option_action_markers
 from kiro_crew.platform.context import redact_via_context
 from kiro_crew.security.exfil import redact_exfiltration_urls
 from kiro_crew.security.redaction import redact_credentials
@@ -443,7 +447,7 @@ def extract_options(text: str) -> tuple[str, list[str]]:
     ``OPTIONS_RE_LINE``. Returns (cleaned_text, choices). If no OPTIONS is found,
     choices is empty.
     """
-    text = relocate_glued_tail_marker(text)
+    text = relocate_glued_tail_marker(strip_option_action_markers(text))
     m = _OPTIONS_RE.search(text)
     if not m:
         return text, []

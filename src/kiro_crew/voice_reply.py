@@ -31,9 +31,13 @@ from functools import cache
 from typing import TYPE_CHECKING, Any
 
 from kiro_crew import aws_consent, speech_providers
-from kiro_crew.constants import md_link_destination, strip_control_comments
+from kiro_crew.constants import (
+    md_link_destination,
+    strip_control_comments,
+)
 from kiro_crew.deploy.engine import resolve_aws_bin
 from kiro_crew.emoji_list import STANDARD_EMOJIS
+from kiro_crew.option_action_marker import strip_option_action_markers
 from kiro_crew.platform.context import redact_log_via_context
 from kiro_crew.platform_compat import IS_MACOS, IS_WINDOWS, trusted_system_bin
 from kiro_crew.sandbox import (
@@ -342,7 +346,7 @@ _MARKDOWN_LINK_RE = re.compile(rf"\[([^\[\]]+)\]\({md_link_destination('[^()]')}
 
 def strip_markdown(text: str) -> str:
     """Strip Slack mrkdwn / markdown to plain speakable text."""
-    t = text
+    t = strip_option_action_markers(text)
     # Replace fenced code blocks with spoken placeholder
 
     def _code_block(m):

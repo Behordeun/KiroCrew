@@ -61,6 +61,7 @@ from kiro_crew.messaging.renderer import (
     repaired_after_a_sent_tail,
 )
 from kiro_crew.messaging.transport import TransportCapabilities
+from kiro_crew.option_action_marker import strip_option_action_markers
 from kiro_crew.whatsapp import client as wa_client
 from kiro_crew.whatsapp.files import (
     REASON_UPLOAD_FAILED,
@@ -101,7 +102,8 @@ _ERROR_TEXT = "Something went wrong on my side. Please try again."
 
 def _strip_options(text: str) -> str:
     """Drop the dashboard-only [OPTIONS: ...] trailer (no buttons here)."""
-    return OPTIONS_RE_TRAILER.sub("", relocate_glued_tail_marker(text)).strip()
+    text = relocate_glued_tail_marker(strip_option_action_markers(text))
+    return OPTIONS_RE_TRAILER.sub("", text).strip()
 
 
 class WhatsAppRenderer(Renderer):
