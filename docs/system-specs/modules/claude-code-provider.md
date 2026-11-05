@@ -739,6 +739,45 @@ not name the session that sent it, and the rung cannot tell the parent's request
 from a child's. Every request takes the gate it takes with no child running.
 Contract tests: `test_claude_native_subagent_cards.py`.
 
+### A turn Claude Code starts on its own
+
+Claude Code can start a turn after the dashboard's turn has ended: a
+`run_in_background` command exits and the model answers its task notification, a
+background subagent hands back, or a background or Workflow agent asks for a
+permission. claude-agent-acp writes that turn to stdout with no request open.
+`ACP_BACKENDS_AGENT_STARTED_TURNS` names this backend alone; the client's idle
+reader is described in `acp-client.md` ("Idle reader and agent-started turns").
+
+On a dashboard chat, every turn registers a watch on its session once it holds it
+(`agent_sdk.watch_agent_turns`, from `chat_turn/agent_started._watch_agent_turns`),
+so a reply or a permission request the agent sends between prompts starts a turn
+of its own on that chat (`_run_chat(_agent_started=True)`). The turn sends nothing
+and reads the pending turn with `AcpProvider.stream_unsolicited`, through the same
+event loop a user turn uses: its tool rows, permission cards, PreToolUse /
+PostToolUse hooks, SEL records, redaction and persistence are a user turn's own. It
+writes no user row, its assistant rows carry `meta.origin = {"kind": "agent"}`, it
+records crew-log actor `agent`, and it ends through the normal end-of-turn path,
+so the unread badge and turn sound fire. A message sent while it runs queues
+behind it: the turn is responsive-protected, so a send never cancels it. It is
+spawned under `independent_turn`, so Shared Crew admits it on its own rather than
+as the finished turn's work. It never queues a recovery (`_queue_recovery`): every one replays or
+continues a prompt, and this turn answered none. The arms that end a normal turn
+(the L1 capacity retry, the promise-only guard and its spent-budget notice, the
+compaction continuation, the empty-response ladder) do not fire for it, so it lands
+as it stands; a failure arm that already posted its "retrying…" row is closed by
+the transient give-up row instead. Its
+reply and tool stream reach a linked Slack thread like any reply; no prompt echo is
+posted, because none was typed. It does not count as an
+AutoNudge or monitor cycle. Regenerate refuses (`agent_started_reply`) while a
+reply it wrote sits after the newest user row: re-running that prompt would retire
+the agent's reply, and any reply beside it, for a variant of only the newest one. A
+session no dashboard chat turn runs (a channel
+conversation on the messaging driver, a cron job's own session, a sub-agent)
+registers no watch, so its between-turn frames reach its next prompt as before.
+`agent.agent_started_turns` (default `true`) turns it off from the next turn: no
+watch is registered and the idle reader never starts. Tests:
+`test_dashboard_agent_started_turn.py`.
+
 ### A Side Chat session
 
 A Side Chat or thread-reply session (`side_read_only`) runs under `READ_ONLY`, which

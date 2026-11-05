@@ -8,7 +8,12 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from kiro_crew.dashboard.chat_delivery import attachment_meta
-from kiro_crew.dashboard.chat_utils import RecoveryPayload
+from kiro_crew.dashboard.chat_utils import (
+    TRANSIENT_GIVE_UP_TEXT,
+    TRANSIENT_NOTICE_GIVE_UP,
+    TRANSIENT_NOTICE_META_KEY,
+    RecoveryPayload,
+)
 from kiro_crew.dashboard.recovery_replays import replays_of
 from kiro_crew.dashboard.slot_queue_repository import stamp_source_channels
 from kiro_crew.wakatime.heartbeats import CADENCE_MIN_INTERVAL_SECS
@@ -95,6 +100,21 @@ def _queue_recovery(
     admitted; a row found by scanning the transcript may have been restored
     from disk, and a write target is never taken from there.
     """
+    if turn._agent_started:
+        # Every recovery replays or continues the prompt a turn answered, and a
+        # turn the agent started answered none: queueing one would send the
+        # agent a prompt no one wrote. Returns no queue id. The arm that called
+        # may already have posted its "retrying…" row, which would otherwise
+        # stand as the last word on a retry that never runs, so the give-up row
+        # the nested-turn and Stop paths use closes it.
+        logger.info("No recovery queued for agent-started turn on slot %s", turn.slot.key)
+        turn.slot.append(
+            "error",
+            TRANSIENT_GIVE_UP_TEXT,
+            "msg msg-err",
+            meta={TRANSIENT_NOTICE_META_KEY: TRANSIENT_NOTICE_GIVE_UP},
+        )
+        return ""
     _commands_off = turn._commands_off
     _crew_log_actor = turn._crew_log_actor
     _current_message = turn._current_message

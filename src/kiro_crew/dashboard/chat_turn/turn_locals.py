@@ -99,6 +99,12 @@ class _ChatTurn:
     _on_irreversibly_consumed: "Callable[[], Awaitable[None] | None] | None"
     monitor_completion: "MonitorCompletionHook | None"
     _current_message: "dict | None"
+    # The agent started this turn on its own between prompts: it reads the
+    # session's pending turn with ``stream_unsolicited`` and sends no prompt.
+    _agent_started: "bool"
+    # That turn's event stream, closed in ``_run_chat``'s ``finally``: while it is
+    # open the client holds back the next prompt (``agent_started``).
+    _agent_turn_stream: "Any"
 
     # State those functions write, or read after the turn rebinds it.
     _acquired: "bool"
@@ -350,6 +356,7 @@ class _ChatTurn:
         _on_irreversibly_consumed: "Callable[[], Awaitable[None] | None] | None",
         monitor_completion: "MonitorCompletionHook | None",
         _current_message: "dict | None",
+        _agent_started: "bool" = False,
     ) -> None:
         self.state = state
         self.slot = slot
@@ -383,6 +390,8 @@ class _ChatTurn:
         self._on_irreversibly_consumed = _on_irreversibly_consumed
         self.monitor_completion = monitor_completion
         self._current_message = _current_message
+        self._agent_started = _agent_started
+        self._agent_turn_stream = None
         # No admission reservation until the context-builder branch opens one.
         self._admission_slot = None
 
