@@ -54,6 +54,27 @@ class TestCuratedTips:
             for k in ("id", "title", "body"):
                 assert t[k].strip(), f"{t.get('id')}.{k} must be non-empty"
 
+    def test_snapshot_tip_qualifies_windows_staging_opt_in(self) -> None:
+        from kiro_crew.tips import _load_curated_tips
+
+        tips = {t["id"]: t for t in _load_curated_tips()}
+        body = tips["snapshot"]["body"]
+        assert "On Linux or macOS, run **kirocrew snapshot**" in body
+        assert "On native Windows" in body
+        assert "read **Backup & Restore**" in body
+        assert "**kirocrew snapshot --allow-unpinned-staging**" in body
+        assert "only if you accept weaker protection against directory swaps" in body
+        assert tips["snapshot"]["doc_link"] == "snapshot-and-restore.md"
+
+    def test_service_tip_qualifies_supported_platforms(self) -> None:
+        from kiro_crew.tips import _load_curated_tips
+
+        tips = {t["id"]: t for t in _load_curated_tips()}
+        body = tips["always-on-service"]["body"]
+        assert "Linux with systemd" in body
+        assert "macOS with launchd" in body
+        assert "**kirocrew service install**" in body
+
     def test_curated_tips_missing_file_returns_empty(self, tmp_path: Path) -> None:
         from unittest.mock import patch as mpatch
 
@@ -254,10 +275,16 @@ class TestCuratedTips:
             "interface-cli-mode",
             "warm-pool",
             "mcp-gateway",
-            "subagent-parallelism",
             "zero-token-cron",
             "dev-fleet",
             "app-store",
+            "schedule-repeated-work",
+            "reusable-workflow",
+            "add-mcp-server",
+            "project-steering",
+            "knowledge-source",
+            "hooks-automation",
+            "custom-agent",
             "command-palette",
         ):
             action = tips[tid].get("action")
@@ -265,8 +292,26 @@ class TestCuratedTips:
             assert _sanitize_tip_action(action) == action, f"{tid} action must be valid"
             assert action["route"].startswith("/")
         # Features with no in-dashboard destination render body only (no button).
-        for tid in ("steer-or-queue", "local-telemetry"):
+        for tid in ("steer-or-queue", "local-telemetry", "delegate-independent-work"):
             assert "action" not in tips[tid], f"{tid} must not carry an action"
+
+    def test_curated_doc_links_resolve_to_shipped_docs(self) -> None:
+        """Every rendering-only link has the filename shape the frontend accepts."""
+        from kiro_crew.tips import _load_curated_tips
+
+        docs_dir = Path(__file__).resolve().parents[1] / "src" / "kiro_crew" / "docs"
+        invalid = {
+            t["id"]: link
+            for t in _load_curated_tips()
+            if (link := t.get("doc_link", ""))
+            and (
+                not link.endswith(".md")
+                or "/" in link
+                or "\\" in link
+                or not (docs_dir / link).is_file()
+            )
+        }
+        assert not invalid, f"curated tip doc_link does not resolve to a shipped doc: {invalid}"
 
     def test_curated_tips_do_not_claim_a_catalog_doc(self) -> None:
         """A curated tip must not carry a `doc` the docs catalog also owns.
@@ -504,7 +549,7 @@ class TestDocLinkSplit:
         tips = {t["id"]: t for t in _load_curated_tips()}
         expected = {
             "auto-skills": "skills.md",
-            "subagent-parallelism": "dynamic-subagent-sizing.md",
+            "delegate-independent-work": "subagents.md",
             "zero-token-cron": "cron-and-scheduling.md",
         }
         for tid, doc_link in expected.items():

@@ -56,22 +56,21 @@ const detail = {
 // doc_link carries the learn-more target — exactly the shape shipped in
 // src/kiro_crew/data/tips_curated.json.
 const TIPS = {
-  'subagent-parallelism': {
-    id: 'subagent-parallelism',
-    feature: 'Subagent Parallelism',
-    title: 'Tune how many subagents run at once',
-    body: '`agent.max_subagents` caps concurrent subagents. **0 = auto-size** to your machine\'s memory and CPU; pin a number with `kirocrew config set agent.max_subagents 4`.',
+  'delegate-independent-work': {
+    id: 'delegate-independent-work',
+    feature: 'Subagents',
+    title: 'Delegate independent work',
+    body: 'Independent tasks? Ask Crew: **Run these tasks in parallel with subagents.**',
     why: '',
     doc: '',
-    doc_link: 'dynamic-subagent-sizing.md',
+    doc_link: 'subagents.md',
     cta_prompt: '',
-    action: { kind: 'route', label: 'Open Subagent config', route: '/settings?tab=overview' },
   },
   'zero-token-cron': {
     id: 'zero-token-cron',
     feature: 'Zero-token Crons',
     title: 'Run crons with no LLM',
-    body: 'A scheduled job can run a shell `command` or a Python `script` directly — no model, zero tokens. Ideal for polling, cleanup, and health checks.',
+    body: 'Deterministic check? Ask Crew: **Schedule this as a script or command job.**',
     why: '',
     doc: '',
     doc_link: 'cron-and-scheduling.md',
@@ -138,13 +137,13 @@ async function main() {
     const top = Math.max(0, cardBox.y - 16)
     await page.screenshot({
       path: `${OUT}/${name}.png`,
-      clip: { x: 250, y: top, width: 1240, height: cardBox.height + 110 },
+      clip: { x: 500, y: top, width: 980, height: cardBox.height + 110 },
     })
     console.log('wrote', `${OUT}/${name}.png`)
     results.push({ name, ok, href })
   }
 
-  await scenario('01-subagent-parallelism-link-restored-dark', 'dark', TIPS['subagent-parallelism'])
+  await scenario('01-delegate-independent-work-link-restored-dark', 'dark', TIPS['delegate-independent-work'])
   await scenario('02-zero-token-cron-link-restored-light', 'light', TIPS['zero-token-cron'])
 
   await browser.close()

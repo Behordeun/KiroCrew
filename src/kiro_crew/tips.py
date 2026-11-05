@@ -542,11 +542,10 @@ _CURATED_FILE = Path(__file__).resolve().parent / "data" / "tips_curated.json"
 def _load_curated_tips() -> list[dict]:  # type: ignore[type-arg]
     """Load the hand-authored, action-first tips shipped with the package.
 
-    These cover KiroCrew-native features (keyboard shortcuts, Settings toggles,
-    config keys) that have no docs/*.md entry and so can never surface through
-    the doc-scan catalog. Each entry is validated through the SAME field checks
-    as generated tips (the allowlisted fields as strings, with optional fields
-    defaulting to ""; id/title/body non-empty).
+    These cover approved Kiro Crew behaviors, including capabilities that also
+    appear in the docs scan. Each entry is validated through the SAME field
+    checks as generated tips (the allowlisted fields as strings, with optional
+    fields defaulting to ""; id/title/body non-empty).
     Returns [] if the file is missing or malformed — a bad file must never
     crash cache init or take down the tips endpoints.
     """
@@ -1300,9 +1299,9 @@ async def api_tips_next(request: web.Request) -> web.Response:
         if not cadence_open:
             return web.json_response({"tip": None, "glow": False})
 
-        # Gather eligible candidates. Curated actionable tips (hand-authored,
-        # action-first, for features with no docs entry) are the primary pool;
-        # LLM-generated tips augment them. Dedupe by id — curated wins.
+        # Gather eligible candidates. Curated actionable tips (hand-authored
+        # and action-first) are the primary pool; LLM-generated tips augment
+        # them. Dedupe by id — curated wins.
         curated_candidates = [t for t in cache.curated if _is_eligible(t, st, now, snooze_hours)]
         curated_ids = {t.get("id", "") for t in curated_candidates}
         generated_candidates = [
