@@ -432,13 +432,25 @@ def test_posix_reading_does_not_take_a_drive_path_as_absolute() -> None:
 def test_anchoring_does_no_filesystem_work(monkeypatch) -> None:
     """It runs on the event loop at session start and on a mode switch."""
 
-    def _refuse(*_a: Any, **_k: Any) -> Any:
-        raise AssertionError("filesystem touched while anchoring")
-
     import inspect
 
     # The module never reaches the resolver, and nothing it calls touches the disk.
     assert "paths_resolver" not in inspect.getsource(kas_write_allowlist)
+
+    def _refuse(*_a: Any, **_k: Any) -> Any:
+        # Raise only when a kiro_crew frame is on the call stack so that
+        # coverage.py's canonical_filename(), which calls os.path.realpath the
+        # first time it traces a new source file, does not trip the assertion.
+        # This keeps both kas_write_allowlist AND allowed_paths covered: the
+        # global patch is still active for any module, but coverage's own
+        # frames (coverage.*, _pytest.*) are let through.
+        f = sys._getframe(1)
+        while f is not None:
+            if f.f_globals.get("__name__", "").startswith("kiro_crew"):
+                raise AssertionError("filesystem touched while anchoring")
+            f = f.f_back  # type: ignore[assignment]
+        return None  # non-kiro_crew caller (e.g. coverage tracer); let through
+
     with monkeypatch.context() as mp:
         mp.setattr(os.path, "realpath", _refuse)
         mp.setattr(os, "lstat", _refuse)
