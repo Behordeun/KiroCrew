@@ -765,6 +765,15 @@ installed plugins' MCP servers beside the wire array, and each helper call start
 fresh session, so those servers would start on every call in a session that runs no
 tool. Only the wire array mounts; nothing else in the envelope changes.
 
+### A Bot's worker session
+
+A Bot's worker (`members.is_crewmate_worker_session`) is started with
+`strictMcpConfig` as well. Its per-session spec names the servers the Bot grants,
+and the wire array carries them. Without the option every worker also started each
+server in the user's own Claude config, the project's `.mcp.json` and installed
+plugins, once per worker, so a host with many such servers and several workers ran
+out of memory. Ordinary and member chats keep the adapter's default.
+
 ### Known gap: the user's global `~/.claude` is inherited
 
 With no `CLAUDE_CONFIG_DIR` set by the core, the adapter and the SDK read the

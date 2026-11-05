@@ -410,7 +410,9 @@ def _claude_session_meta(self: AcpClient) -> dict[str, Any]:
     A session whose spec declares ``"tools": []`` (``_spec_zero_tools``, the
     background ``kirocrew-lite`` helpers) gets ``strictMcpConfig``, so only the
     wire array mounts: the harness's own user, project and plugin servers stay
-    out of a session that must run no tool.
+    out of a session that must run no tool. A Bot's worker session
+    (``members.is_crewmate_worker_session``) gets it too, so a worker runs only
+    the servers its spec grants.
 
     A Side Chat session (``side_read_only``) also gets the read-only shape:
     ``tools`` limited to the read built-ins, ``strictMcpConfig``, bypass off,
@@ -438,6 +440,12 @@ def _claude_session_meta(self: AcpClient) -> dict[str, Any]:
         # The spec declares ``"tools": []`` (the background ``kirocrew-lite``
         # helpers): without this the harness mounts the user's, the project's and
         # plugins' servers beside the wire array, and starts them on every call.
+        options["strictMcpConfig"] = True
+    if _is_crewmate_worker(self):
+        # A Bot's worker runs the servers its per-session spec grants, which the
+        # wire array already carries. Without this the harness also starts every
+        # server in the user's own config, the project's ``.mcp.json`` and
+        # plugins, once per worker.
         options["strictMcpConfig"] = True
     if getattr(self, "_side_read_only", False):
         # A Side Chat session: only the read built-ins exist, so no allow rule
@@ -479,6 +487,13 @@ def _claude_session_meta(self: AcpClient) -> dict[str, Any]:
             shipped.update((kind, rule) for rule in rules if isinstance(rule, str))
     self._claude_shipped_restrictions = frozenset(shipped)
     return {"claudeCode": {"options": options}}
+
+
+def _is_crewmate_worker(self: AcpClient) -> bool:
+    """Whether this client runs a Bot's own worker session (positive identity)."""
+    from kiro_crew.members import is_crewmate_worker_session
+
+    return is_crewmate_worker_session(getattr(self, "_session_key", None))
 
 
 def _claude_session_excludes_local(self: AcpClient) -> bool:
