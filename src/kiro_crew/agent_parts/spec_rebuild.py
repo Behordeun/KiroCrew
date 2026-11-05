@@ -72,7 +72,6 @@ if TYPE_CHECKING:
         migrate_relocated_skill_uris,
         project_agent_names,
         repair_agent_configs,
-        require_main_spec_projected,
         resolved_command_casing,
         saved_command_casing,
         service_agents,
@@ -368,10 +367,7 @@ def retry_held_conductor_specs() -> bool:
     and never one while an episode is open. When a spec IS held, one reporting rebuild
     runs: the memo is rewritten where the four conductor installers' verdicts settle,
     so it clears exactly when every spec was written and stays while any one is not,
-    and the next wake retries again. An overlapping rebuild may open an episode
-    while this one runs; the early retry's scheduler reads the flag again, under
-    the episode lock, after every run, so that episode keeps its pending retry.
-    The ceiling baseline is left as it stands: a
+    and the next wake retries again. The ceiling baseline is left as it stands: a
     standalone host never reads it, and on a distributed one an unseeded baseline has
     the next confirming poll rebuild once more -- the documented safe direction --
     rather than this path seeding a generation whose ceiling may have moved since the
@@ -402,14 +398,14 @@ def retry_held_conductor_specs() -> bool:
     if unreadable:
         # Never recommend ``--clean`` here: it writes defaults over the unreadable
         # spec, dropping the MCP servers and model pin that keeping it preserves.
-        # WARNING on an episode's first failed retry, debug after: the early retry
-        # repeats every minute while the file stays unreadable. Decided in the
-        # critical section that read the flag, so a close cannot leave a stale key.
+        # WARNING on an episode's first failed retry, debug after: the maintenance
+        # wake repeats while the file stays unreadable. Decided in the critical
+        # section that read the flag, so a close cannot leave a stale key.
         main_spec = kiro_agents_dir_path() / AGENT_FILENAME
         (logger.warning if first_warning else logger.debug)(
-            "the main agent spec %s still cannot be read after the retry; main-agent "
-            "starts stay refused and its on-disk auto-approvals reflect the previous "
-            "ceiling until a rebuild reads it -- restore read access to the file, and "
+            "the main agent spec %s still cannot be read after the retry, so it is kept "
+            "as it is and its on-disk auto-approvals reflect the previous ceiling until "
+            "a rebuild reads it -- restore read access to the file, and "
             "the next maintenance wake or a restart picks it up",
             main_spec,
         )
@@ -877,7 +873,7 @@ def rebuild_agent_config(
             path, unreadable, refresh_forks, clean=clean, wrote_out=_wrote_out, held_out=_held_out
         )
     logger.info("Installed agent config: %s", path)
-    _note_main_spec_readable(path, main_name, episode_revision)
+    _note_main_spec_readable(path, episode_revision)
     _claim_propagated_model(config, main_name)
     if guide_grant_pending:
         guide_platform.mark_guide_platform_granted()
@@ -982,9 +978,7 @@ def require_fork_governance(agent: str | None, project_dir: str | Path | None = 
     A fork's ``allowedTools``/``autoApprove`` bypass the PreToolUse gate, so a
     session consuming a fork the refresh never re-filtered would run grants the
     ceiling has since tightened away. Non-fork agents never wait and never
-    raise, except the main agent and its mirrors while their spec could not be
-    read (:func:`require_main_spec_projected`). Raises
-    :class:`ForkGovernanceUnresolved` only.
+    raise. Raises :class:`ForkGovernanceUnresolved` only.
 
     *project_dir* is the cwd the backend will run with. kiro-cli resolves
     ``--agent`` against ``<cwd>/.kiro/agents`` BEFORE the global directory, so
@@ -996,7 +990,6 @@ def require_fork_governance(agent: str | None, project_dir: str | Path | None = 
     """
     if not agent:
         return
-    require_main_spec_projected(agent, project_dir)
     # Each failure class gets its own refusal, because each is repaired
     # differently: a corrupt sidecar is fixed by restoring THAT file, an
     # unresolvable spec by looking at the agents directory. One message for
