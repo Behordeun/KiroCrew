@@ -169,6 +169,11 @@ CREW_SHELL_ALLOWLIST_KEY = "_crewShellAllowlist"
 #: entry of the list covers.
 CREW_WRITE_ALLOWLIST_KEY = "_crewWriteAllowlist"
 
+#: The key a projected entry carries its uncarried ``deniedCommands`` regexes
+#: under (``kas_spec_denies.uncarried_shell_denies``), like
+#: :data:`CREW_SHELL_ALLOWLIST_KEY`; the gate refuses a shell call one matches.
+CREW_UNCARRIED_DENIES_KEY = "_crewUncarriedDenies"
+
 #: Keys of a projected ``customAgents`` entry that never reach the engine.
 CREW_ONLY_ENTRY_KEYS: frozenset[str] = frozenset(
     {
@@ -176,6 +181,7 @@ CREW_ONLY_ENTRY_KEYS: frozenset[str] = frozenset(
         CREW_ANSWERED_COMMANDS_KEY,
         CREW_SHELL_ALLOWLIST_KEY,
         CREW_WRITE_ALLOWLIST_KEY,
+        CREW_UNCARRIED_DENIES_KEY,
     }
 )
 
@@ -302,18 +308,8 @@ def allowed_tools_grant_shell(allowed_tools: Any) -> bool:
     return False
 
 
-def shell_denies_carried(tools_settings: Any, policy: Any) -> bool:
-    """Whether every ``deniedCommands`` entry of both shell keys reaches *policy*
-    as a KAS shell ``deny`` rule.
-
-    False when an entry has no glob spelling (:func:`_regex_to_glob`), holds a
-    redirect character KAS never sees (:data:`_REDIRECT_CHARACTERS`), is not a
-    string, when the value is not a list, or when the translated glob is not among
-    *policy*'s shell deny matches (a merge dropped it). Then the deny lives only in
-    the spec, and lifting ``denyByDefault`` would let the command it names run.
-    """
-    if not isinstance(tools_settings, dict):
-        return tools_settings is None
+def carried_shell_denies(policy: Any) -> set[str]:
+    """The globs *policy* denies the shell with as plain whole ``deny`` rules."""
     carried: set[str] = set()
     rules = policy.get("rules") if isinstance(policy, dict) else None
     for rule in rules if isinstance(rules, list) else ():
@@ -327,22 +323,25 @@ def shell_denies_carried(tools_settings: Any, policy: Any) -> bool:
             and isinstance(rule["match"], list)
         ):
             carried.update(m for m in rule["match"] if isinstance(m, str))
-    for key in _SHELL_SETTINGS_KEYS:
-        settings = tools_settings.get(key)
-        denied = settings.get("deniedCommands") if isinstance(settings, dict) else None
-        if denied is None or (isinstance(denied, list) and not denied):
-            continue
-        if not isinstance(denied, list):
-            return False
-        for raw in denied:
-            if not isinstance(raw, str):
-                return False
-            if not raw.strip():
-                continue
-            glob = _regex_to_glob(raw.strip())
-            if glob is None or set(glob) & _REDIRECT_CHARACTERS or glob not in carried:
-                return False
-    return True
+    return carried
+
+
+def shell_denies_carried(tools_settings: Any, policy: Any) -> bool:
+    """Whether every ``deniedCommands`` entry of both shell keys reaches *policy*
+    as a KAS shell ``deny`` rule.
+
+    Exactly when ``kas_spec_denies.uncarried_shell_denies`` finds none, so the gate
+    row and this test read one scan. False when an entry has no glob spelling
+    (:func:`_regex_to_glob`), holds a redirect character KAS never sees
+    (:data:`_REDIRECT_CHARACTERS`), is not a string, when the value is not a list,
+    when *tools_settings* is neither a dict nor ``None``, or when the translated
+    glob is not among *policy*'s shell deny matches (a merge dropped it). Then the
+    deny lives only in the spec, and lifting ``denyByDefault`` would let the
+    command it names run.
+    """
+    from kiro_crew.acp.kas_spec_denies import uncarried_shell_denies
+
+    return uncarried_shell_denies(tools_settings, policy) is None
 
 
 def spec_shell_allowlist(

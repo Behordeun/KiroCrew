@@ -2614,6 +2614,41 @@ and prompt or are answered there. A deny with no glob spelling, a redirect, a
 malformed value, or one a merge dropped keeps the allowlist, since lifting it
 would let the command that deny names run.
 
+**KAS spec denies KAS cannot carry (`deniedCommands`)** — a `deniedCommands`
+entry (either shell key) that does not ride the projected policy as a KAS shell
+`deny`, by the same test `shell_denies_carried` uses (no glob spelling such as
+`.*\bcurl\b.*`, a redirect character, or a glob a merge dropped), is recorded as
+the spec wrote it (`kas_spec_denies.uncarried_shell_denies`, under the Crew-only
+key `_crewUncarriedDenies`); an entry that is not a string, or a value that is
+not a list, is recorded as `UNREADABLE_DENY`, which never compiles. The handle
+keeps them (`AcpSessionHandle.kas_spec_uncarried_denies`, re-read on a mode
+switch) and stamps them on its own agent's requests only
+(`AcpEvent.spec_uncarried_denies`). The gate's `spec-denied-commands` row, a
+`deny_policy` right after `spec-shell-allowlist`, refuses a shell call (`is_shell`,
+or `execute_bash` among its names, no MCP server behind it) when one entry's
+regex, compiled by `platform/spec_denied_commands.py`, matches the whole recovered
+command or one of its segments split on `;`, `&&`, `||`, `|`, `&`, newlines and
+command substitution. Each entry is read by `platform/allowed_commands.py`
+(`parse(entry, for_deny=True)`), never by Python's `re`: the syntax the
+`allowedCommands` paragraph above lists, plus, for a deny only, `\b` / `\B` as
+zero-width word-boundary assertions (a word character is alphanumeric or `_`)
+and one leading `(?i)` (entry and command both case-folded). A deny entry with
+`\<` / `\>` is refused even as a literal, so it never reads as brackets that
+match nothing. The whole entry matches the whole command, a top-level
+alternative included, and a trailing `\z` is dropped. Matching is the same
+linear Thompson automaton, with one budget of 1,000,000 steps shared by every
+entry and segment of a call (`spec_denied_commands._MAX_MATCH_STEPS`); a
+spent budget refuses the command. Any other syntax (a POSIX or nested class, a
+class operator, another flag) is unreadable: such an entry refuses every
+command and is logged, so a deny the author wrote is never dropped because Crew
+cannot read it. This matches kiro-cli's own migration, which turns a deny it
+cannot convert into "deny all". The shared leaf
+also defines `UNREADABLE_DENY`; the projection and hook gate both import it without
+the hook gate importing ACP. The row only refuses,
+so it holds under `ToolApprovalPolicy.AUTO_APPROVE` and never admits anything.
+The session-start notice still names `deniedCommands`, since KAS itself does not
+carry the entry. A remote workspace is not covered by this row.
+
 **KAS spec write allowlist (`fallbackAction: "deny"`)** — a spec that sets
 `toolsSettings.fs_write.fallbackAction` (or `write`) to `"deny"` (any case, or a
 value that is not a string) has its usable `allowedPaths` recorded as the agent's

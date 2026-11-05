@@ -35,6 +35,23 @@ command's length times the pattern's size, with a hard step budget on top, so no
 pattern can stall the gateway. A literal-plus-``.*`` entry (the shape kiro-cli's
 own documentation shows: ``git status``, ``npm run .*``) keeps a faster direct match.
 
+``parse(raw, for_deny=True)`` reads a ``deniedCommands`` entry, where reading MORE
+only refuses more, and also accepts (never for a grant):
+
+- ``\\b`` and ``\\B``, zero-width word-boundary assertions (a word character is
+  ``ch.isalnum() or ch == "_"``, Unicode-aware like Rust's default), checked in the
+  automaton's closure against the characters either side of the position;
+- one ``(?i)`` right at the start (after an optional ``^`` / ``\\A``): the entry and
+  the command are both ``str.casefold()``-ed. A literal that folds to more than one
+  character, a non-ASCII range, and an ASCII range that holds cased letters but is
+  not ``A-Z``-style uppercase on both ends are refused.
+
+A deny entry with ``\\<`` or ``\\>`` is refused even in the literal-plus-``.*``
+shape, so it never reads as literal brackets that match nothing.
+
+:func:`match_within` tells a deny caller "matched", "not matched" and "budget spent"
+apart.
+
 A LEAF on purpose: stdlib only, so both the KAS projection and the gate import it.
 """
 
@@ -82,16 +99,23 @@ class Pattern:
     ``segments`` is set for a literal-plus-``.*`` entry: its literal pieces between
     the wildcards (``("git status",)`` is exact, ``("npm run ", "")`` is
     ``npm run .*``). ``program`` is set for every other accepted entry: the
-    automaton :func:`matches` walks.
+    automaton :func:`matches` walks. ``fold_case`` is set only for a deny entry
+    with a leading ``(?i)``: the command is case-folded before matching.
     """
 
     segments: tuple[str, ...] | None = None
     program: tuple[tuple, ...] | None = None
     start: int = 0
+    fold_case: bool = False
 
 
-def parse(raw: object) -> Pattern | None:
-    """*raw* read as an entry Crew can match like kiro-cli, or ``None``."""
+def parse(raw: object, *, for_deny: bool = False) -> Pattern | None:
+    """*raw* read as an entry Crew can match like kiro-cli, or ``None``.
+
+    *for_deny* also accepts ``\\b``, ``\\B`` and a leading ``(?i)`` (module
+    docstring); only a ``deniedCommands`` caller may set it, since reading more
+    syntax must never widen a grant.
+    """
     if not isinstance(raw, str):
         return None
     # Read verbatim, as kiro-cli reads it: no stripping, and no character a reader
@@ -103,24 +127,29 @@ def parse(raw: object) -> Pattern | None:
         if body.startswith(prefix):
             body = body[len(prefix) :]
             break
+    fold_case = for_deny and body.startswith("(?i)")
+    if fold_case:
+        body = body[len("(?i)") :]
     for suffix in ("\\z", "$"):
         if body.endswith(suffix) and not body.endswith("\\" + suffix):
             body = body[: -len(suffix)]
             break
-    segments = _literal_segments(body)
+    segments = _literal_segments(body, for_deny=for_deny)
     if segments is not None:
         if not any(segments) and len(segments) == 1:
             return None
-        return Pattern(segments=segments)
+        if fold_case:
+            segments = tuple(seg.casefold() for seg in segments)
+        return Pattern(segments=segments, fold_case=fold_case)
     try:
-        tree = _Parser(body).parse()
+        tree = _Parser(body, for_deny=for_deny, fold_case=fold_case).parse()
     except _Refused:
         return None
     program, start = _compile(tree)
-    return Pattern(program=program, start=start)
+    return Pattern(program=program, start=start, fold_case=fold_case)
 
 
-def _literal_segments(body: str) -> tuple[str, ...] | None:
+def _literal_segments(body: str, *, for_deny: bool = False) -> tuple[str, ...] | None:
     """*body*'s literal pieces between ``.*`` wildcards, or ``None`` when it holds
     any other regex syntax."""
     segments: list[str] = []
@@ -134,7 +163,9 @@ def _literal_segments(body: str) -> tuple[str, ...] | None:
             i += 2
         elif ch == "\\":
             nxt = body[i + 1] if i + 1 < len(body) else ""
-            if not nxt or nxt.isalnum() or nxt.isspace():
+            if not nxt or nxt.isalnum() or nxt.isspace() or (for_deny and nxt in "<>"):
+                # A deny reads ``\\<`` / ``\\>`` as Rust does, a word boundary:
+                # refused below, never a literal that matches nothing.
                 return None
             current.append(nxt)
             i += 2
@@ -155,14 +186,26 @@ class _Parser:
     """Recursive descent over one entry's body (anchors already removed).
 
     Produces a tree of tuples: ``("set", charset)``, ``("cat", [..])``,
-    ``("alt", [..])``, ``("star" | "plus" | "opt", node)``. Raises
+    ``("alt", [..])``, ``("star" | "plus" | "opt", node)``, and, with *for_deny*
+    only, ``("assert", at_boundary)`` for ``\\b`` (``True``) / ``\\B``. Raises
     :class:`_Refused` on anything outside the accepted syntax.
     """
 
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, *, for_deny: bool = False, fold_case: bool = False) -> None:
         self.text = text
         self.pos = 0
         self.depth = 0
+        self.for_deny = for_deny
+        self.fold_case = fold_case
+
+    def _fold(self, ch: str) -> str:
+        """*ch* case-folded under ``(?i)``; refused when it folds to several."""
+        if not self.fold_case:
+            return ch
+        folded = ch.casefold()
+        if len(folded) != 1:
+            raise _Refused
+        return folded
 
     def parse(self) -> tuple:
         node = self._alternation()
@@ -192,6 +235,8 @@ class _Parser:
         atom = self._atom()
         quant = self._peek()
         if quant in ("*", "+", "?"):
+            if atom[0] == "assert":
+                raise _Refused  # a repeated zero-width assertion
             self.pos += 1
             if self._peek() in ("*", "+", "?", "{"):
                 raise _Refused  # lazy (``*?``) or doubled repeat
@@ -222,11 +267,15 @@ class _Parser:
             self.pos += 1
             return ("set", _ANY)
         if ch == "\\":
+            nxt = self.text[self.pos + 1 : self.pos + 2]
+            if self.for_deny and nxt in ("b", "B"):
+                self.pos += 2
+                return ("assert", nxt == "b")
             return ("set", (False, frozenset(self._escape()), ()))
         if ch in "^${}]":
             raise _Refused  # an anchor mid-pattern, a counted repeat, a stray ``]``
         self.pos += 1
-        return ("set", (False, frozenset(ch), ()))
+        return ("set", (False, frozenset(self._fold(ch)), ()))
 
     def _escape(self) -> str:
         """The literal a ``\\`` + ASCII punctuation at :attr:`pos` names.
@@ -275,10 +324,24 @@ class _Parser:
                 hi = self._class_char()
                 if hi < lo:
                     raise _Refused
-                ranges.append((lo, hi))
+                ranges.append(self._fold_range(lo, hi))
             else:
-                chars.add(lo)
+                chars.add(self._fold(lo))
         return (negated, frozenset(chars), tuple(ranges))
+
+    def _fold_range(self, lo: str, hi: str) -> tuple[str, str]:
+        """``lo-hi`` under ``(?i)``: an ASCII range folding to itself (``a-z``,
+        ``0-9``) or one of uppercase letters only (``A-Z`` to ``a-z``); any other
+        would fold to a set that is not one range, so it is refused."""
+        if not self.fold_case:
+            return (lo, hi)
+        if not (lo.isascii() and hi.isascii()):
+            raise _Refused
+        if "A" <= lo <= hi <= "Z":
+            return (lo.casefold(), hi.casefold())
+        if any(chr(c).casefold() != chr(c) for c in range(ord(lo), ord(hi) + 1)):
+            raise _Refused
+        return (lo, hi)
 
     def _class_char(self) -> str:
         ch = self._peek()
@@ -291,7 +354,8 @@ class _Parser:
 def _compile(tree: tuple) -> tuple[tuple[tuple, ...], int]:
     """*tree* as a Thompson program and its start state.
 
-    States: ``("match",)``, ``("set", charset, next)``, ``("split", a, b)``.
+    States: ``("match",)``, ``("set", charset, next)``, ``("split", a, b)``, and
+    ``("assert", at_boundary, next)`` (deny entries only).
     """
     states: list[tuple] = [("match",)]
 
@@ -301,8 +365,8 @@ def _compile(tree: tuple) -> tuple[tuple[tuple, ...], int]:
 
     def emit(node: tuple, out: int) -> int:
         kind = node[0]
-        if kind == "set":
-            return add(("set", node[1], out))
+        if kind in ("set", "assert"):
+            return add((kind, node[1], out))
         if kind == "cat":
             for child in reversed(node[1]):
                 out = emit(child, out)
@@ -435,10 +499,20 @@ def matches_any(raw_patterns: object, command: str) -> bool:
 
 
 def _match(pattern: Pattern, command: str, budget: list[int]) -> bool:
+    return match_within(pattern, command, budget) is True
+
+
+def match_within(pattern: Pattern, command: str, budget: list[int]) -> bool | None:
+    """Whether *pattern* matches the whole of *command*: ``True`` / ``False``, or
+    ``None`` once *budget* (one-element list, decremented in place and shared by
+    every call the caller makes with it) is spent. For a deny caller, which must
+    refuse rather than read a spent budget as "no match"."""
+    if pattern.fold_case:
+        command = command.casefold()
     if pattern.segments is not None:
         return _segments_match(pattern.segments, command)
     assert pattern.program is not None
-    return _run(pattern.program, pattern.start, command, budget)
+    return _walk(pattern.program, pattern.start, command, budget)
 
 
 def _segments_match(segments: tuple[str, ...], command: str) -> bool:
@@ -468,11 +542,18 @@ def _in_set(charset: _CharSet, ch: str) -> bool:
     return inside != negated
 
 
-def _run(program: tuple[tuple, ...], start: int, command: str, budget: list[int]) -> bool:
-    """Walk *program* over *command*; ``False`` once *budget* (shared, decremented
-    in place) runs out, so a too-costly match grants nothing."""
+def _is_word(text: str, pos: int) -> bool:
+    return 0 <= pos < len(text) and (text[pos].isalnum() or text[pos] == "_")
 
-    def closure(seeds: list[int]) -> set[int] | None:
+
+def _walk(program: tuple[tuple, ...], start: int, command: str, budget: list[int]) -> bool | None:
+    """Walk *program* over *command*: whether it matches, or ``None`` once *budget*
+    (shared, decremented in place) runs out; :func:`matches` reads that as no
+    match, so a too-costly match grants nothing. Every state visited costs one
+    step, an assertion included."""
+
+    def closure(seeds: list[int], pos: int) -> set[int] | None:
+        boundary = _is_word(command, pos - 1) != _is_word(command, pos)
         seen: set[int] = set()
         stack = list(seeds)
         while stack:
@@ -487,10 +568,14 @@ def _run(program: tuple[tuple, ...], start: int, command: str, budget: list[int]
             if node[0] == "split":
                 stack.append(node[2])
                 stack.append(node[1])
+            elif node[0] == "assert" and node[1] == boundary:
+                stack.append(node[2])
         return seen
 
-    current = closure([start])
-    for ch in command:
+    current = closure([start], 0)
+    for pos, ch in enumerate(command):
+        if current is None:
+            return None
         if not current:
             return False
         step: list[int] = []
@@ -502,8 +587,8 @@ def _run(program: tuple[tuple, ...], start: int, command: str, budget: list[int]
             # draws on the budget as hard as many states would.
             budget[0] -= 1 + len(node[1][2])
             if budget[0] < 0:
-                return False
+                return None
             if _in_set(node[1], ch):
                 step.append(node[2])
-        current = closure(step)
-    return current is not None and 0 in current
+        current = closure(step, pos + 1)
+    return None if current is None else 0 in current

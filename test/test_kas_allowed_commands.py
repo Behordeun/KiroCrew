@@ -381,6 +381,19 @@ def test_a_wildcard_never_covers_an_invisible_character(command: str) -> None:
     assert verdict.action != TOOL_AUTO_APPROVE or verdict.tier != "spec-builtin-grant"
 
 
+@pytest.mark.parametrize(
+    "pattern", [r".*\bcurl\b.*", r".*\Bcurl.*", r"(?i)curl.*", r"(?i).*\bcurl\b.*"]
+)
+def test_deny_only_syntax_never_reads_as_a_grant(pattern: str) -> None:
+    """``\\b``, ``\\B`` and ``(?i)`` are read only for a deny entry."""
+    from kiro_crew.platform.allowed_commands import parse
+
+    assert parse(pattern) is None
+    assert parse(pattern, for_deny=True) is not None
+    verdict = _judge(_shell("curl x"), [pattern])
+    assert verdict.tier != "spec-builtin-grant"
+
+
 def test_matching_is_greedy_wildcards_between_literals() -> None:
     from kiro_crew.platform.allowed_commands import matches, parse
 

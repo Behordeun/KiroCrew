@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, NamedTuple
 
 import pytest
@@ -158,6 +159,22 @@ TIER_SCENARIOS: tuple[Scenario, ...] = (
             identity_trusted=True,
             kas_builtin_ids=True,
             spec_shell_allowlist=("touch /tmp/allowed",),
+        ),
+    ),
+    Scenario(
+        "spec-denied-commands",
+        TOOL_DENY,
+        # Built from an event, as a real permission request is.
+        ToolCall.from_event(
+            SimpleNamespace(
+                title="Run Command",
+                is_shell=True,
+                shell_command="mkfifo /tmp/fifo",
+                tool_name="run_command",
+                mcp_identity_trusted=True,
+                kas_builtin_ids=True,
+                spec_uncarried_denies=(r".*\bmkfifo\b.*",),
+            )
         ),
     ),
     Scenario(
@@ -389,6 +406,7 @@ def test_the_table_is_the_gate_order() -> None:
         ("search-target", "deny"),
         ("governance", "deny_policy"),
         ("spec-shell-allowlist", "deny_policy"),
+        ("spec-denied-commands", "deny_policy"),
         ("spec-write-allowlist", "deny_policy"),
         ("app-own-server", "grant"),
         ("operator-grants", "grant"),
@@ -574,7 +592,8 @@ _DENY_UNDER_GRANT = (
             grant == "app-own-server"
             and (
                 scenario.call.mcp_server
-                or scenario.tier in ("spec-shell-allowlist", "spec-write-allowlist")
+                or scenario.tier
+                in ("spec-shell-allowlist", "spec-denied-commands", "spec-write-allowlist")
             )
         )
     ]

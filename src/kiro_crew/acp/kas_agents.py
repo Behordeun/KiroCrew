@@ -83,6 +83,7 @@ from kiro_crew.acp.kas_permissions import (
     CREW_ANSWERED_BUILTINS_KEY,
     CREW_ANSWERED_COMMANDS_KEY,
     CREW_SHELL_ALLOWLIST_KEY,
+    CREW_UNCARRIED_DENIES_KEY,
     CREW_WRITE_ALLOWLIST_KEY,
     allowed_tools_to_permissions,
     auto_approved_capabilities,
@@ -97,6 +98,7 @@ from kiro_crew.acp.kas_permissions import (
     without_allowed_commands,
 )
 from kiro_crew.acp.kas_prompt_paths import is_unsafe_prompt_path as _is_unsafe_prompt_path
+from kiro_crew.acp.kas_spec_denies import uncarried_shell_denies
 from kiro_crew.acp.kas_tool_limits import (
     _KAS_CARRIED_ELSEWHERE,
     _KAS_DISCARDED_ENTRY_KEYS,
@@ -1186,6 +1188,11 @@ def to_client_custom_agent(
     )
     if shell_allowlist is not None:
         out[CREW_SHELL_ALLOWLIST_KEY] = shell_allowlist
+    # `deniedCommands` *permissions* does not carry: the gate refuses a shell call
+    # of this agent one matches (`spec-denied-commands` tier).
+    uncarried = uncarried_shell_denies(spec.get("toolsSettings"), permissions)
+    if uncarried is not None:
+        out[CREW_UNCARRIED_DENIES_KEY] = uncarried
     # `toolsSettings.fs_write.fallbackAction: "deny"`: the only paths the write
     # tool may touch, as the spec wrote them. Recorded whatever the ceiling says,
     # like the shell's; the gate refuses every other write of this agent

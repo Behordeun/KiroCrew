@@ -1083,6 +1083,7 @@ async def _answer_permission(
             # they travel here although the spec's grants do not: dropping them
             # would let an answered prompt run what the spec refuses.
             spec_shell_allowlist=getattr(event, "spec_shell_allowlist", None),
+            spec_uncarried_denies=getattr(event, "spec_uncarried_denies", None),
             spec_write_allowlist=getattr(event, "spec_write_allowlist", None),
             spec_write_cwd=getattr(event, "spec_write_cwd", "") or "",
         )

@@ -1280,6 +1280,36 @@ def _tier_spec_shell_allowlist(facts: GateFacts, tier: GateTier) -> ToolHookResu
     )
 
 
+def _tier_spec_denied_commands(facts: GateFacts, tier: GateTier) -> ToolHookResult | None:
+    """A KAS spec's ``deniedCommands`` its KAS policy does not carry: refuse a match.
+
+    kiro-cli refuses a shell command one of its ``deniedCommands`` regexes
+    matches. On KAS each entry rides the policy as a glob ``deny``, but an entry
+    with no glob spelling (``.*\\bcurl\\b.*``), a redirect, or one a merge
+    dropped reaches KAS as no rule. The session handle stamps those entries on its
+    own agent's permission requests (``AcpEvent.spec_uncarried_denies``; ``None``
+    when there are none, and on a sub-session's or native sub-agent's request),
+    and this row refuses a shell call (kiro-cli's ``execute_bash`` among its names,
+    no MCP server behind it) one matches
+    (``spec_denied_commands.denied_command_reason``). An entry that does not compile
+    refuses every command. A deny, so it holds on every approval policy.
+
+    A ``deny_policy`` like ``spec-shell-allowlist``. It only ever refuses.
+    """
+    call = facts.call
+    patterns = call.spec_uncarried_denies
+    if not patterns or call.mcp_server:
+        return None
+    if not call.is_shell and "execute_bash" not in _spec_builtin_names(call):
+        return None
+    from kiro_crew.platform.spec_denied_commands import denied_command_reason
+
+    why = denied_command_reason(call.command, patterns)
+    if why is None:
+        return None
+    return ToolHookResult.deny_policy(f"Blocked by this agent's spec: {why}")
+
+
 def _is_spec_write_call(call: ToolCall) -> bool:
     """Whether *call* is a file write of a KAS built-in: on the write plane
     (:func:`is_edit_call`), or kiro-cli's ``fs_write`` among its names, deny-only

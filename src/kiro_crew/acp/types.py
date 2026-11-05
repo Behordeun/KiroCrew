@@ -1140,6 +1140,12 @@ class AcpEvent:
     #: A restriction: the gate's ``spec-shell-allowlist`` tier refuses every other
     #: shell call.
     spec_shell_allowlist: tuple[str, ...] | None = None
+    #: spec_uncarried_denies: on the same requests, the agent's ``deniedCommands``
+    #: regexes its KAS policy carries no rule for
+    #: (``AcpSessionHandle.kas_spec_uncarried_denies``); ``None`` when there are
+    #: none. A restriction: the gate's ``spec-denied-commands`` tier refuses a
+    #: shell call one matches.
+    spec_uncarried_denies: tuple[str, ...] | None = None
     #: spec_write_allowlist: on the same requests, the only paths the agent's write
     #: tool may touch when its spec sets ``toolsSettings.fs_write.fallbackAction:
     #: "deny"``, as absolute globs (``AcpSessionHandle.kas_spec_write_allowlist``);

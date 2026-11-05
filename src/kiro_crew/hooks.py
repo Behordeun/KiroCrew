@@ -117,6 +117,7 @@ from kiro_crew.hook_runtime.gate_tiers import (  # noqa: F401
     _tier_read_only,
     _tier_search_target,
     _tier_spec_builtin_grant,
+    _tier_spec_denied_commands,
     _tier_spec_shell_allowlist,
     _tier_spec_write_allowlist,
     _tier_targets,
@@ -204,6 +205,7 @@ from kiro_crew.hook_runtime.tool_identity import (  # noqa: F401
     _app_owns_mcp_server,
     _builtin_app_for_agent,
     _context_matches,
+    _deny_patterns,
     _glob_pattern_leaves_root,
     _granted_names,
     _granted_patterns,
@@ -811,6 +813,7 @@ class HookManager:
         spec_granted_builtins: frozenset[str] = frozenset(),
         spec_granted_commands: tuple[str, ...] = (),
         spec_shell_allowlist: tuple[str, ...] | None = None,
+        spec_uncarried_denies: tuple[str, ...] | None = None,
         spec_write_allowlist: tuple[str, ...] | None = None,
         spec_write_cwd: str = "",
         harness_builtin_tool: str = "",
@@ -853,6 +856,9 @@ class HookManager:
                 spec_granted_commands=tuple(spec_granted_commands),
                 spec_shell_allowlist=(
                     None if spec_shell_allowlist is None else tuple(spec_shell_allowlist)
+                ),
+                spec_uncarried_denies=(
+                    None if spec_uncarried_denies is None else tuple(spec_uncarried_denies)
                 ),
                 spec_write_allowlist=(
                     None if spec_write_allowlist is None else tuple(spec_write_allowlist)
@@ -1876,6 +1882,7 @@ GATE_TIERS: tuple[GateTier, ...] = (
     GateTier("search-target", "deny", _tier_search_target),
     GateTier("governance", "deny_policy", _tier_governance),
     GateTier("spec-shell-allowlist", "deny_policy", _tier_spec_shell_allowlist),
+    GateTier("spec-denied-commands", "deny_policy", _tier_spec_denied_commands),
     GateTier("spec-write-allowlist", "deny_policy", _tier_spec_write_allowlist),
     GateTier("app-own-server", "grant", _tier_app_own_server),
     GateTier("operator-grants", "grant", _tier_operator_grants),

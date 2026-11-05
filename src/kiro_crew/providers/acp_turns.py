@@ -100,6 +100,9 @@ def _to_llm_event(e: Any) -> LLMEvent:
         # Dropping this would let a `denyByDefault` spec's unlisted command run on
         # this surface: the gate's spec-shell-allowlist row reads it.
         spec_shell_allowlist=e.spec_shell_allowlist,
+        # Same for a `deniedCommands` entry KAS carries no rule for: the gate's
+        # spec-denied-commands row reads this.
+        spec_uncarried_denies=e.spec_uncarried_denies,
         # Same for a `fallbackAction: "deny"` spec's unlisted write: the gate's
         # spec-write-allowlist row reads this.
         spec_write_allowlist=e.spec_write_allowlist,

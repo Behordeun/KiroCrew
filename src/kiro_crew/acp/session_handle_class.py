@@ -681,6 +681,10 @@ class AcpSessionHandle:
         # `toolsSettings.shell.denyByDefault` (``kas_permissions.spec_shell_allowlist``);
         # None when it does not. The gate refuses every other shell call.
         self.kas_spec_shell_allowlist: tuple[str, ...] | None = None
+        # The agent's `deniedCommands` regexes its KAS policy does not carry
+        # (``kas_spec_denies.uncarried_shell_denies``); None when every one rides
+        # it. The gate refuses a shell call one matches.
+        self.kas_spec_uncarried_denies: tuple[str, ...] | None = None
         # The only paths the agent's write tool may touch when its spec sets
         # `toolsSettings.fs_write.fallbackAction: "deny"`, anchored at this
         # session's directory (``kas_agents.projected_write_allowlist``); None when

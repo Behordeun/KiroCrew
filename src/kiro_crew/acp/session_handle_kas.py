@@ -10,7 +10,8 @@ and a patch of the method on the class or on an instance reaches every caller.
 Instance fields written: ``_compaction_failed_at``, ``_compaction_terminal_seen``,
 ``_hook_tasks``, ``_kas_prompt_row``, ``_last_kas_mode_id``, ``kas_auto_approved``,
 ``kas_crew_answered``, ``kas_crew_answered_commands``, ``kas_spec_shell_allowlist``,
-``kas_spec_write_allowlist``, ``kas_projected_agent``, ``last_compaction_transient``.
+``kas_spec_uncarried_denies``, ``kas_spec_write_allowlist``, ``kas_projected_agent``,
+``last_compaction_transient``.
 
 Instance fields read: ``_bound_cwd``, ``_crew_agent``, ``_engine_fallback``, ``_listed_hooks``,
 ``_prompt_starts``, ``_runtime``, ``_session_id``, ``_session_key``, ``_turn_done``,
@@ -272,6 +273,7 @@ def _handle_kas_update(
                 switched_crew_answered_commands,
                 switched_shell_allowlist,
             )
+            from kiro_crew.acp.kas_spec_denies import switched_uncarried_denies
             from kiro_crew.acp.kas_write_allowlist import switched_write_allowlist
 
             self.kas_projected_agent = crew_id
@@ -279,6 +281,7 @@ def _handle_kas_update(
             self.kas_crew_answered = switched_crew_answered(registered, mode_id)
             self.kas_crew_answered_commands = switched_crew_answered_commands(registered, mode_id)
             self.kas_spec_shell_allowlist = switched_shell_allowlist(registered, mode_id)
+            self.kas_spec_uncarried_denies = switched_uncarried_denies(registered, mode_id)
             self.kas_spec_write_allowlist = switched_write_allowlist(
                 registered, mode_id, getattr(self, "_bound_cwd", "")
             )

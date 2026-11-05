@@ -187,6 +187,11 @@ class ToolCall:
     #: ``None`` otherwise. Read by the ``spec-shell-allowlist`` tier, which REFUSES
     #: a shell call none matches. A restriction, never a grant.
     spec_shell_allowlist: tuple[str, ...] | None = None
+    #: ``AcpEvent.spec_uncarried_denies``: the KAS session's own agent's
+    #: ``deniedCommands`` regexes its KAS policy carries no rule for; ``None``
+    #: when there are none. Read by the ``spec-denied-commands`` tier, which
+    #: REFUSES a shell call one matches. A restriction, never a grant.
+    spec_uncarried_denies: tuple[str, ...] | None = None
     #: ``AcpEvent.spec_write_allowlist``: when the KAS session's own agent sets
     #: ``toolsSettings.fs_write.fallbackAction: "deny"``, the absolute globs its
     #: write tool may touch; ``None`` otherwise. Read by the
@@ -262,6 +267,7 @@ class ToolCall:
             "spec_shell_allowlist": _allowlist_patterns(
                 getattr(event, "spec_shell_allowlist", None)
             ),
+            "spec_uncarried_denies": _deny_patterns(getattr(event, "spec_uncarried_denies", None)),
             "spec_write_allowlist": _allowlist_patterns(
                 getattr(event, "spec_write_allowlist", None)
             ),
@@ -294,6 +300,7 @@ class ToolCall:
             "spec_granted_builtins": self.spec_granted_builtins,
             "spec_granted_commands": self.spec_granted_commands,
             "spec_shell_allowlist": self.spec_shell_allowlist,
+            "spec_uncarried_denies": self.spec_uncarried_denies,
             "spec_write_allowlist": self.spec_write_allowlist,
             "spec_write_cwd": self.spec_write_cwd,
             "harness_builtin_tool": self.harness_builtin_tool,
@@ -339,6 +346,23 @@ def _allowlist_patterns(value: object) -> tuple[str, ...] | None:
     if not isinstance(value, (tuple, list)):
         return ()
     return tuple(p for p in value if isinstance(p, str) and p)
+
+
+def _deny_patterns(value: object) -> tuple[str, ...] | None:
+    """``AcpEvent.spec_uncarried_denies`` as the gate reads it.
+
+    ``None`` (no deny) only when the event carries ``None`` or no such field. Any
+    other value that is not a sequence of strings, and any entry that is not a
+    string, reads as ``spec_denied_commands.UNREADABLE_DENY``, which refuses every
+    command: a malformed deny never lifts itself.
+    """
+    if value is None:
+        return None
+    from kiro_crew.platform.spec_denied_commands import UNREADABLE_DENY
+
+    if not isinstance(value, (tuple, list)):
+        return (UNREADABLE_DENY,)
+    return tuple(dict.fromkeys(p if isinstance(p, str) and p else UNREADABLE_DENY for p in value))
 
 
 def hook_gate_kwargs(event: object, **overrides: Any) -> dict[str, Any]:
