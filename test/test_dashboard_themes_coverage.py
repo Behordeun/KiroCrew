@@ -229,6 +229,73 @@ class TestListThemesSync:
         _write_json(themes_dir / ".lcars.old-abc" / "theme.json", {"name": "Y"})
         assert th._list_themes_sync() == []
 
+    def test_reinstall_gap_keeps_the_theme_listed(
+        self, themes_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A list taken while a reinstall has moved `<slug>/` aside, before the
+        new copy lands, must still list the theme instead of dropping it."""
+        _make_pack(themes_dir / "lcars")
+        src = _make_pack(tmp_path / "pack")
+        reached = threading.Event()  # the reader waits on the lock, or is done
+        reader: dict[str, Any] = {}
+
+        class _SignallingLock:
+            def __init__(self) -> None:
+                self._lock = threading.Lock()
+
+            def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+                if threading.current_thread().name == "theme-list-reader":
+                    reached.set()
+                return self._lock.acquire(blocking, timeout)
+
+            def release(self) -> None:
+                self._lock.release()
+
+            def __enter__(self) -> bool:
+                return self._lock.acquire()
+
+            def __exit__(self, *exc: object) -> None:
+                self._lock.release()
+
+        monkeypatch.setitem(th._THEME_INSTALL_LOCKS, "lcars", _SignallingLock())
+
+        def _list() -> None:
+            reader["slugs"] = [t["slug"] for t in th._list_themes_sync()]
+            reached.set()
+
+        real_replace = Path.replace
+
+        def _replace(self: Path, target: Any) -> Path:
+            out = real_replace(self, target)
+            if self.name == "lcars" and Path(target).name.startswith(".lcars.old-"):
+                # Inside the gap: `lcars/` is gone and the new copy is still staged.
+                assert not (themes_dir / "lcars").exists()
+                t = threading.Thread(target=_list, name="theme-list-reader")
+                reader["thread"] = t
+                t.start()
+                assert reached.wait(30)
+            return out
+
+        monkeypatch.setattr(Path, "replace", _replace)
+        theme, err, status = th._do_install("local", {"path": str(src)})
+        assert err is None and status == 200 and theme is not None
+        reader["thread"].join(30)
+        assert reader["slugs"] == ["lcars"]
+
+    @requires_symlinks
+    def test_backup_does_not_list_a_symlinked_theme(
+        self, themes_dir: Path, tmp_path: Path
+    ) -> None:
+        real = _make_pack(tmp_path / "outside")
+        (themes_dir / "lcars").symlink_to(real, target_is_directory=True)
+        _write_json(themes_dir / ".lcars.old-0123abcd" / "theme.json", {"name": "Y"})
+        assert th._list_themes_sync() == []
+
+    def test_backup_left_by_a_crash_does_not_list_the_theme(self, themes_dir: Path) -> None:
+        _write_json(themes_dir / ".lcars.old-0123abcd" / "theme.json", {"name": "Y"})
+        _write_json(themes_dir / "ok.json", {"name": "Ok"})
+        assert [r["slug"] for r in th._list_themes_sync()] == ["ok"]
+
     @requires_symlinks
     def test_symlinked_directory_is_never_listed(self, themes_dir: Path, tmp_path: Path) -> None:
         real = _make_pack(tmp_path / "outside")
