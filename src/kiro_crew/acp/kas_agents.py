@@ -86,12 +86,14 @@ from kiro_crew.acp.kas_permissions import (
     CREW_WRITE_ALLOWLIST_KEY,
     allowed_tools_to_permissions,
     auto_approved_capabilities,
+    canonical_tools_settings,
     crew_answered_builtins,
     crew_answered_commands,
     merge_user_permissions,
     spec_shell_allowlist,
     spec_write_allowlist,
     tools_settings_to_permissions,
+    trusted_agents_withheld,
     withhold_answered_under_authored_rules,
     withhold_hook_gated_auto_approval,
     without_allowed_commands,
@@ -238,12 +240,19 @@ def spec_keys_without_carrier(
         if tools_settings:
             lost.append("toolsSettings")
         return sorted(lost)
+    # kiro-cli reads one spelling per alias group; the dropped ones are named.
+    tools_settings, dropped = canonical_tools_settings(tools_settings)
+    lost.extend(f"toolsSettings.{key}" for key in dropped)
     _, not_carried = tools_settings_to_permissions(tools_settings)
     lost.extend(f"toolsSettings.{path}" for path in not_carried)
+    lost.extend(
+        f"toolsSettings.{path}"
+        for path in trusted_agents_withheld(tools_settings, may_skip_gate_now)
+    )
     if (
         isinstance(tools_settings, dict)
         and crew_answered_commands(tools_settings)
-        and _allowed_commands_withheld(spec, None)
+        and _allowed_commands_withheld(spec, None, tools_settings)
     ):
         # Every entry is usable, but the session answers none of them: name each
         # shell key that carries one, so the operator learns why they prompt.
@@ -256,7 +265,9 @@ def spec_keys_without_carrier(
     return sorted(set(lost))
 
 
-def _allowed_commands_withheld(spec: dict[str, Any], policy: dict[str, Any] | None) -> bool:
+def _allowed_commands_withheld(
+    spec: dict[str, Any], policy: dict[str, Any] | None, tools_settings: Any
+) -> bool:
     """Whether *spec*'s usable ``shell.allowedCommands`` go unanswered on KAS.
 
     They do when the governance ceiling withholds the shell grant at the gate, or
@@ -272,7 +283,7 @@ def _allowed_commands_withheld(spec: dict[str, Any], policy: dict[str, Any] | No
         {"execute_bash"},
         policy,
         authored_permissions=spec.get("permissions"),
-        tools_settings=without_allowed_commands(spec.get("toolsSettings")),
+        tools_settings=without_allowed_commands(tools_settings),
     )
 
 
@@ -1126,8 +1137,10 @@ def to_client_custom_agent(
     )
     # `toolsSettings` has no wire slot, but KAS's `permissions` is its
     # replacement. The translated block goes through the same merge as an
-    # authored one: its denies travel, its allows meet the ceiling.
-    translated, _ = tools_settings_to_permissions(spec.get("toolsSettings"))
+    # authored one: its denies travel, its allows meet the ceiling. Every reader
+    # below sees one key per kiro-cli alias group, the one kiro-cli itself keeps.
+    tools_settings, _ = canonical_tools_settings(spec.get("toolsSettings"))
+    translated, _ = tools_settings_to_permissions(tools_settings)
     permissions = merge_user_permissions(
         permissions,
         translated,
@@ -1165,7 +1178,7 @@ def to_client_custom_agent(
         crew_answered,
         permissions,
         authored_permissions=spec.get("permissions"),
-        tools_settings=spec.get("toolsSettings"),
+        tools_settings=tools_settings,
     )
     if crew_answered:
         out[CREW_ANSWERED_BUILTINS_KEY] = sorted(crew_answered)
@@ -1174,23 +1187,21 @@ def to_client_custom_agent(
     # Asked of the ceiling as the shell tool, which is what the call runs, and
     # withheld under the same authored restrictions as a shell grant. The
     # `allowedCommands` key itself is the grant, so it is not read as one of them.
-    answered_commands = crew_answered_commands(spec.get("toolsSettings"))
-    if answered_commands and not _allowed_commands_withheld(spec, permissions):
+    answered_commands = crew_answered_commands(tools_settings)
+    if answered_commands and not _allowed_commands_withheld(spec, permissions, tools_settings):
         out[CREW_ANSWERED_COMMANDS_KEY] = answered_commands
     # `toolsSettings.shell.denyByDefault`: the only commands the shell may run.
     # A restriction, so recorded whatever the ceiling says; the gate refuses every
     # other shell call of this agent (`spec-shell-allowlist` tier), unless
     # `allowedTools` names the shell and every deny rides *permissions*.
-    shell_allowlist = spec_shell_allowlist(
-        spec.get("toolsSettings"), spec.get("allowedTools"), permissions
-    )
+    shell_allowlist = spec_shell_allowlist(tools_settings, spec.get("allowedTools"), permissions)
     if shell_allowlist is not None:
         out[CREW_SHELL_ALLOWLIST_KEY] = shell_allowlist
     # `toolsSettings.fs_write.fallbackAction: "deny"`: the only paths the write
     # tool may touch, as the spec wrote them. Recorded whatever the ceiling says,
     # like the shell's; the gate refuses every other write of this agent
     # (`spec-write-allowlist` tier).
-    write_allowlist = spec_write_allowlist(spec.get("toolsSettings"))
+    write_allowlist = spec_write_allowlist(tools_settings)
     if write_allowlist is not None:
         out[CREW_WRITE_ALLOWLIST_KEY] = write_allowlist
 
