@@ -681,7 +681,10 @@ def _url_payload_command(n: int) -> str:
 #: value in every saved copy, channel, log and model replay.
 #: Raised by one, from 34,522, for the TickTick consent host in ``exfil_oauth``'s
 #: ``_OAUTH_AUTHORIZATION_ENDPOINTS``: one allowlist entry, no new machinery. Re-measured.
-_PACKAGE_LINE_BUDGET = 34_523
+#: Raised by fifteen, from 34,523, for ``text_redaction.ends_plain_sentence``:
+#: the dashboard's sentence-end check moved here unchanged so the Slack stream
+#: shares it; the dashboard copy was deleted. Re-measured.
+_PACKAGE_LINE_BUDGET = 34_538
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second

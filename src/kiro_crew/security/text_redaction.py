@@ -62,6 +62,26 @@ def redact(text: str) -> str:
     return redact_with_findings(text)[0]
 
 
+#: A run that is one short plain word closing a sentence ("settled.", "they've.").
+#: The text before a tool call usually ends this way, and holding the word made
+#: every such reply show without its last word until the model wrote again, often
+#: minutes later. No credential can start in or run through such a word: a
+#: credential's run either begins with a mixed-case, digit or symbol prefix this
+#: shape excludes (``AKIA``, ``eyJ``, ``SG.``, ``ghp_``, ``?token=``), or is an
+#: unbroken base64-class run, which a ``.`` ends. The length cap keeps the
+#: Discord shape ([MNO] then 22 or more characters, then ``.``) out as well.
+_PLAIN_SENTENCE_END_RE = re.compile(r"[A-Za-z][a-z]{0,18}(?:'[a-z]{1,3})?\.")
+
+
+def ends_plain_sentence(run: str) -> bool:
+    """Whether *run*, the raw run a :class:`StreamRedactor` withholds at a display
+    boundary (a tool call, an approval prompt), is one plain word ending a
+    sentence, which no text after the boundary can turn into part of a
+    credential, so the boundary may release it at once. Shared by the dashboard
+    cut and the Slack stream so both apply one rule."""
+    return bool(_PLAIN_SENTENCE_END_RE.fullmatch(run)) and redact(run) == run
+
+
 # ── Streaming redaction ──
 # Per-chunk redaction misses a credential split across token/streaming
 # boundaries: a chunk ending ``...AKIA`` and the next starting ``IOSFODNN7...``
