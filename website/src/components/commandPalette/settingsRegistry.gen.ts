@@ -963,6 +963,20 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     }
   },
   {
+    "id": "chat.compact-idle-chats-before-cache-expiry",
+    "label": "Compact Idle Chats Before Cache Expiry",
+    "labelKey": "pages.settings.chatPanel.idle_compaction",
+    "description": "Each idle compaction is an extra model call that costs credits, even if you never return to the chat.",
+    "hint": "When a dashboard chat is idle for slightly less than its backend's prompt cache lifetime, it is compacted once, so your next turn sends a summary instead of the full history. This saves credits only on large chats that you come back to. Each idle compaction is an extra model call that costs credits, even if you never return. If you return just after it starts, you wait for it to finish, up to the Compaction Time Limit plus about 20 seconds (5 minutes by default). The summary loses detail from earlier in the conversation. Only chats whose context is at least Idle Compaction Minimum Context full are compacted. Backends with an unknown cache lifetime are skipped.",
+    "tab": "chat",
+    "type": "toggle",
+    "occurrence": 1,
+    "params": {
+      "sub": "advanced"
+    },
+    "configKey": "session.idle_compaction"
+  },
+  {
     "id": "chat.compaction-time-limit-seconds",
     "label": "Compaction Time Limit (seconds)",
     "labelKey": "pages.settings.chatPanel.compaction_wait_budget",
@@ -1218,6 +1232,18 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "params": {
       "sub": "sessions"
     }
+  },
+  {
+    "id": "chat.idle-compaction-minimum-context",
+    "label": "Idle Compaction Minimum Context",
+    "labelKey": "pages.settings.chatPanel.idle_compaction_min_context",
+    "tab": "chat",
+    "type": "input",
+    "occurrence": 1,
+    "params": {
+      "sub": "advanced"
+    },
+    "configKey": "session.idle_compaction_min_context_pct"
   },
   {
     "id": "chat.jump-to-the-bottom-when-you-send",
